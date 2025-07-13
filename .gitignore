@@ -1,0 +1,77 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# VSCode settings
+.vscode/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment files
+.env
+.env.*
+*.env
+
+# Databricks local artifacts
+.dbfs/
+.databricks/
+databricks-logs/
+databricks-results/
+
+# Python virtual environments
+venv/
+venv-ai-sales/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# MLflow artifacts and logs
+mlruns/
+mlartifacts/
+mlflow.log
+
+# Logs
+*.log
+
+# Mac system files
+.DS_Store
+
+# Test, cache, and coverage
+.cache/
+.coverage
+coverage.xml
+htmlcov/
+*.cover
+*.pyc
+*.pyo
+
+# Pytest cache
+.pytest_cache/
+
+# Output files
+*.out
+*.bak
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+
+# Package distribution
+dist/
+build/
+*.egg-info/
+
+# Streamlit cache
+.streamlit/
+
+# Ignore secrets/tokens
+secrets.*
+*.token
+*.key
+*.pem
+*.csv
