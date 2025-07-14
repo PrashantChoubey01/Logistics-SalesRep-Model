@@ -4,8 +4,7 @@ import os
 import json
 
 # Ensure agents are importable
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from agents.llm_orchestrator_agent import LLMOrchestratorAgent
 
 st.set_page_config(page_title="AI Logistics Email Demo", layout="wide")
@@ -21,10 +20,16 @@ if "workflow_history" not in st.session_state:
 with st.form("email_form", clear_on_submit=True):
     st.subheader("Send a new customer email")
     subject = st.text_input("Email Subject", value="Shipping Quote Request")
-    email_text = st.text_area("Email Body", value="Need quote for 2x40ft FCL from Shanghai to Long Beach, electronics, ready July 15th")
+    email_text = st.text_area(
+        "Email Body",
+        value="Need quote for 2x40ft FCL from Shanghai to Long Beach, electronics, ready July 15th"
+    )
     submitted = st.form_submit_button("Send Email")
 
 if submitted:
+    # Reset workflow history for new input
+    st.session_state.workflow_history = []
+
     # Add customer message to conversation
     st.session_state.conversation.append({
         "role": "customer",
@@ -41,12 +46,12 @@ if submitted:
     }
     result = agent.run(input_data)
 
-    # Save workflow steps for this turn
-    st.session_state.workflow_history.append(result.get("steps", []))
+    # Save workflow steps for this run
+    steps = result.get("steps", [])
+    st.session_state.workflow_history.append(steps)
 
-    # Try to extract agent reply
+    # Try to extract agent reply for display
     agent_reply = None
-    # Try several possible locations for the agent's reply
     if "final_email" in result and isinstance(result["final_email"], dict):
         for key in ["response_body", "response", "body"]:
             if key in result["final_email"]:
@@ -56,8 +61,10 @@ if submitted:
             agent_reply = json.dumps(result["final_email"], indent=2)
     elif "final_summary" in result:
         agent_reply = result["final_summary"]
-    elif "status" in result and result["status"] == "escalated":
-        agent_reply = "This case has been escalated to a human operator."
+    elif result.get("status") == "escalated":
+        agent_reply = "The case was escalated to a human operator."
+    elif result.get("status") == "error":
+        agent_reply = f"Error: {result.get('error', 'Unknown error')}"
     else:
         agent_reply = "No agent reply found."
 
@@ -71,26 +78,39 @@ if submitted:
 st.subheader("Conversation History")
 for i, msg in enumerate(st.session_state.conversation):
     if msg["role"] == "customer":
-        st.markdown(f"**Customer:** <span style='color:#1a73e8'>{msg['subject']}</span>", unsafe_allow_html=True)
-        st.markdown(f"<div style='margin-left:20px; color:#333'>{msg['body']}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"**Customer:** <span style='color:#1a73e8'>{msg['subject']}</span>",
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            f"<div style='margin-left:20px; color:#333'>{msg['body']}</div>",
+            unsafe_allow_html=True
+        )
     else:
-        st.markdown(f"**Agent:** <span style='color:#34a853'>{msg['subject']}</span>", unsafe_allow_html=True)
-        st.markdown(f"<div style='margin-left:20px; color:#222'>{msg['body']}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"**Agent:** <span style='color:#34a853'>{msg['subject']}</span>",
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            f"<div style='margin-left:20px; color:#222'>{msg['body']}</div>",
+            unsafe_allow_html=True
+        )
     st.markdown("---")
 
-# --- Display agent workflow for each turn ---
-st.subheader("Agent Workflow Details")
-for idx, steps in enumerate(st.session_state.workflow_history):
-    with st.expander(f"Show Agent Steps for Message {idx+1}"):
-        for step in steps:
-            st.markdown(
-                f"<b>Step {step['step']}:</b> <span style='color:#6c63ff'>{step['agent']}</span> &mdash; <i>{step['reason']}</i>",
-                unsafe_allow_html=True
-            )
-            st.markdown("**Input:**")
-            st.code(json.dumps(step.get("input", {}), indent=2), language="json")
-            st.markdown("**Output:**")
-            st.code(json.dumps(step.get("output", {}), indent=2), language="json")
+# --- Display agent workflow for the last message ---
+if st.session_state.workflow_history:
+    st.subheader("Agent Workflow (Last Message)")
+    last_steps = st.session_state.workflow_history[-1]
+    for step in last_steps:
+        st.markdown(
+            f"<b>Step {step.get('step','?')}:</b> <span style='color:#6c63ff'>{step.get('agent','?')}</span> &mdash; <i>{step.get('reason','')}</i>",
+            unsafe_allow_html=True
+        )
+        st.markdown("**Input:**")
+        st.code(json.dumps(step.get("input", {}), indent=2), language="json")
+        st.markdown("**Output:**")
+        st.code(json.dumps(step.get("output", {}), indent=2), language="json")
+        st.markdown("---")
 
 # --- Option to clear conversation and workflow ---
 if st.button("🔄 Clear Conversation"):
