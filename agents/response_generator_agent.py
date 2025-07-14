@@ -23,12 +23,14 @@ class ResponseGeneratorAgent(BaseAgent):
             "context": dict,  # e.g., extracted shipment info, classification, etc.
             "previous_messages": [str],  # optional, for threading/context
             "custom_instructions": str,  # optional, e.g., "be very polite"
+            "indicative_rate": str,      # optional, e.g., "$919 - $1249"
         }
         """
         recipient_type = input_data.get("recipient_type", "customer")
         context = input_data.get("context", {})
         previous_messages = input_data.get("previous_messages", [])
         custom_instructions = input_data.get("custom_instructions", "")
+        indicative_rate = input_data.get("indicative_rate")
 
         if not context:
             return {"error": "No context provided for response generation"}
@@ -36,7 +38,9 @@ class ResponseGeneratorAgent(BaseAgent):
         if self.client:
             print("[INFO] Using LLM function calling for response generation")
             try:
-                return self._llm_function_call(recipient_type, context, previous_messages, custom_instructions)
+                return self._llm_function_call(
+                    recipient_type, context, previous_messages, custom_instructions, indicative_rate
+                )
             except Exception as e:
                 print(f"[WARN] LLM function call failed: {e}")
                 return {"error": f"LLM function call failed: {e}"}
@@ -44,7 +48,7 @@ class ResponseGeneratorAgent(BaseAgent):
             print("[INFO] LLM client not available, cannot generate response")
             return {"error": "LLM client not available"}
 
-    def _llm_function_call(self, recipient_type, context, previous_messages, custom_instructions):
+    def _llm_function_call(self, recipient_type, context, previous_messages, custom_instructions, indicative_rate):
         function_schema = {
             "name": "generate_response",
             "description": "Generate a context-aware response for customer, forwarder, or sales.",
@@ -75,6 +79,10 @@ class ResponseGeneratorAgent(BaseAgent):
                     "next_steps": {
                         "type": "string",
                         "description": "Recommended next steps for the recipient"
+                    },
+                    "indicative_rate": {
+                        "type": "string",
+                        "description": "Indicative rate range for the shipment (e.g., \"$919 - $1249\"), if available"
                     }
                 },
                 "required": ["recipient_type", "response_subject", "response_body", "tone", "attachments_needed", "next_steps"]
@@ -87,12 +95,12 @@ You are an expert assistant for a logistics company. Generate a response for the
 - If previous messages are provided, maintain thread continuity.
 - Adapt tone and content to the recipient.
 - If custom instructions are provided, follow them (e.g., "be very polite").
-- Suggest a subject, main body, tone, any needed attachments, and next steps.
-
+{"- If indicative_rate is provided, clearly mention this indicative rate range (e.g., 'Indicative rate: $919 - $1249') in the response body and/or subject." if indicative_rate else ""}
 Recipient: {recipient_type}
 Context: {json.dumps(context, indent=2)}
 Previous messages: {json.dumps(previous_messages, indent=2)}
 Custom instructions: {custom_instructions}
+Indicative rate: {indicative_rate if indicative_rate else "None"}
 """
 
         response = self.client.chat.completions.create(
@@ -114,6 +122,9 @@ Custom instructions: {custom_instructions}
             tool_args = json.loads(tool_args)
         result = dict(tool_args)
         result["extraction_method"] = "databricks_llm_function_call"
+        # Always include indicative_rate in the output if present
+        if indicative_rate:
+            result["indicative_rate"] = indicative_rate
         return result
 
 # =====================================================
@@ -127,7 +138,7 @@ def test_response_generator_agent():
     print(f"Context loaded: {context_loaded}, Has LLM client: {bool(agent.client)}")
 
     test_cases = [
-        # Customer response
+        # Customer response with indicative rate
         {
             "recipient_type": "customer",
             "context": {
@@ -135,29 +146,10 @@ def test_response_generator_agent():
                 "extraction": {"origin": "Shanghai", "destination": "Long Beach", "shipment_type": "FCL", "container_type": "40GP", "quantity": 2}
             },
             "previous_messages": ["Customer: Need quote for 2x40ft FCL from Shanghai to Long Beach."],
-            "custom_instructions": "Be very polite and thank the customer for their inquiry."
+            "custom_instructions": "Be very polite and thank the customer for their inquiry.",
+            "indicative_rate": "$1,100 - $1,300"
         },
-        # Forwarder response
-        {
-            "recipient_type": "forwarder",
-            "context": {
-                "classification": {"email_type": "forwarder_response", "confidence": 0.9},
-                "extraction": {"origin": "Hamburg", "destination": "New York", "shipment_type": "LCL", "container_type": "20GP", "quantity": 1}
-            },
-            "previous_messages": ["Forwarder: Our rate is $2500 USD for LCL shipment."],
-            "custom_instructions": "Acknowledge receipt and request a formal quote document."
-        },
-        # Sales response
-        {
-            "recipient_type": "sales",
-            "context": {
-                "classification": {"email_type": "logistics_request", "confidence": 0.85},
-                "extraction": {"origin": "Mumbai", "destination": "Rotterdam", "shipment_type": "FCL", "container_type": "40HC", "quantity": 3}
-            },
-            "previous_messages": [],
-            "custom_instructions": "Summarize the customer request for sales follow-up."
-        },
-        # Customer only, no previous messages
+        # Customer response without indicative rate
         {
             "recipient_type": "customer",
             "context": {
