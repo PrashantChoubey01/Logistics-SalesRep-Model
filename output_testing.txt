@@ -1,0 +1,184 @@
+✓ classification_agent connected to: databricks-meta-llama-3-3-70b-instruct
+Classification Result: {
+  "email_type": "logistics_request",
+  "confidence": 0.95,
+  "urgency": "medium",
+  "requires_action": true,
+  "key_indicators": [
+    "rate request",
+    "ship from",
+    "jebel ali",
+    "mundra",
+    "20DC containers",
+    "FCL"
+  ],
+  "reasoning": "The email is classified as a logistics_request because it contains keywords related to shipping and logistics, such as 'rate request','ship from', and 'FCL'. The urgency level is medium because the shipment date is specified as 20th June 2025, which is in the future, but the customer is requesting a rate, indicating a need for timely processing. The key indicators that influenced this classification include the subject 'rate request' and the specific details provided about the shipment, such as the origin, destination, container type, and cargo.",
+  "classification_method": "llm_function_call",
+  "thread_id": "",
+  "agent_name": "classification_agent",
+  "agent_id": "46491128",
+  "processed_at": "2025-07-16T09:37:37.405100",
+  "status": "success"
+}
+✓ extraction_agent connected to: databricks-meta-llama-3-3-70b-instruct
+Port Lookup Result: {
+  "origin_port": {
+    "port_code": "AEJEA",
+    "port_name": "Jebel Ali (Dubai)",
+    "confidence": 0.8679377816654231,
+    "method": "vector_similarity",
+    "matched_text": "Jebel Ali (Dubai)",
+    "agent_name": "port_lookup_agent",
+    "agent_id": "96d063dd",
+    "processed_at": "2025-07-16T09:38:03.616948",
+    "status": "success"
+  },
+  "destination_port": {
+    "port_code": "INMUN",
+    "port_name": "Mundra",
+    "confidence": 1.0,
+    "method": "exact_name_match",
+    "agent_name": "port_lookup_agent",
+    "agent_id": "96d063dd",
+    "processed_at": "2025-07-16T09:38:03.617200",
+    "status": "success"
+  }
+}
+✓ container_standardization_agent connected to: databricks-meta-llama-3-3-70b-instruct
+Container Standardization Result: {
+  "standard_type": "20DC",
+  "confidence": 90,
+  "reasoning": "The container description '20GP' is likely a 20-foot dry container, as 'GP' is a common variation for dry containers. The '20' prefix indicates the size as 20ft.",
+  "detected_size": "20ft",
+  "detected_type": "dry",
+  "original_input": "20GP",
+  "standardization_method": "llm_function_call",
+  "success": true,
+  "fallback_used": false,
+  "rate_fallback_type": "20DC",
+  "agent_name": "container_standardization_agent",
+  "agent_id": "cc6315bf",
+  "processed_at": "2025-07-16T09:38:07.674845",
+  "status": "success"
+}
+Country Extraction Result: {
+  "origin_country": {
+    "country_code": "AE",
+    "country_name": "United Arab Emirates",
+    "port_name": "JEA",
+    "region": "Middle East",
+    "confidence": 0.9,
+    "is_valid_port": true,
+    "success": true,
+    "original_port_code": "AEJEA",
+    "extraction_method": "country_converter_fallback",
+    "additional_info": "Country extracted from first 2 characters of port code",
+    "recommended_countries": [
+      "Saudi Arabia",
+      "Qatar",
+      "Kuwait"
+    ],
+    "agent_name": "country_extractor_agent",
+    "agent_id": "6148a857",
+    "processed_at": "2025-07-16T09:38:07.881749",
+    "status": "success"
+  },
+  "destination_country": {
+    "country_code": "IN",
+    "country_name": "India",
+    "port_name": "MUN",
+    "region": "South Asia",
+    "confidence": 0.9,
+    "is_valid_port": true,
+    "success": true,
+    "original_port_code": "INMUN",
+    "extraction_method": "country_converter_fallback",
+    "additional_info": "Country extracted from first 2 characters of port code",
+    "recommended_countries": [
+      "Pakistan",
+      "Bangladesh",
+      "Sri Lanka"
+    ],
+    "agent_name": "country_extractor_agent",
+    "agent_id": "6148a857",
+    "processed_at": "2025-07-16T09:38:08.150663",
+    "status": "success"
+  }
+}
+✓ clarification_agent connected to: databricks-meta-llama-3-3-70b-instruct
+Clarification Result: {
+  "clarification_needed": false,
+  "message": "No missing fields to clarify",
+  "missing_fields": [],
+  "agent_name": "clarification_agent",
+  "agent_id": "b059e85f",
+  "processed_at": "2025-07-16T09:38:10.410990",
+  "status": "success"
+}
+✓ Loaded forwarder database: 250 records
+✓ CSV Columns: ['forwarder_name', 'country', 'operator', 'email']
+✓ Processing CSV with structure: forwarder_name, country, operator, email
+✓ Processed country mapping: 95 countries
+✓ Processed forwarder details: 50 unique forwarders
+✓ Sample countries: ['Brazil', 'Maldives', 'Azerbaijan', 'Uzbekistan', 'Nigeria', 'China', 'Bangladesh', 'Namibia', 'Turkmenistan', 'Bulgaria']
+✓ Top countries by forwarder count: [('Sweden', 7), ('Netherlands', 6), ('South Korea', 6), ('Tunisia', 6), ('Germany', 6)]
+✓ forwarder_assignment_agent connected to: databricks-meta-llama-3-3-70b-instruct
+Forwarder Assignment Result: {
+  "error": "Origin and destination countries are required",
+  "agent_name": "forwarder_assignment_agent",
+  "agent_id": "6568e62b",
+  "processed_at": "2025-07-16T09:38:12.639686",
+  "status": "success"
+}
+✓ Rate data loaded: 144211 records from rate_recommendation.csv
+Rate Recommendation Result: {
+  "query": {
+    "Origin_Code": "AEJEA",
+    "Destination_Code": "INMUN",
+    "Container_Type": "20DC"
+  },
+  "rate_recommendation": {
+    "match_type": "exact_match",
+    "total_rates_found": 1,
+    "rate_range": "$4 - $220"
+  },
+  "indicative_rate": "$4 - $220",
+  "data_source": "rate_recommendation.csv",
+  "total_records_searched": 144211,
+  "agent_name": "rate_recommendation_agent",
+  "agent_id": "3939735a",
+  "processed_at": "2025-07-16T09:38:12.864777",
+  "status": "success"
+}
+✓ response_generator_agent connected to: databricks-meta-llama-3-3-70b-instruct
+[INFO] Using enhanced LLM function calling for response generation
+Response Generation Result: {
+  "response_type": "quote_request",
+  "response_subject": "Quote Request for Your Shipment",
+  "response_body": "Dear valued customer, we appreciate your interest in our logistics services. Unfortunately, we do not have enough information to provide a quote at this time. Could you please provide us with more details about your shipment, including the origin, destination, container type, and quantity? This will enable us to give you an accurate rate and help you with your shipping needs.",
+  "tone": "professional",
+  "key_information_included": [
+    "shipment_details",
+    "rate_information"
+  ],
+  "attachments_needed": [
+    "shipment_details_form"
+  ],
+  "next_steps": "Please reply to this email with the requested shipment details. We will then provide you with a comprehensive quote and guide you through the next steps.",
+  "urgency_level": "medium",
+  "follow_up_required": true,
+  "estimated_response_time": "within 24 hours",
+  "extraction_method": "enhanced_databricks_llm_function_call",
+  "context_used": {
+    "original_request": {
+      "subject": "",
+      "email_text": "",
+      "thread_id": ""
+    },
+    "response_type": "quote_request"
+  },
+  "agent_name": "response_generator_agent",
+  "agent_id": "d307e73c",
+  "processed_at": "2025-07-16T09:38:18.513179",
+  "status": "success"
+}
