@@ -86,6 +86,43 @@ class ExtractionAgent(BaseAgent):
                         "special_requirements": {
                             "type": "string",
                             "description": "Special handling requirements (e.g., 'refrigerated', 'urgent', 'temperature controlled')"
+                        },
+                        "customer_name": {
+                            "type": "string",
+                            "description": "Customer name extracted from email signature or salutation (e.g., 'John Smith', 'Sarah Johnson')"
+                        },
+                        "customer_company": {
+                            "type": "string",
+                            "description": "Customer company name from email signature (e.g., 'ABC Electronics Ltd.', 'Global Trading Co.')"
+                        },
+                        "customer_email": {
+                            "type": "string",
+                            "description": "Customer email address if found in signature"
+                        },
+                        "insurance": {
+                            "type": "boolean",
+                            "description": "Whether customer needs cargo insurance"
+                        },
+                        "packaging": {
+                            "type": "string",
+                            "description": "Special packaging requirements (e.g., 'crating', 'palletizing', 'wooden cases')"
+                        },
+                        "customs_clearance": {
+                            "type": "boolean",
+                            "description": "Whether customer needs customs clearance services"
+                        },
+                        "delivery_address": {
+                            "type": "string",
+                            "description": "Final delivery address if different from destination port"
+                        },
+                        "pickup_address": {
+                            "type": "string",
+                            "description": "Pickup address if different from origin port"
+                        },
+                        "documents_required": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Required documents for dangerous goods or special shipments"
                         }
                     }
                 }
@@ -101,6 +138,11 @@ GUIDELINES:
 - Set dangerous_goods to true ONLY if explicitly mentioned (hazardous, dangerous, DG, IMDG, UN codes)
 - Include units for weight and volume exactly as mentioned
 - Preserve original date format if clear
+- Extract customer name from email signature or salutation (e.g., "Best regards, John Smith" → customer_name: "John Smith")
+- Extract company name from signature if available (e.g., "ABC Electronics Ltd." → customer_company: "ABC Electronics Ltd.")
+- For LCL shipments, volume is especially important
+- Look for insurance, packaging, customs clearance, and address requirements
+- For dangerous goods, identify required documents (MSDS, DG declaration, etc.)
 
 EXAMPLES:
 - "2x40ft FCL" → quantity: 2, container_type: "40GP", shipment_type: "FCL"
@@ -108,6 +150,12 @@ EXAMPLES:
 - "Shanghai to Long Beach" → origin: "Shanghai", destination: "Long Beach"
 - "ready July 15th" → shipment_date: "July 15th"
 - "dangerous goods" → dangerous_goods: true
+- "need insurance" → insurance: true
+- "wooden crates" → packaging: "wooden crates"
+- "customs clearance needed" → customs_clearance: true
+- "deliver to warehouse" → delivery_address: "warehouse"
+- "Best regards, John Smith" → customer_name: "John Smith"
+- "ABC Electronics Ltd." → customer_company: "ABC Electronics Ltd."
 
 Email:
 Subject: {subject}
@@ -145,7 +193,9 @@ Use the extract_shipment_info function to return the extracted data.
             # Ensure all expected fields exist
             expected_fields = [
                 "origin", "destination", "shipment_type", "container_type", "quantity",
-                "weight", "volume", "shipment_date", "commodity", "dangerous_goods", "special_requirements"
+                "weight", "volume", "shipment_date", "commodity", "dangerous_goods", "special_requirements",
+                "customer_name", "customer_company", "customer_email", "insurance", "packaging",
+                "customs_clearance", "delivery_address", "pickup_address", "documents_required"
             ]
             
             for field in expected_fields:

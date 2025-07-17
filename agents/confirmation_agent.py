@@ -1,8 +1,11 @@
 """Confirmation Agent: Detects and extracts confirmation intent from customer emails using LLM function calling."""
 
 import json
-from typing import Dict, Any
-from base_agent import BaseAgent
+from typing import Dict, Any, List
+try:
+    from .base_agent import BaseAgent
+except ImportError:
+    from base_agent import BaseAgent
 
 class ConfirmationAgent(BaseAgent):
     """Agent to detect confirmation intent in customer emails using LLM function calling only."""
@@ -22,24 +25,29 @@ class ConfirmationAgent(BaseAgent):
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Detect confirmation intent and extract confirmation details.
+        Detect confirmation intent and extract confirmation details from full thread.
         
         Expected input:
-        - email_text: Raw email content (required)
+        - message_thread: List of message dictionaries (preferred)
+        - email_text: Raw email content (fallback for backward compatibility)
         - subject: Email subject line (required)
         - thread_id: Optional thread identifier
         """
+        message_thread = input_data.get("message_thread", [])
         email_text = input_data.get("email_text", "").strip()
         subject = input_data.get("subject", "").strip()
         thread_id = input_data.get("thread_id", "")
 
-        if not email_text:
-            return {"error": "No email text provided"}
-
         if not self.client:
             return {"error": "LLM client not initialized"}
 
-        return self._llm_confirmation_detection(subject, email_text, thread_id)
+        # Use thread if available, otherwise fall back to single email
+        if message_thread:
+            return self._llm_thread_confirmation_detection(subject, message_thread, thread_id)
+        elif email_text:
+            return self._llm_confirmation_detection(subject, email_text, thread_id)
+        else:
+            return {"error": "No email text or message thread provided"}
 
     def _llm_confirmation_detection(self, subject: str, email_text: str, thread_id: str) -> Dict[str, Any]:
         """Detect confirmation using LLM function calling for structured output"""
@@ -177,6 +185,176 @@ Determine if this email contains confirmation intent and provide detailed analys
         except Exception as e:
             self.logger.error(f"LLM confirmation detection failed: {e}")
             return {"error": f"LLM confirmation detection failed: {str(e)}"}
+
+    def _llm_thread_confirmation_detection(self, subject: str, message_thread: List[Dict[str, Any]], thread_id: str) -> Dict[str, Any]:
+        """Detect confirmation using LLM function calling for structured output with full thread analysis"""
+        try:
+            function_schema = {
+                "name": "detect_confirmation_from_thread",
+                "description": "Detect if any message in the thread contains confirmation intent for logistics operations",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "is_confirmation": {
+                            "type": "boolean",
+                            "description": "True if any message in the thread contains confirmation intent"
+                        },
+                        "confirmation_type": {
+                            "type": "string",
+                            "enum": self.confirmation_types,
+                            "description": "Type of confirmation detected"
+                        },
+                        "confidence": {
+                            "type": "number",
+                            "minimum": 0.0,
+                            "maximum": 1.0,
+                            "description": "Confidence score for confirmation detection (0.0 to 1.0)"
+                        },
+                        "confirmation_details": {
+                            "type": "string",
+                            "description": "Specific details about what is being confirmed"
+                        },
+                        "confirmation_message_index": {
+                            "type": "integer",
+                            "description": "Index of the message containing the confirmation (0-based)"
+                        },
+                        "confirmation_sender": {
+                            "type": "string",
+                            "description": "Email address of the sender who confirmed"
+                        },
+                        "key_phrases": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Key phrases that indicate confirmation intent"
+                        },
+                        "next_action": {
+                            "type": "string",
+                            "description": "Suggested next action based on confirmation"
+                        },
+                        "reasoning": {
+                            "type": "string",
+                            "description": "Explanation for confirmation detection decision"
+                        }
+                    },
+                    "required": ["is_confirmation", "confirmation_type", "confidence", "confirmation_details", "confirmation_message_index", "confirmation_sender", "key_phrases", "next_action", "reasoning"]
+                }
+            }
+
+            # Format thread for analysis
+            thread_text = self._format_thread_for_analysis(message_thread)
+
+            prompt = f"""
+You are an expert at detecting confirmation intent in logistics email threads. Analyze the entire conversation thread to determine if the customer has confirmed something.
+
+CONFIRMATION TYPES:
+1. booking_confirmation: Customer confirming a booking/reservation
+   - Keywords: "confirm booking", "book it", "proceed with booking", "reserve"
+   
+2. quote_acceptance: Customer accepting a price quote
+   - Keywords: "accept quote", "agreed price", "go with your rate", "approve quote"
+   
+3. shipment_approval: Customer approving shipment details/arrangements
+   - Keywords: "approve shipment", "confirm details", "looks good", "proceed"
+   
+4. schedule_confirmation: Customer confirming pickup/delivery schedule
+   - Keywords: "confirm pickup", "delivery time ok", "schedule confirmed"
+   
+5. document_approval: Customer approving documents/terms
+   - Keywords: "approve documents", "terms accepted", "sign off"
+   
+6. no_confirmation: Thread does not contain confirmation intent
+   - Examples: Questions, requests, complaints, general information
+
+CONFIRMATION INDICATORS:
+- Affirmative words: "yes", "confirmed", "approve", "accept", "agreed", "ok", "proceed"
+- Action words: "book it", "go ahead", "do it", "start", "begin"
+- Agreement phrases: "looks good", "sounds good", "that works", "perfect"
+
+ANALYSIS FACTORS:
+- Look through ALL messages in the thread, not just the latest
+- Consider quoted replies and conversation context
+- Direct confirmation statements
+- Context of agreement or approval
+- Response to previous proposals
+- Clear intent to move forward
+- Specific details being confirmed
+
+EMAIL THREAD TO ANALYZE:
+Subject: {subject}
+
+{thread_text}
+
+Determine if any message in this thread contains confirmation intent and provide detailed analysis.
+"""
+
+            response = self.client.chat.completions.create(
+                model=self.config.get("model_name"),
+                messages=[{"role": "user", "content": prompt}],
+                tools=[{
+                    "type": "function",
+                    "function": function_schema
+                }],
+                tool_choice={"type": "function", "function": {"name": function_schema["name"]}},
+                temperature=0.1,
+                max_tokens=500
+            )
+
+            tool_calls = getattr(response.choices[0].message, "tool_calls", None)
+            if not tool_calls:
+                raise Exception("No tool_calls in LLM response")
+
+            tool_args = tool_calls[0].function.arguments
+            if isinstance(tool_args, str):
+                tool_args = json.loads(tool_args)
+
+            result = dict(tool_args)
+            result["detection_method"] = "llm_thread_function_call"
+            result["thread_id"] = thread_id
+            
+            # Validate result
+            if result.get("confirmation_type") not in self.confirmation_types:
+                self.logger.warning(f"Invalid confirmation_type: {result.get('confirmation_type')}, defaulting to no_confirmation")
+                result["confirmation_type"] = "no_confirmation"
+                result["is_confirmation"] = False
+                result["confidence"] = 0.5
+
+            # Ensure confidence is within bounds
+            confidence = result.get("confidence", 0.5)
+            if not (0.0 <= confidence <= 1.0):
+                result["confidence"] = max(0.0, min(1.0, confidence))
+
+            # Validate message index
+            message_index = result.get("confirmation_message_index", 0)
+            if not (0 <= message_index < len(message_thread)):
+                result["confirmation_message_index"] = 0
+
+            # Consistency check
+            if result.get("confirmation_type") == "no_confirmation":
+                result["is_confirmation"] = False
+            elif result.get("is_confirmation") and result.get("confirmation_type") == "no_confirmation":
+                result["confirmation_type"] = "booking_confirmation"  # Default fallback
+
+            self.logger.info(f"Thread confirmation detection: {result['is_confirmation']} ({result['confirmation_type']}, confidence: {result['confidence']:.2f}, message index: {result['confirmation_message_index']})")
+            
+            return result
+
+        except Exception as e:
+            self.logger.error(f"LLM thread confirmation detection failed: {e}")
+            return {"error": f"LLM thread confirmation detection failed: {str(e)}"}
+
+    def _format_thread_for_analysis(self, message_thread: List[Dict[str, Any]]) -> str:
+        """Format message thread for LLM analysis"""
+        formatted_thread = []
+        
+        for i, message in enumerate(message_thread):
+            sender = message.get("sender", "Unknown")
+            timestamp = message.get("timestamp", "Unknown time")
+            body = message.get("body", "")
+            
+            formatted_message = f"--- Message {i+1} from {sender} at {timestamp} ---\n{body}\n"
+            formatted_thread.append(formatted_message)
+        
+        return "\n".join(formatted_thread)
 
 # =====================================================
 #                 🔁 Test Harness
