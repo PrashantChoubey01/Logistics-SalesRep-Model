@@ -1,237 +1,372 @@
-"""Shipment information extraction agent"""
-
-# =====================================================
-#                 LLM CONFIGURATION
-# =====================================================
-# Databricks Configuration
-DATABRICKS_TOKEN = "dapi81b45be7f09611a410fc3e5104a8cadf-3"
-DATABRICKS_BASE_URL = "https://adb-1825279086009288.8.azuredatabricks.net/serving-endpoints"
-MODEL_ENDPOINT_ID = "databricks-meta-llama-3-3-70b-instruct"
+"""Enhanced Extraction Agent with LLM function calling"""
 
 import os
 import sys
-from typing import Dict, Any, Optional
-import re
+import json
+import logging
 
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import base agent with error handling
-from agents.base_agent import BaseAgent
+try:
+    from agents.base_agent import BaseAgent
+except ImportError:
+    from base_agent import BaseAgent
 
 class ExtractionAgent(BaseAgent):
-    """Agent for extracting structured shipment information from emails"""
+    """Enhanced agent for extracting shipment information from emails"""
 
     def __init__(self):
         super().__init__("extraction_agent")
-        # Common patterns for extraction
-        self.container_patterns = {
-            'fcl': r'\b(fcl|full\s*container|40ft|20ft|40hc|20gp)\b',
-            'lcl': r'\b(lcl|less\s*container|consolidation)\b'
-        }
-        self.date_patterns = r'\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b'
-        self.weight_patterns = r'\b(\d+(?:\.\d+)?)\s*(kg|kgs|ton|tons|mt|lbs|pounds)\b'
-        self.volume_patterns = r'\b(\d+(?:\.\d+)?)\s*(cbm|m3|cubic\s*meter|ft3|cubic\s*feet)\b'
 
-    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract shipment information from email content"""
+    def process(self, input_data):
+        """Extract shipment information from email"""
         email_text = input_data.get("email_text", "")
         subject = input_data.get("subject", "")
 
         if not email_text:
             return {"error": "No email text provided"}
 
-        # Try LLM extraction first, then fallback
-        if self.client:
-            llm_result = self._llm_extract(subject, email_text)
-            if llm_result and "error" not in llm_result:
-                # Enhance with regex extraction
-                enhanced_result = self._enhance_with_regex(email_text, llm_result)
-                return enhanced_result
+        if not self.client:
+            return {"error": "LLM client not initialized"}
 
-        # Fallback to regex extraction
-        return self._regex_extract(subject, email_text)
+        return self._extract_with_llm(subject, email_text)
 
-    def _llm_extract(self, subject: str, email_text: str) -> Dict[str, Any]:
-        """Databricks LLM-based extraction"""
+    def _extract_with_llm(self, subject, email_text):
+        """Use LLM with function calling for extraction"""
         try:
-            prompt = f"""Extract shipment information from this email. Return ONLY valid JSON:
+            function_schema = {
+                "name": "extract_shipment_info",
+                "description": "Extract structured shipment information from customer email",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "origin": {
+                            "type": "string",
+                            "description": "Origin port or city (e.g., 'Shanghai', 'Hamburg', 'CNSHA')"
+                        },
+                        "destination": {
+                            "type": "string", 
+                            "description": "Destination port or city (e.g., 'Long Beach', 'Rotterdam', 'USLGB')"
+                        },
+                        "shipment_type": {
+                            "type": "string",
+                            "description": "Shipment type",
+                            "enum": ["FCL", "LCL"]
+                        },
+                        "container_type": {
+                            "type": "string",
+                            "description": "Container type (e.g., '20GP', '40GP', '40HC', '20RF', '40RF')"
+                        },
+                        "quantity": {
+                            "type": "integer",
+                            "description": "Number of containers or packages",
+                            "minimum": 1
+                        },
+                        "weight": {
+                            "type": "string",
+                            "description": "Weight with unit (e.g., '25 tons', '15000 kg', '30000 lbs')"
+                        },
+                        "volume": {
+                            "type": "string",
+                            "description": "Volume with unit (e.g., '67 CBM', '2400 ft3', '15 m3')"
+                        },
+                        "shipment_date": {
+                            "type": "string",
+                            "description": "Shipment or ready date (e.g., '2024-07-15', 'July 15th', 'next week')"
+                        },
+                        "commodity": {
+                            "type": "string",
+                            "description": "Type of goods (e.g., 'electronics', 'textiles', 'machinery', 'food products')"
+                        },
+                        "dangerous_goods": {
+                            "type": "boolean",
+                            "description": "Whether shipment contains dangerous/hazardous goods"
+                        },
+                        "special_requirements": {
+                            "type": "string",
+                            "description": "Special handling requirements (e.g., 'refrigerated', 'urgent', 'temperature controlled')"
+                        }
+                    }
+                }
+            }
 
+            prompt = f"""
+Extract structured shipment information from this customer email requesting shipping services.
+
+GUIDELINES:
+- Only extract information that is clearly mentioned in the email
+- For container types, use standard codes: 20GP, 40GP, 40HC, 20RF, 40RF, etc.
+- For shipment type, determine FCL (Full Container Load) or LCL (Less Container Load)
+- Set dangerous_goods to true ONLY if explicitly mentioned (hazardous, dangerous, DG, IMDG, UN codes)
+- Include units for weight and volume exactly as mentioned
+- Preserve original date format if clear
+
+EXAMPLES:
+- "2x40ft FCL" → quantity: 2, container_type: "40GP", shipment_type: "FCL"
+- "LCL 5 CBM" → shipment_type: "LCL", volume: "5 CBM"
+- "Shanghai to Long Beach" → origin: "Shanghai", destination: "Long Beach"
+- "ready July 15th" → shipment_date: "July 15th"
+- "dangerous goods" → dangerous_goods: true
+
+Email:
 Subject: {subject}
 Body: {email_text}
 
-Extract these fields:
-- origin: Port/city of departure
-- destination: Port/city of arrival  
-- shipment_type: "FCL" or "LCL"
-- container_type: "20GP", "40GP", "40HC", etc.
-- quantity: Number of containers/packages
-- weight: Weight with unit
-- volume: Volume with unit
-- shipment_date: Departure date
-- commodity: Type of goods
-- dangerous_goods: true/false
-- special_requirements: Any special needs
-
-JSON format:
-{{"origin": "Shanghai", "destination": "Long Beach", "shipment_type": "FCL", "container_type": "40HC", "quantity": 2, "weight": "25 tons", "volume": "67 CBM", "shipment_date": "2024-02-15", "commodity": "electronics", "dangerous_goods": false, "special_requirements": "none"}}"""
+Use the extract_shipment_info function to return the extracted data.
+"""
 
             response = self.client.chat.completions.create(
-                model=MODEL_ENDPOINT_ID,
+                model=self.config.get("model_name", "databricks-meta-llama-3-3-70b-instruct"),
                 messages=[{"role": "user", "content": prompt}],
+                tools=[{"type": "function", "function": function_schema}],
+                tool_choice={"type": "function", "function": {"name": "extract_shipment_info"}},
                 temperature=0.0,
-                max_tokens=400
+                max_tokens=500
             )
 
-            result_text = response.choices[0].message.content
+            # Extract function call result
+            tool_calls = getattr(response.choices[0].message, "tool_calls", None)
+            if not tool_calls:
+                return {"error": "No function call in LLM response"}
 
-            result_text = response.choices[0].message.content.strip()
-            json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
-            if json_match:
-                import json
-                json_str = json_match.group(0)
-                extracted_data = json.loads(json_str)
-                extracted_data["extraction_method"] = "databricks_llm"
-                return extracted_data
+            # Parse function arguments - FIX: Use proper JSON parsing
+            tool_args = tool_calls[0].function.arguments
+            if isinstance(tool_args, str):
+                try:
+                    # Use json.loads instead of eval for proper JSON parsing
+                    result = json.loads(tool_args)
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"Invalid JSON from LLM: {tool_args}")
+                    return {"error": f"Invalid JSON from LLM: {str(e)}"}
             else:
-                return {"error": "No JSON found in LLM response"}
+                result = tool_args
+
+            # Ensure all expected fields exist
+            expected_fields = [
+                "origin", "destination", "shipment_type", "container_type", "quantity",
+                "weight", "volume", "shipment_date", "commodity", "dangerous_goods", "special_requirements"
+            ]
+            
+            for field in expected_fields:
+                if field not in result:
+                    result[field] = None
+
+            # Normalize and validate data
+            result = self._normalize_extraction(result)
+            
+            # Set extraction method
+            result["extraction_method"] = "databricks_llm_function_call"
+            
+            # Log successful extraction
+            origin = result.get('origin', 'N/A')
+            destination = result.get('destination', 'N/A')
+            shipment_type = result.get('shipment_type', 'N/A')
+            self.logger.info(f"Extracted: {origin} → {destination} ({shipment_type})")
+            
+            return result
 
         except Exception as e:
-            return {"error": f"Databricks LLM extraction failed: {str(e)}"}
+            self.logger.error(f"LLM extraction failed: {e}")
+            return {"error": f"LLM extraction failed: {str(e)}"}
 
-    def _regex_extract(self, subject: str, email_text: str) -> Dict[str, Any]:
-        """Regex-based fallback extraction"""
-        combined_text = f"{subject} {email_text}".lower()
+    def _normalize_extraction(self, result):
+        """Normalize and validate extraction results"""
+        # Normalize container type
+        if result.get("container_type"):
+            container_type = str(result["container_type"]).lower().strip()
+            container_mapping = {
+                '20ft': '20GP', '40ft': '40GP', '20gp': '20GP', '40gp': '40GP',
+                '40hc': '40HC', '20dc': '20DC', '40dc': '40DC',
+                '20': '20GP', '40': '40GP', '20rf': '20RF', '40rf': '40RF'
+            }
+            result["container_type"] = container_mapping.get(container_type, result["container_type"].upper())
 
-        # Extract shipment type
-        shipment_type = "FCL" if re.search(self.container_patterns['fcl'], combined_text, re.IGNORECASE) else \
-                       "LCL" if re.search(self.container_patterns['lcl'], combined_text, re.IGNORECASE) else "Unknown"
+        # Normalize shipment type
+        if result.get("shipment_type"):
+            result["shipment_type"] = result["shipment_type"].upper()
 
-        # Extract container info
-        container_match = re.search(r'\b(\d+)\s*x?\s*(20|40)\s*(gp|hc|ft)?\b', combined_text, re.IGNORECASE)
-        quantity = int(container_match.group(1)) if container_match else 1
-        container_type = f"{container_match.group(2)}GP" if container_match else "40GP"
+        # Ensure dangerous_goods is boolean
+        if not isinstance(result.get("dangerous_goods"), bool):
+            result["dangerous_goods"] = False
 
-        # Extract weight
-        weight_match = re.search(self.weight_patterns, combined_text, re.IGNORECASE)
-        weight = f"{weight_match.group(1)} {weight_match.group(2)}" if weight_match else None
+        # Validate quantity
+        if result.get("quantity"):
+            if not isinstance(result["quantity"], int) or result["quantity"] < 1:
+                try:
+                    result["quantity"] = max(1, int(result["quantity"]))
+                except (ValueError, TypeError):
+                    result["quantity"] = None
 
-        # Extract volume
-        volume_match = re.search(self.volume_patterns, combined_text, re.IGNORECASE)
-        volume = f"{volume_match.group(1)} {volume_match.group(2)}" if volume_match else None
-
-        # Extract ports (simple heuristic)
-        ports = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b', email_text)
-        origin = ports[0] if len(ports) > 0 else None
-        destination = ports[1] if len(ports) > 1 else None
-
-        # Extract dates
-        date_matches = re.findall(self.date_patterns, combined_text, re.IGNORECASE)
-        shipment_date = date_matches[0] if date_matches else None
-
-        # Check for dangerous goods
-        dangerous_goods = bool(re.search(r'\b(dangerous|hazardous|dg|imdg|un\d+)\b', combined_text, re.IGNORECASE))
-
-        return {
-            "origin": origin,
-            "destination": destination,
-            "shipment_type": shipment_type,
-            "container_type": container_type,
-            "quantity": quantity,
-            "weight": weight,
-            "volume": volume,
-            "shipment_date": shipment_date,
-            "commodity": self._extract_commodity(combined_text),
-            "dangerous_goods": dangerous_goods,
-            "special_requirements": self._extract_special_requirements(combined_text),
-            "extraction_method": "regex_fallback"
-        }
-
-    def _enhance_with_regex(self, email_text: str, llm_result: Dict[str, Any]) -> Dict[str, Any]:
-        """Enhance LLM results with regex extraction"""
-        regex_result = self._regex_extract("", email_text)
-        for key, value in regex_result.items():
-            if key not in llm_result or not llm_result[key]:
-                llm_result[key] = value
-        llm_result["extraction_method"] = "databricks_llm_enhanced"
-        return llm_result
-
-    def _extract_commodity(self, text: str) -> Optional[str]:
-        """Extract commodity type"""
-        commodities = {
-            'electronics': r'\b(electronics?|computers?|phones?|laptops?)\b',
-            'textiles': r'\b(textiles?|clothing|garments?|fabric)\b',
-            'machinery': r'\b(machinery|machines?|equipment)\b',
-            'food': r'\b(food|rice|wheat|grain|fruits?)\b',
-            'chemicals': r'\b(chemicals?|paint|oil|liquid)\b',
-            'furniture': r'\b(furniture|chairs?|tables?|wood)\b'
-        }
-        for commodity, pattern in commodities.items():
-            if re.search(pattern, text, re.IGNORECASE):
-                return commodity
-        return "general cargo"
-
-    def _extract_special_requirements(self, text: str) -> Optional[str]:
-        """Extract special requirements"""
-        requirements = []
-        if re.search(r'\b(refrigerat|reefer|cold|frozen)\b', text, re.IGNORECASE):
-            requirements.append("refrigerated")
-        if re.search(r'\b(urgent|rush|asap|immediate)\b', text, re.IGNORECASE):
-            requirements.append("urgent")
-        if re.search(r'\b(insurance|insured)\b', text, re.IGNORECASE):
-            requirements.append("insurance_required")
-        return ", ".join(requirements) if requirements else None
+        return result
 
 # =====================================================
-#                 🔁 Local Test Harness
+#                 🔁 Test Harness
 # =====================================================
+
 def test_extraction_agent():
-    print("=== Testing Extraction Agent with Databricks ===")
+    """Test the extraction agent with sample emails"""
+    print("=== Testing Enhanced Extraction Agent ===")
+    
     agent = ExtractionAgent()
+    agent.load_context()
     
     test_cases = [
         {
-            "email_text": "Need quote for 2x40ft FCL Shanghai to Long Beach, ready July 15th, electronics cargo, 25 tons total",
-            "subject": "Shipping Quote Request"
+            "email_text": "Need quote for 2x40ft FCL from Shanghai to Long Beach, electronics, ready July 15th, 25 tons total",
+            "subject": "Shipping Quote Request",
+            "expected_fields": ["origin", "destination", "shipment_type", "container_type", "quantity", "commodity", "weight", "shipment_date"]
         },
         {
             "email_text": "LCL shipment from Hamburg to New York, 5 CBM, machinery parts, dangerous goods included",
-            "subject": "LCL Quote"
+            "subject": "LCL Quote",
+            "expected_fields": ["origin", "destination", "shipment_type", "volume", "commodity", "dangerous_goods"]
         },
         {
             "email_text": "1x20GP container from Mumbai to Rotterdam, textiles, 15 tons, urgent delivery required",
-            "subject": "Container Booking"
+            "subject": "Container Booking",
+            "expected_fields": ["origin", "destination", "container_type", "quantity", "commodity", "weight", "special_requirements"]
         },
         {
             "email_text": "FCL 40HC from Singapore to Los Angeles, food products, refrigerated container needed",
-            "subject": "Reefer Shipment"
+            "subject": "Reefer Shipment",
+            "expected_fields": ["origin", "destination", "shipment_type", "container_type", "commodity", "special_requirements"]
+        },
+        {
+            "email_text": "Can you provide rates for 40HC container from CNSHA to USLGB? Cargo is electronics, 20 tons.",
+            "subject": "Rate Request",
+            "expected_fields": ["origin", "destination", "container_type", "commodity", "weight"]
         }
     ]
     
-    context_loaded = agent.load_context()
-    print(f"Context loaded: {context_loaded}")
-    print(f"✓ LLM Client: {'Connected' if agent.client else 'Not available'}")
+    successful_extractions = 0
+    total_expected_fields = 0
+    total_extracted_fields = 0
     
     for i, test_data in enumerate(test_cases, 1):
         print(f"\n--- Test Case {i} ---")
-        print(f"Input: {test_data['subject']} - {test_data['email_text'][:40]}...")
+        print(f"Subject: {test_data['subject']}")
+        print(f"Email: {test_data['email_text'][:60]}...")
         
         result = agent.run(test_data)
+        
         if result.get("status") == "success":
-            print(f"✓ Origin: {result.get('origin', 'MISSING')}")
-            print(f"✓ Destination: {result.get('destination', 'MISSING')}")
-            print(f"✓ Shipment Type: {result.get('shipment_type', 'MISSING')}")
-            print(f"✓ Container: {result.get('container_type', 'MISSING')}")
-            print(f"✓ Quantity: {result.get('quantity', 'MISSING')}")
-            print(f"✓ Weight: {result.get('weight', 'MISSING')}")
-            print(f"✓ Volume: {result.get('volume', 'MISSING')}")
-            print(f"✓ Date: {result.get('shipment_date', 'MISSING')}")
-            print(f"✓ Commodity: {result.get('commodity', 'MISSING')}")
-            print(f"✓ Dangerous Goods: {result.get('dangerous_goods', 'MISSING')}")
-            print(f"✓ Special Req: {result.get('special_requirements', 'MISSING')}")
-            print(f"✓ Method: {result.get('extraction_method', 'MISSING')}")
+            print("✅ Extraction successful")
+            successful_extractions += 1
+            
+            # Check expected fields
+            expected = test_data["expected_fields"]
+            extracted = 0
+            
+            print("  📋 Extracted fields:")
+            for field in expected:
+                value = result.get(field)
+                if value is not None:
+                    print(f"    ✓ {field}: {value}")
+                    extracted += 1
+                else:
+                    print(f"    ✗ {field}: MISSING")
+            
+            total_expected_fields += len(expected)
+            total_extracted_fields += extracted
+            
+            print(f"  📊 Field extraction: {extracted}/{len(expected)} ({extracted/len(expected)*100:.1f}%)")
+            
         else:
-            print(f"✗ Error: {result.get('error', 'Unknown error')}")
+            print(f"❌ Error: {result.get('error')}")
+    
+    print(f"\n📊 Overall Results:")
+    print(f"✓ Successful extractions: {successful_extractions}/{len(test_cases)} ({successful_extractions/len(test_cases)*100:.1f}%)")
+    print(f"✓ Field extraction rate: {total_extracted_fields}/{total_expected_fields} ({total_extracted_fields/total_expected_fields*100:.1f}%)")
+
+def test_edge_cases():
+    """Test edge cases and normalization"""
+    print("\n=== Testing Edge Cases ===")
+    
+    agent = ExtractionAgent()
+    agent.load_context()
+    
+    edge_cases = [
+        {
+            "name": "Container Type Normalization",
+            "email_text": "Need 2x40ft containers from Shanghai to Long Beach",
+            "subject": "Container Quote",
+            "check_field": "container_type",
+            "expected_value": "40GP"
+        },
+        {
+            "name": "Dangerous Goods Detection",
+            "email_text": "Shipping dangerous goods from Hamburg to New York, IMDG class 3",
+            "subject": "DG Shipment",
+            "check_field": "dangerous_goods",
+            "expected_value": True
+        },
+        {
+            "name": "LCL Type Detection",
+            "email_text": "LCL consolidation needed, 5 CBM from Mumbai to Rotterdam",
+            "subject": "LCL Request",
+            "check_field": "shipment_type",
+            "expected_value": "LCL"
+        },
+        {
+            "name": "Quantity Extraction",
+            "email_text": "Need quote for 3 containers from Singapore to Los Angeles",
+            "subject": "Multi Container",
+            "check_field": "quantity",
+            "expected_value": 3
+        }
+    ]
+    
+    for i, test_case in enumerate(edge_cases, 1):
+        print(f"\n--- Edge Case {i}: {test_case['name']} ---")
+        
+        result = agent.run({
+            "email_text": test_case["email_text"],
+            "subject": test_case["subject"]
+        })
+        
+        if result.get("status") == "success":
+            actual_value = result.get(test_case["check_field"])
+            expected_value = test_case["expected_value"]
+            
+            if actual_value == expected_value:
+                print(f"✅ {test_case['check_field']}: {actual_value} (correct)")
+            else:
+                print(f"❌ {test_case['check_field']}: {actual_value} (expected {expected_value})")
+        else:
+            print(f"❌ Error: {result.get('error')}")
+
+def run_all_tests():
+    """Run all test suites"""
+    print("🚀 Starting Enhanced Extraction Agent Tests")
+    print("=" * 50)
+    
+    try:
+        # Basic functionality
+        test_extraction_agent()
+        
+        # Edge cases
+        test_edge_cases()
+        
+        print("\n" + "=" * 50)
+        print("🎉 All extraction tests completed!")
+        
+    except Exception as e:
+        print(f"\n❌ Test suite failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
-    test_extraction_agent()
+    # Run individual test or all tests
+    import sys
+    
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "basic":
+            test_extraction_agent()
+        elif sys.argv[1] == "edge":
+            test_edge_cases()
+        else:
+            print("Usage: python extraction_agent.py [basic|edge]")
+    else:
+        # Run all tests
+        run_all_tests()
