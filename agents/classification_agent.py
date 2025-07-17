@@ -1,7 +1,7 @@
 """Classification Agent: Categorizes email types for logistics workflow routing using LLM function calling."""
 
 import json
-from typing import Dict, Any
+from typing import Dict, Any, List
 from base_agent import BaseAgent
 
 class ClassificationAgent(BaseAgent):
@@ -21,24 +21,29 @@ class ClassificationAgent(BaseAgent):
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Classify email type and determine urgency for workflow routing.
+        Classify email type and determine urgency for workflow routing with thread support.
         
         Expected input:
-        - email_text: Raw email content (required)
+        - message_thread: List of message dictionaries (preferred)
+        - email_text: Raw email content (fallback for backward compatibility)
         - subject: Email subject line (required)
         - thread_id: Optional thread identifier
         """
+        message_thread = input_data.get("message_thread", [])
         email_text = input_data.get("email_text", "").strip()
         subject = input_data.get("subject", "").strip()
         thread_id = input_data.get("thread_id", "")
 
-        if not email_text:
-            return {"error": "No email text provided"}
-
         if not self.client:
             return {"error": "LLM client not initialized"}
 
-        return self._llm_classification(subject, email_text, thread_id)
+        # Use thread if available, otherwise fall back to single email
+        if message_thread:
+            return self._llm_thread_classification(subject, message_thread, thread_id)
+        elif email_text:
+            return self._llm_classification(subject, email_text, thread_id)
+        else:
+            return {"error": "No email text or message thread provided"}
 
     def _llm_classification(self, subject: str, email_text: str, thread_id: str) -> Dict[str, Any]:
         """Classify using LLM function calling for guaranteed structured output"""
@@ -163,6 +168,160 @@ Classify this email accurately, determine urgency level, and provide your reason
         except Exception as e:
             self.logger.error(f"LLM classification failed: {e}")
             return {"error": f"LLM classification failed: {str(e)}"}
+
+    def _llm_thread_classification(self, subject: str, message_thread: List[Dict[str, Any]], thread_id: str) -> Dict[str, Any]:
+        """Classify using LLM function calling with full thread analysis"""
+        try:
+            function_schema = {
+                "name": "classify_email_thread",
+                "description": "Classify email thread into logistics categories and determine workflow routing",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "email_type": {
+                            "type": "string",
+                            "enum": self.email_types,
+                            "description": "Primary email category based on thread analysis"
+                        },
+                        "confidence": {
+                            "type": "number",
+                            "minimum": 0.0,
+                            "maximum": 1.0,
+                            "description": "Classification confidence score (0.0 to 1.0)"
+                        },
+                        "urgency": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                            "description": "Processing urgency level"
+                        },
+                        "requires_action": {
+                            "type": "boolean",
+                            "description": "Whether email requires immediate processing"
+                        },
+                        "key_indicators": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Key phrases/words that influenced classification"
+                        },
+                        "reasoning": {
+                            "type": "string",
+                            "description": "Brief explanation for classification decision"
+                        },
+                        "classification_message_index": {
+                            "type": "integer",
+                            "description": "Index of the message that most influenced classification (0-based)"
+                        }
+                    },
+                    "required": ["email_type", "confidence", "urgency", "requires_action", "key_indicators", "reasoning", "classification_message_index"]
+                }
+            }
+
+            # Format thread for analysis
+            thread_text = self._format_thread_for_analysis(message_thread)
+
+            prompt = f"""
+You are an expert email classifier for logistics operations. Analyze this entire email thread and classify it accurately.
+
+EMAIL CATEGORIES:
+1. logistics_request: Customer requesting shipping quote, service, or logistics information
+   - Keywords: "need quote", "quotation", "shipping", "fcl", "lcl", "container", "freight", "cargo"
+   - Examples: "Need quote for FCL", "Shipping request", "Rate for container"
+
+2. confirmation_reply: Customer confirming/accepting a proposal, booking, or agreement
+   - Keywords: "yes, i confirm", "i accept", "confirmed", "approve", "agreed", "proceed with"
+   - Examples: "Yes, confirmed", "I accept the quote", "Proceed with booking"
+
+3. forwarder_response: Freight forwarder providing rates, quotes, or shipping information
+   - Keywords: "our rate", "quote is", "price is", "usd", "valid until", "freight rate"
+   - Examples: "Our rate is $2500", "Quote attached", "Valid until Friday"
+
+4. clarification_reply: Customer providing requested information or answering questions
+   - Keywords: "the origin", "the destination", "port is", "date is", "weight is"
+   - Examples: "Origin is Shanghai", "The weight is 25 tons", "Departure date is..."
+
+5. non_logistics: Not related to shipping, logistics, or freight operations
+   - Examples: Meeting invites, general business, personal messages
+
+ANALYSIS FACTORS:
+- Analyze ALL messages in the thread, not just the latest
+- Consider conversation flow and context
+- Look for confirmations in quoted replies or earlier messages
+- Intent and context of the entire conversation
+- Keywords and phrases used across all messages
+- Urgency indicators (urgent, ASAP, deadline, immediate)
+- Action requirements (confirm, book, proceed, quote)
+- Response patterns (Re:, answering questions)
+
+EMAIL THREAD TO CLASSIFY:
+Subject: {subject}
+
+{thread_text}
+
+Classify this email thread accurately, determine urgency level, and provide your reasoning with key indicators. Consider the entire conversation context.
+"""
+
+            response = self.client.chat.completions.create(
+                model=self.config.get("model_name"),
+                messages=[{"role": "user", "content": prompt}],
+                tools=[{
+                    "type": "function",
+                    "function": function_schema
+                }],
+                tool_choice={"type": "function", "function": {"name": function_schema["name"]}},
+                temperature=0.1,
+                max_tokens=500
+            )
+
+            tool_calls = getattr(response.choices[0].message, "tool_calls", None)
+            if not tool_calls:
+                raise Exception("No tool_calls in LLM response")
+
+            tool_args = tool_calls[0].function.arguments
+            if isinstance(tool_args, str):
+                tool_args = json.loads(tool_args)
+
+            result = dict(tool_args)
+            result["classification_method"] = "llm_thread_function_call"
+            result["thread_id"] = thread_id
+            
+            # Validate and correct result if needed
+            if result.get("email_type") not in self.email_types:
+                self.logger.warning(f"Invalid email_type: {result.get('email_type')}, defaulting to non_logistics")
+                result["email_type"] = "non_logistics"
+                result["confidence"] = 0.5
+                result["reasoning"] += " (corrected invalid type)"
+
+            # Ensure confidence is within bounds
+            confidence = result.get("confidence", 0.5)
+            if not (0.0 <= confidence <= 1.0):
+                result["confidence"] = max(0.0, min(1.0, confidence))
+
+            # Validate message index
+            message_index = result.get("classification_message_index", 0)
+            if not (0 <= message_index < len(message_thread)):
+                result["classification_message_index"] = 0
+
+            self.logger.info(f"Thread classification successful: {result['email_type']} (confidence: {result['confidence']:.2f}, message index: {result['classification_message_index']})")
+            
+            return result
+
+        except Exception as e:
+            self.logger.error(f"LLM thread classification failed: {e}")
+            return {"error": f"LLM thread classification failed: {str(e)}"}
+
+    def _format_thread_for_analysis(self, message_thread: List[Dict[str, Any]]) -> str:
+        """Format message thread for LLM analysis"""
+        formatted_thread = []
+        
+        for i, message in enumerate(message_thread):
+            sender = message.get("sender", "Unknown")
+            timestamp = message.get("timestamp", "Unknown time")
+            body = message.get("body", "")
+            
+            formatted_message = f"--- Message {i+1} from {sender} at {timestamp} ---\n{body}\n"
+            formatted_thread.append(formatted_message)
+        
+        return "\n".join(formatted_thread)
 
 # =====================================================
 #                 🔁 Test Harness
