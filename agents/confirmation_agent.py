@@ -122,12 +122,19 @@ CONFIRMATION INDICATORS:
 - Action words: "book it", "go ahead", "do it", "start", "begin"
 - Agreement phrases: "looks good", "sounds good", "that works", "perfect"
 
+THREAD RESPONSE RULES:
+- If this is a response to a thread (not the first message) and contains any confirmation phrases, treat it as a confirmation
+- For thread responses, be more lenient - confirmation intent is more important than specific details
+- Even vague confirmations like "confirmed" or "ok" should be treated as confirmations in thread context
+
 ANALYSIS FACTORS:
 - Direct confirmation statements
 - Context of agreement or approval
 - Response to previous proposals
 - Clear intent to move forward
-- Specific details being confirmed
+- IMPORTANT: If this is a response to a thread (not the first message) and contains confirmation phrases like "confirmed", "yes", "ok", "proceed", etc., treat it as a confirmation even if details are vague
+- For thread responses, prioritize confirmation intent over specific details
+- Specific details being confirmed (preferred but not required for thread responses)
 
 EMAIL TO ANALYZE:
 Subject: {subject}
@@ -270,6 +277,11 @@ CONFIRMATION INDICATORS:
 - Action words: "book it", "go ahead", "do it", "start", "begin"
 - Agreement phrases: "looks good", "sounds good", "that works", "perfect"
 
+THREAD RESPONSE RULES:
+- If this is a response to a thread (not the first message) and contains any confirmation phrases, treat it as a confirmation
+- For thread responses, be more lenient - confirmation intent is more important than specific details
+- Even vague confirmations like "confirmed" or "ok" should be treated as confirmations in thread context
+
 ANALYSIS FACTORS:
 - Look through ALL messages in the thread, not just the latest
 - Consider quoted replies and conversation context
@@ -277,7 +289,9 @@ ANALYSIS FACTORS:
 - Context of agreement or approval
 - Response to previous proposals
 - Clear intent to move forward
-- Specific details being confirmed
+- IMPORTANT: If this is a response to a thread (not the first message) and contains confirmation phrases like "confirmed", "yes", "ok", "proceed", etc., treat it as a confirmation even if details are vague
+- For thread responses, prioritize confirmation intent over specific details
+- Specific details being confirmed (preferred but not required for thread responses)
 
 EMAIL THREAD TO ANALYZE:
 Subject: {subject}

@@ -4,7 +4,7 @@ import os
 import sys
 import re
 from typing import Dict, Any, List
-from datetime import datetime, timedelta
+# Removed datetime import - no longer needed
 
 try:
     from .base_agent import BaseAgent
@@ -231,23 +231,12 @@ class ValidationAgent(BaseAgent):
         return value * conversion_factors.get(str(unit).lower().replace(" ", ""), 1.0)
 
     def _validate_dates(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        # Keep dates as extracted - no validation or parsing
         result = {"shipment_date": {"valid": True, "parsed_date": None, "issues": []}}
         shipment_date_str = data.get("shipment_date")
         if shipment_date_str:
-            try:
-                for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d", "%B %d, %Y", "%d %B %Y", "%b %d, %Y", "%d %b %Y"]:
-                    try:
-                        parsed_date = datetime.strptime(str(shipment_date_str).strip(), fmt)
-                        result["shipment_date"].update({"valid": True, "parsed_date": parsed_date, "formatted_date": parsed_date.strftime("%Y-%m-%d")})
-                        break
-                    except ValueError:
-                        continue
-                else:
-                    result["shipment_date"]["valid"] = False
-                    result["shipment_date"]["issues"].append(f"Cannot parse shipment date: {shipment_date_str}")
-            except Exception as e:
-                result["shipment_date"]["valid"] = False
-                result["shipment_date"]["issues"].append(str(e))
+            # Just mark as valid if present, keep original string
+            result["shipment_date"].update({"valid": True, "original_date": str(shipment_date_str)})
         return result
 
     def _validate_commodity(self, data: Dict[str, Any]) -> Dict[str, Any]:

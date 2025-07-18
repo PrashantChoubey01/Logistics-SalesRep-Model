@@ -16,6 +16,8 @@ try:
     from .forwarder_assignment_agent import ForwarderAssignmentAgent
     from .smart_clarification_agent import SmartClarificationAgent
     from .confirmation_agent import ConfirmationAgent
+    from .confirmation_response_agent import ConfirmationResponseAgent
+    from .escalation_agent import EscalationAgent
     from .email_sender_agent import EmailSenderAgent
 except ImportError:
     from classification_agent import ClassificationAgent
@@ -31,6 +33,8 @@ except ImportError:
     from forwarder_assignment_agent import ForwarderAssignmentAgent
     from smart_clarification_agent import SmartClarificationAgent
     from confirmation_agent import ConfirmationAgent
+    from confirmation_response_agent import ConfirmationResponseAgent
+    from escalation_agent import EscalationAgent
     from email_sender_agent import EmailSenderAgent
 
 logging.basicConfig(level=logging.INFO)
@@ -91,13 +95,136 @@ def run_workflow(message_thread: List[Dict[str, Any]], subject: str, thread_id: 
     })
     state["classification"] = classification_result
     log_and_memory(state, "classification")
-    if classification_result.get("email_type") != "logistics_request":
+    
+    # Check if classification is poor (low confidence or unclear email type)
+    classification_confidence = classification_result.get("confidence", 0.0)
+    email_type = classification_result.get("email_type", "unknown")
+    
+    # Define what constitutes "poor classification"
+    poor_classification = (
+        classification_confidence < 0.6 or  # Very low confidence
+        email_type == "unknown" or  # Unknown email type
+        email_type == "non_logistics" or  # Non-logistics emails
+        email_type not in ["logistics_request", "confirmation_reply", "forwarder_response", "clarification_reply"]  # Invalid types
+    )
+    
+    if poor_classification:
+        # Route to escalation agent for poor classification
+        escalation_agent = EscalationAgent()
+        escalation_agent.load_context()
+        escalation_result = escalation_agent.process({
+            "email_text": state["email_text"],
+            "subject": state["subject"],
+            "message_thread": state["message_thread"],
+            "prior_results": {
+                "classification": classification_result
+            }
+        })
+        
+        state["escalation"] = escalation_result
+        
+        # Use the acknowledgment response from escalation agent
+        customer_intent = escalation_result.get("customer_intent", "general inquiry")
+        acknowledgment_response = escalation_result.get("acknowledgment_response", "")
+        is_non_logistics = escalation_result.get("is_non_logistics_inquiry", False)
+        escalation_type = escalation_result.get("escalation_type", "poor_classification")
+        
+        # If escalation agent didn't provide acknowledgment, use default
+        if not acknowledgment_response:
+            if is_non_logistics:
+                # Comprehensive response for non-logistics inquiries
+                acknowledgment_response = f"""Dear {state.get('from', 'Valued Customer')},
+
+Thank you for contacting SeaRates by DP World, a leading global logistics and supply chain solutions provider.
+
+**About SeaRates by DP World:**
+We are part of DP World, one of the world's largest port operators, with a presence in over 40 countries and 78 marine and inland terminals. Our digital platform serves customers in 190+ countries.
+
+**Our Comprehensive Service Portfolio:**
+• **Ocean Freight:** FCL/LCL shipping, project cargo, dangerous goods, temperature-controlled shipping
+• **Air Freight:** Express and standard air freight services worldwide
+• **Land Transport:** Road and rail transportation solutions
+• **Warehousing & Distribution:** Global warehousing and fulfillment services
+• **Customs Clearance:** Expert customs documentation and clearance
+• **Insurance:** Comprehensive cargo insurance solutions
+• **Supply Chain Solutions:** End-to-end supply chain optimization
+
+**Digital Solutions:**
+• Online booking and rate comparison at www.searates.com
+• Real-time shipment tracking and visibility
+• Digital documentation management
+• API integration for seamless connectivity
+
+**Industry Expertise:**
+We specialize in serving automotive, electronics, pharmaceuticals, fashion, food & beverage, and chemical industries with tailored solutions.
+
+**Sustainability:**
+Committed to reducing carbon footprint through sustainable logistics practices and green initiatives.
+
+**Your Inquiry:** {customer_intent}
+
+**Next Steps:**
+Visit www.searates.com for detailed information, online booking, and instant rate quotes. Our team is also available to provide personalized assistance.
+
+**Contact Information:**
+• Website: www.searates.com
+• Phone: +1-555-0123
+• WhatsApp: +1-555-0123
+• Email: info@dpworld.com
+
+We look forward to serving your logistics needs!
+
+Best regards,
+SeaRates by DP World Team"""
+            else:
+                # Standard escalation response for logistics-related issues
+                acknowledgment_response = f"""Dear {state.get('from', 'Valued Customer')},
+
+Thank you for reaching out to SeaRates by DP World. We have received your message and a human agent will contact you shortly to assist with your inquiry.
+
+**About SeaRates by DP World:**
+We are a leading global logistics and supply chain solutions provider, offering:
+- International shipping and freight forwarding
+- Container shipping (FCL/LCL) worldwide
+- Supply chain optimization and consulting
+- Customs clearance and documentation
+- Real-time tracking and visibility
+- Competitive rates and reliable service
+
+**Your Inquiry:** {customer_intent}
+
+**What happens next:**
+1. A human agent will review your message within 1 hour
+2. They will contact you directly to understand your specific needs
+3. You'll receive personalized assistance and competitive quotes
+
+**Contact Information:**
+- Phone: +1-555-0123
+- WhatsApp: +1-555-0123
+- Email: support@dpworld.com
+- Website: www.searates.com
+
+We appreciate your interest in our services and look forward to serving you.
+
+Best regards,
+SeaRates by DP World Team"""
+        
+        # Determine response status based on escalation type
+        if is_non_logistics:
+            response_status = "non_logistics_inquiry_handled"
+        else:
+            response_status = "escalated_poor_classification"
+        
         state["response"] = {
-            "response_subject": "Thank you for your email",
-            "response_body": "Your message does not appear to be a logistics request. If you need logistics support, please clarify your request.",
-            "status": "not_logistics_request"
+            "response_subject": "Thank you for contacting SeaRates by DP World",
+            "response_body": acknowledgment_response,
+            "status": response_status,
+            "escalation_type": escalation_type,
+            "customer_intent": customer_intent,
+            "escalation_details": escalation_result,
+            "is_non_logistics_inquiry": is_non_logistics
         }
-        log_and_memory(state, "exit_non_logistics")
+        log_and_memory(state, "exit_poor_classification")
         return state
 
     # Step 2.5: Confirmation Detection (moved to after clarification)
@@ -106,12 +233,22 @@ def run_workflow(message_thread: List[Dict[str, Any]], subject: str, thread_id: 
     # Step 3: Extraction
     extraction_agent = ExtractionAgent()
     extraction_agent.load_context()
+    
     extraction_result = extraction_agent.process({
         "message_thread": state["message_thread"],
         "email_text": state["email_text"],  # Backward compatibility
         "subject": state["subject"]
     })
     state["extraction"] = extraction_result
+    
+    # Store extraction result in memory for future reference
+    if extraction_result.get("status") == "success":
+        MemoryAgent().process({
+            "action": "store",
+            "thread_id": state["thread_id"],
+            "message": {"step": "extraction", "previous_extraction": extraction_result}
+        })
+    
     log_and_memory(state, "extraction")
 
     # Step 4: Check completeness
@@ -125,7 +262,8 @@ def run_workflow(message_thread: List[Dict[str, Any]], subject: str, thread_id: 
     validation_agent.load_context()
     validation_result = validation_agent.process({
         "extraction_data": extraction_result,
-        "email_type": classification_result.get("email_type", "logistics_request")
+        "email_type": classification_result.get("email_type", "logistics_request"),
+        "message_thread": state["message_thread"]
     })
     state["validation"] = validation_result
     log_and_memory(state, "validation")
@@ -209,7 +347,8 @@ def run_workflow(message_thread: List[Dict[str, Any]], subject: str, thread_id: 
         "container_standardization_data": container_standardization_result,
         "port_lookup_data": port_lookup_result,
         "missing_fields": validation_result.get("missing_fields", []),
-        "thread_id": state["thread_id"]
+        "thread_id": state["thread_id"],
+        "message_thread": state["message_thread"]
     })
     state["clarification"] = smart_clarification_result
     log_and_memory(state, "smart_clarification")
@@ -237,6 +376,67 @@ def run_workflow(message_thread: List[Dict[str, Any]], subject: str, thread_id: 
         })
     state["rate"] = rate_result
     log_and_memory(state, "rate_recommendation")
+
+    # Step 7.5: Check if confirmation is detected and handle accordingly
+    is_confirmation = confirmation_result.get("is_confirmation", False)
+    confirmation_type = confirmation_result.get("confirmation_type", "no_confirmation")
+    confirmation_confidence = confirmation_result.get("confidence", 0.0)
+    
+    if is_confirmation and confirmation_confidence > 0.6:
+        # Use confirmation response agent for confirmed requests
+        confirmation_response_agent = ConfirmationResponseAgent()
+        confirmation_response_agent.load_context()
+        
+        # Get customer information from extraction
+        customer_name = extraction_result.get("customer_name", "Valued Customer")
+        customer_email = extraction_result.get("customer_email", state.get("from", "customer@example.com"))
+        
+        # Get shipment details from extraction
+        shipment_details = {
+            "origin": extraction_result.get("origin"),
+            "destination": extraction_result.get("destination"),
+            "container_type": extraction_result.get("container_type"),
+            "quantity": extraction_result.get("quantity"),
+            "weight": extraction_result.get("weight"),
+            "volume": extraction_result.get("volume"),
+            "commodity": extraction_result.get("commodity"),
+            "shipment_date": extraction_result.get("shipment_date"),
+            "shipment_type": extraction_result.get("shipment_type")
+        }
+        
+        # Get rate information
+        rate_info = {
+            "indicative_rate": rate_result.get("indicative_rate"),
+            "rate_range": rate_result.get("rate_recommendation", {}).get("rate_range")
+        }
+        
+        # Get assigned sales person from forwarder assignment
+        assigned_sales_person = {
+            "name": "Sarah Johnson",
+            "designation": "Digital Sales Specialist", 
+            "company": "SeaRates by DP World",
+            "email": "sarah.johnson@dpworld.com",
+            "phone": "+1-555-0123",
+            "whatsapp": "+1-555-0123"
+        }
+        
+        confirmation_response_result = confirmation_response_agent.process({
+            "customer_name": customer_name,
+            "customer_email": customer_email,
+            "confirmation_type": confirmation_type,
+            "confirmation_details": confirmation_result.get("confirmation_details", ""),
+            "shipment_details": shipment_details,
+            "rate_info": rate_info,
+            "assigned_sales_person": assigned_sales_person
+        })
+        
+        state["confirmation_response"] = confirmation_response_result
+        log_and_memory(state, "confirmation_response")
+        
+        # Set response to confirmation response
+        state["response"] = confirmation_response_result
+        log_and_memory(state, "confirmation_response_final")
+        return state
 
     # Step 7.5: Extract countries using CountryExtractorAgent and assign forwarder using CSV
     forwarder_assignment = {}
@@ -337,7 +537,8 @@ def run_workflow(message_thread: List[Dict[str, Any]], subject: str, thread_id: 
         "subject": state["subject"],
         "email_text": state["email_text"],
         "from": state["from"],
-        "thread_id": state["thread_id"]
+        "thread_id": state["thread_id"],
+        "message_thread": state["message_thread"]
     }
     response_result = response_agent.process(response_input)
     state["response"] = response_result
