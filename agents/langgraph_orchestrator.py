@@ -185,7 +185,7 @@ def assign_forwarders(state: WorkflowState) -> WorkflowState:
     
     try:
         # Initialize the forwarder assignment agent
-        agent = ForwarderAssignmentAgent()
+        agent = ForwarderAssignmentAgent('/Users/prashant.choubey/Documents/VSWorkspace/AI-Sales-Bot-V2/logistic-ai-response-model/Forwarders_with_Operators_and_Emails.csv')
         # Load context
         context_loaded = agent.load_context()
         # Prepare input data with validated shipment information
