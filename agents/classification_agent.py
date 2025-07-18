@@ -1,8 +1,17 @@
 """Classification Agent: Categorizes email types for logistics workflow routing using LLM function calling."""
 
 import json
+import sys
+import os
 from typing import Dict, Any, List
-from base_agent import BaseAgent
+
+# Add project root to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    from agents.base_agent import BaseAgent
+except ImportError:
+    from base_agent import BaseAgent
 
 class ClassificationAgent(BaseAgent):
     """Agent for classifying email types and determining workflow routing using LLM only."""
@@ -117,6 +126,12 @@ ANALYSIS FACTORS:
 - Urgency indicators (urgent, ASAP, deadline, immediate)
 - Action requirements (confirm, book, proceed, quote)
 - Response patterns (Re:, answering questions)
+
+IMPORTANT CLASSIFICATION RULES:
+- If the email body contains only vague content (like "hi", "hello", "thanks", "ok") without specific logistics keywords, classify as "non_logistics"
+- The subject line should NOT override clear non-logistics content in the email body
+- For very short or vague messages, prioritize the actual content over the subject line
+- Messages with no logistics-specific content should be classified as "non_logistics" regardless of subject
 
 EMAIL TO CLASSIFY:
 Subject: {subject}
@@ -251,6 +266,12 @@ ANALYSIS FACTORS:
 - Urgency indicators (urgent, ASAP, deadline, immediate)
 - Action requirements (confirm, book, proceed, quote)
 - Response patterns (Re:, answering questions)
+
+IMPORTANT CLASSIFICATION RULES:
+- If the email body contains only vague content (like "hi", "hello", "thanks", "ok") without specific logistics keywords, classify as "non_logistics"
+- The subject line should NOT override clear non-logistics content in the email body
+- For very short or vague messages, prioritize the actual content over the subject line
+- Messages with no logistics-specific content should be classified as "non_logistics" regardless of subject
 
 EMAIL THREAD TO CLASSIFY:
 Subject: {subject}

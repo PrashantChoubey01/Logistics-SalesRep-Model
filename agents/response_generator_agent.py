@@ -216,6 +216,8 @@ Container Standardization: {json.dumps(container_standardization_data, indent=2)
 Port Lookup: {json.dumps(port_lookup_data, indent=2)}
 Rate: {json.dumps(rate_data, indent=2)}
 
+EXTRACTED COMMODITY: {extraction_data.get('commodity', 'Not extracted')}
+
 SMART CLARIFICATION STATUS:
 - Clarification needed: {clarification_needed}
 - Smart questions: {json.dumps(smart_questions, indent=2)}
@@ -279,7 +281,7 @@ IMPORTANT INSTRUCTIONS:
 4. Use port names from port lookup results (not from extraction) to show user what ports were identified
 5. Include port names in the confirmation request so user can validate if port codes were picked correctly
 6. Use standardized container type from container standardization agent (not from extraction) to show user what container type was identified
-7. Summarize shipment details in a clear, bullet-pointed format that's easy for customers to understand
+7. Summarize shipment details in a clear, bullet-pointed format that's easy for customers to understand, including shipment date if available
 8. Use a friendly, empathetic, and professional tone - do not sound like a bot
 9. Focus on customer needs and next steps
 10. Always include clear next steps and a polite closing
@@ -293,6 +295,8 @@ IMPORTANT INSTRUCTIONS:
 18. ALWAYS include the indicative rate in ALL response types when available
 19. Use the smart_questions from smart clarification agent - they are already conversational and human-like
 20. ALWAYS include the email chain at the bottom showing the original email and your response
+21. CRITICAL: ALWAYS include the commodity in the shipment summary if it was extracted - do not show "Not specified" if commodity was actually extracted
+22. CRITICAL: Use the exact commodity value from extraction_data.get("commodity") in the response - do not change or omit it
 
 RESPONSE EXAMPLES:
 
@@ -308,6 +312,7 @@ Thank you for your logistics request. Here's what I understand from your request
 • Quantity: [quantity]
 • Weight: [weight]
 • Commodity: [commodity]
+• Shipment Date: [shipment_date if available]
 
 [If rate available: Indicative Rate: [rate] USD (freight cost only, based on current market analytics)]
 
@@ -376,10 +381,12 @@ STANDARD RESPONSE:
 Thank you for your logistics request. Here's a summary of your shipment details:
 • Origin: [origin_port_name]
 • Destination: [destination_port_name]
+• Shipment Type: [shipment_type]
 • Container Type: [standardized_container_type]
 • Quantity: [quantity]
 • Weight: [weight]
-• Commodity: [commodity]
+• Commodity: [commodity - USE EXACT VALUE FROM EXTRACTION, DO NOT SHOW "Not specified" IF COMMODITY WAS EXTRACTED]
+• Shipment Date: [shipment_date if available]
 
 [If rate available: Indicative Rate: [rate] USD (freight cost only, based on current market analytics)]
 

@@ -20,9 +20,11 @@ class ExtractionAgent(BaseAgent):
         super().__init__("extraction_agent")
 
     def process(self, input_data):
-        """Extract shipment information from email"""
+        """Extract shipment information from email with thread context support"""
         email_text = input_data.get("email_text", "")
         subject = input_data.get("subject", "")
+        message_thread = input_data.get("message_thread", [])
+        previous_extraction = input_data.get("previous_extraction", {})
 
         if not email_text:
             return {"error": "No email text provided"}
@@ -30,10 +32,25 @@ class ExtractionAgent(BaseAgent):
         if not self.client:
             return {"error": "LLM client not initialized"}
 
-        return self._extract_with_llm(subject, email_text)
+        return self._extract_with_llm(subject, email_text, message_thread, previous_extraction)
 
-    def _extract_with_llm(self, subject, email_text):
-        """Use LLM with function calling for extraction"""
+    def _extract_with_llm(self, subject, email_text, message_thread=None, previous_extraction=None):
+        """Use LLM with function calling for extraction with complete thread context"""
+        if message_thread is None:
+            message_thread = []
+        if previous_extraction is None:
+            previous_extraction = {}
+        
+        # Build complete thread text by concatenating all messages
+        complete_thread_text = ""
+        if message_thread and len(message_thread) > 1:
+            complete_thread_text = "COMPLETE EMAIL THREAD:\n\n"
+            for i, msg in enumerate(message_thread):
+                complete_thread_text += f"Email {i+1}:\nFrom: {msg.get('sender', 'Unknown')}\nSubject: {msg.get('subject', 'No subject')}\nBody: {msg.get('body', '')}\n\n"
+        else:
+            # Single email case
+            complete_thread_text = email_text
+        
         try:
             function_schema = {
                 "name": "extract_shipment_info",
@@ -73,7 +90,7 @@ class ExtractionAgent(BaseAgent):
                         },
                         "shipment_date": {
                             "type": "string",
-                            "description": "Shipment or ready date (e.g., '2024-07-15', 'July 15th', 'next week')"
+                            "description": "Shipment date, ready date, pickup date, or any date mentioned in the email. Look for dates in shipment details, requirements, or timeline sections. Examples: 'February 15th, 2025', '2024-07-15', 'July 15th', 'next week', '15th June 2025', 'ETD: March 20th'"
                         },
                         "commodity": {
                             "type": "string",
@@ -129,26 +146,35 @@ class ExtractionAgent(BaseAgent):
             }
 
             prompt = f"""
-Extract structured shipment information from this customer email requesting shipping services.
+Extract structured shipment information from the complete email thread below.
 
 GUIDELINES:
-- Only extract information that is clearly mentioned in the email
+- Extract ALL information mentioned across the entire email thread
 - For container types, use standard codes: 20GP, 40GP, 40HC, 20RF, 40RF, etc.
 - For shipment type, determine FCL (Full Container Load) or LCL (Less Container Load)
 - Set dangerous_goods to true ONLY if explicitly mentioned (hazardous, dangerous, DG, IMDG, UN codes)
 - Include units for weight and volume exactly as mentioned
-- Preserve original date format if clear
+- IMPORTANT: Extract ANY date mentioned in the thread as shipment_date, including:
+  * Ready Date, Shipment Date, Pickup Date, Loading Date, ETD (Estimated Time of Departure)
+  * Dates in formats like "February 15th, 2025", "15th Feb 2025", "2025-02-15", "next week", "end of month"
+  * Look for dates in shipment details, requirements, or timeline sections
 - Extract customer name from email signature or salutation (e.g., "Best regards, John Smith" → customer_name: "John Smith")
 - Extract company name from signature if available (e.g., "ABC Electronics Ltd." → customer_company: "ABC Electronics Ltd.")
 - For LCL shipments, volume is especially important
 - Look for insurance, packaging, customs clearance, and address requirements
 - For dangerous goods, identify required documents (MSDS, DG declaration, etc.)
+- IMPORTANT: Process the ENTIRE thread as one complete message - combine all information from all emails
+- If information is provided across multiple emails, merge it into a complete picture
+- Look for updates and corrections in follow-up emails
 
 EXAMPLES:
 - "2x40ft FCL" → quantity: 2, container_type: "40GP", shipment_type: "FCL"
 - "LCL 5 CBM" → shipment_type: "LCL", volume: "5 CBM"
 - "Shanghai to Long Beach" → origin: "Shanghai", destination: "Long Beach"
+- "Ready Date: February 15th, 2025" → shipment_date: "February 15th, 2025"
 - "ready July 15th" → shipment_date: "July 15th"
+- "shipment date: 2025-03-20" → shipment_date: "2025-03-20"
+- "ETD: next week" → shipment_date: "next week"
 - "dangerous goods" → dangerous_goods: true
 - "need insurance" → insurance: true
 - "wooden crates" → packaging: "wooden crates"
@@ -156,12 +182,13 @@ EXAMPLES:
 - "deliver to warehouse" → delivery_address: "warehouse"
 - "Best regards, John Smith" → customer_name: "John Smith"
 - "ABC Electronics Ltd." → customer_company: "ABC Electronics Ltd."
+- "I want to ship to Jebel Ali" → destination: "Jebel Ali"
+- "this commodity is not hazardous" → dangerous_goods: false
 
-Email:
-Subject: {subject}
-Body: {email_text}
+COMPLETE EMAIL THREAD:
+{complete_thread_text}
 
-Use the extract_shipment_info function to return the extracted data.
+Use the extract_shipment_info function to return the extracted data from the complete thread.
 """
 
             response = self.client.chat.completions.create(
@@ -219,6 +246,8 @@ Use the extract_shipment_info function to return the extracted data.
         except Exception as e:
             self.logger.error(f"LLM extraction failed: {e}")
             return {"error": f"LLM extraction failed: {str(e)}"}
+
+
 
     def _normalize_extraction(self, result):
         """Normalize and validate extraction results"""
