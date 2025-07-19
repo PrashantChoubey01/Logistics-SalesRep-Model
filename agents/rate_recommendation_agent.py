@@ -156,10 +156,23 @@ class RateRecommendationAgent(BaseAgent):
             total_found = 0
             rate_range = None
 
+        # Get the raw price range recommendation from CSV
+        price_range_recommendation = None
+        if not matches_df.empty and 'price_range_recommendation' in matches_df.columns:
+            price_range_series = matches_df['price_range_recommendation'].dropna()
+            if len(price_range_series) > 0:
+                price_range_recommendation = str(price_range_series.iloc[0])
+        elif not fallback_df.empty and 'price_range_recommendation' in fallback_df.columns:
+            price_range_series = fallback_df['price_range_recommendation'].dropna()
+            if len(price_range_series) > 0:
+                price_range_recommendation = str(price_range_series.iloc[0])
+
         rate_results = {
             "match_type": match_type,
             "total_rates_found": total_found,
             "rate_range": rate_range,
+            "price_range_recommendation": price_range_recommendation,
+            "formatted_rate_range": rate_range
         }
 
         return {
@@ -170,6 +183,8 @@ class RateRecommendationAgent(BaseAgent):
             },
             "rate_recommendation": rate_results,
             "indicative_rate": indicative_rate,
+            "price_range_recommendation": price_range_recommendation,
+            "formatted_rate_range": rate_range,
             "data_source": self.data_file_path,
             "total_records_searched": len(self.rates_df)
         }

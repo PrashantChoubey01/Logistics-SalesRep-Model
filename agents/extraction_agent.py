@@ -16,7 +16,7 @@ except ImportError:
 class ExtractionAgent(BaseAgent):
     """Enhanced agent for extracting shipment information from emails"""
 
-    def __init__(self):
+    def __init__(self): 
         super().__init__("extraction_agent")
 
     def process(self, input_data):
