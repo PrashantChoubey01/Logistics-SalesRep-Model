@@ -9,7 +9,10 @@ import json
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from base_agent import BaseAgent
+try:
+    from agents.base_agent import BaseAgent
+except ImportError:
+    from base_agent import BaseAgent
 
 class ContainerStandardizationAgent(BaseAgent):
     """Agent for standardizing container type descriptions using LLM and comprehensive fallback logic"""

@@ -30,13 +30,14 @@ class NextActionAgent(BaseAgent):
             "send_clarification_request",
             "send_confirmation_request", 
             "assign_forwarder_and_send_rate_request",
-            "analyze_rates_and_notify_sales",
+            "collate_rates_and_send_to_sales",
             "notify_sales_team",
             "send_status_update",
             "escalate_to_human",
             "route_to_appropriate_department",
             "wait_for_forwarder_response",
-            "wait_for_customer_response"
+            "wait_for_customer_response",
+            "booking_details_confirmed_assign_forwarders"
         ]
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -142,7 +143,7 @@ AVAILABLE ACTIONS:
 1. send_clarification_request: Ask customer for missing information
 2. send_confirmation_request: Present extracted data for customer confirmation
 3. assign_forwarder_and_send_rate_request: Assign forwarder and request rates
-4. analyze_rates_and_notify_sales: Analyze forwarder rates and notify sales team
+4. collate_rates_and_send_to_sales: Collate forwarder rates and send to sales
 5. notify_sales_team: Send case to sales team for handling
 6. send_status_update: Provide status update to customer
 7. escalate_to_human: Escalate complex case to human agent
@@ -150,15 +151,20 @@ AVAILABLE ACTIONS:
 9. wait_for_forwarder_response: Wait for forwarder to respond
 10. wait_for_customer_response: Wait for customer to respond
 
-DECISION RULES:
-- If confidence < 0.6, escalate to human
-- If missing_fields > 3, send clarification request
-- If conversation_state is "forwarder_response", analyze rates and notify sales
-- If conversation_state is "rate_inquiry" or "booking_request", notify sales team
-- If conversation_state is "escalation_trigger", escalate to human
-- If latest_sender is "forwarder", analyze rates and notify sales
-- If latest_sender is "customer" and data is complete, send confirmation request
-- If latest_sender is "customer" and data is incomplete, send clarification request
+WORKFLOW RULES:
+1. **LOW CONFIDENCE (< 0.6)**: Escalate to human immediately
+2. **INCOMPLETE DATA (> 3 missing fields)**: Send clarification request to customer
+3. **COMPLETE DATA (new request)**: Send confirmation request to customer
+4. **CUSTOMER CONFIRMS**: Assign forwarders and send rate request emails
+5. **FORWARDER RESPONDS**: Collate rates and send summary to sales
+6. **UNCLEAR SITUATION**: Escalate to human
+
+SPECIFIC DECISIONS:
+- If customer gives incomplete details → send_clarification_request
+- If customer gives complete details → send_confirmation_request  
+- If customer confirms details → booking_details_confirmed_assign_forwarders
+- If forwarder rates received → collate_rates_and_send_to_sales
+- If confidence < 0.6 or unclear → escalate_to_human
 
 PRIORITY LEVELS:
 - urgent: Customer frustration, high-value deals, immediate action needed
@@ -167,10 +173,11 @@ PRIORITY LEVELS:
 - low: Follow-ups, status updates
 
 SALES HANDOFF RULES:
-- Always handoff when forwarder rates are received
-- Handoff when customer asks about rates or booking
-- Handoff for complex cases or escalations
-- Handoff when customer wants to proceed with booking
+- Only handoff when confidence < 0.6 (low confidence requires human intervention)
+- Only handoff when forwarder rates are received (forwarder_response conversation state)
+- Do NOT handoff for normal confirmation replies or new requests
+- Do NOT handoff for clarification responses
+- Do NOT handoff for rate inquiries (unless confidence is low)
 
 Determine the next action, priority, and whether escalation or sales handoff is needed.
 """
