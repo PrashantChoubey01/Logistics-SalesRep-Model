@@ -33,22 +33,43 @@ class EnhancedValidationAgent(BaseAgent):
         Expected input:
         - validation_data: Validation data from previous agents
         - extracted_data: Extracted shipment data (fallback)
+        - enriched_data: Enriched data with port codes and standardized values
         - thread_id: Thread identifier
         - validation_context: Additional context for validation
         """
-        # Try to get validation_data first, then fallback to extracted_data
+        # Get all data sources
         validation_data = input_data.get("validation_data", {})
         extracted_data = input_data.get("extracted_data", {})
+        enriched_data = input_data.get("enriched_data", {})
         thread_id = input_data.get("thread_id", "")
         validation_context = input_data.get("validation_context", {})
 
-        # Use validation_data if available, otherwise use extracted_data
-        data_to_validate = validation_data if validation_data else extracted_data
+        # Combine data from extracted_data and enriched_data (rate_data)
+        data_to_validate = {}
+        
+        # Start with extracted_data
+        if extracted_data:
+            data_to_validate.update(extracted_data)
+        
+        # Override with enriched data (port codes, standardized values)
+        if enriched_data and "rate_data" in enriched_data:
+            rate_data = enriched_data["rate_data"]
+            # Use port codes instead of port names
+            if rate_data.get("origin_code"):
+                data_to_validate["origin"] = rate_data["origin_code"]
+            if rate_data.get("destination_code"):
+                data_to_validate["destination"] = rate_data["destination_code"]
+            if rate_data.get("container_type"):
+                data_to_validate["container_type"] = rate_data["container_type"]
+        
+        # Use validation_data if available and no other data
+        if not data_to_validate and validation_data:
+            data_to_validate = validation_data
         
         # If still no data, check if input_data itself contains the data
         if not data_to_validate:
             # Remove known keys and use the rest as data
-            known_keys = {"validation_data", "extracted_data", "thread_id", "validation_context"}
+            known_keys = {"validation_data", "extracted_data", "enriched_data", "thread_id", "validation_context"}
             data_to_validate = {k: v for k, v in input_data.items() if k not in known_keys and v is not None}
 
         if not data_to_validate:
@@ -74,6 +95,7 @@ class EnhancedValidationAgent(BaseAgent):
                                 "origin_port": {
                                     "type": "object",
                                     "properties": {
+                                        "input_value": {"type": "string", "description": "The original input value for origin port"},
                                         "is_valid": {"type": "boolean"},
                                         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                                         "suggested_correction": {"type": "string"},
@@ -83,6 +105,7 @@ class EnhancedValidationAgent(BaseAgent):
                                 "destination_port": {
                                     "type": "object",
                                     "properties": {
+                                        "input_value": {"type": "string", "description": "The original input value for destination port"},
                                         "is_valid": {"type": "boolean"},
                                         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                                         "suggested_correction": {"type": "string"},
@@ -92,6 +115,7 @@ class EnhancedValidationAgent(BaseAgent):
                                 "container_type": {
                                     "type": "object",
                                     "properties": {
+                                        "input_value": {"type": "string", "description": "The original input value for container type"},
                                         "is_valid": {"type": "boolean"},
                                         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                                         "suggested_correction": {"type": "string"},
@@ -101,6 +125,7 @@ class EnhancedValidationAgent(BaseAgent):
                                 "shipment_date": {
                                     "type": "object",
                                     "properties": {
+                                        "input_value": {"type": "string", "description": "The original input value for shipment date"},
                                         "is_valid": {"type": "boolean"},
                                         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                                         "suggested_correction": {"type": "string"},
@@ -110,6 +135,7 @@ class EnhancedValidationAgent(BaseAgent):
                                 "weight": {
                                     "type": "object",
                                     "properties": {
+                                        "input_value": {"type": "string", "description": "The original input value for weight"},
                                         "is_valid": {"type": "boolean"},
                                         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                                         "suggested_correction": {"type": "string"},
@@ -119,6 +145,7 @@ class EnhancedValidationAgent(BaseAgent):
                                 "volume": {
                                     "type": "object",
                                     "properties": {
+                                        "input_value": {"type": "string", "description": "The original input value for volume"},
                                         "is_valid": {"type": "boolean"},
                                         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                                         "suggested_correction": {"type": "string"},
@@ -126,7 +153,7 @@ class EnhancedValidationAgent(BaseAgent):
                                     }
                                 }
                             },
-                            "description": "Validation results for each field"
+                            "description": "Validation results for each field including input values"
                         },
                         "overall_validation": {
                             "type": "object",
@@ -176,29 +203,35 @@ VALIDATION REQUIREMENTS:
 7. Provide confidence scores
 8. Suggest corrections where needed
 
+IMPORTANT: For each field you validate, you MUST include the original input_value in your response. This shows what was actually provided for validation.
+
 PORT CODE VALIDATION:
 - Check if port codes are valid (e.g., CNSHA, USNYC, DEHAM)
 - Validate port names and locations
 - Check for common port code variations
 - Suggest corrections for invalid codes
+- Include the original input value in the validation result
 
 CONTAINER TYPE VALIDATION:
 - Validate standard container types (20GP, 40GP, 40HC, 20RF, 40RF)
 - Check for common variations and abbreviations
 - Standardize container type format
 - Validate container type compatibility
+- Include the original input value in the validation result
 
 DATE VALIDATION:
 - Check if dates are in the future
 - Validate date formats and parsing
 - Check for reasonable shipment timelines
 - Identify potential date conflicts
+- Include the original input value in the validation result
 
 WEIGHT AND VOLUME VALIDATION:
 - Validate weight ranges for container types
 - Check volume calculations
 - Validate units and conversions
 - Check for reasonable values
+- Include the original input value in the validation result
 
 BUSINESS LOGIC VALIDATION:
 - Check origin-destination feasibility
@@ -210,6 +243,13 @@ COMPLETENESS CHECK:
 - Identify missing critical fields
 - Assess data quality
 - Determine if data is sufficient for processing
+
+For each validation field, include:
+- input_value: The exact value that was provided for validation
+- is_valid: Whether the value is valid
+- confidence: Confidence score (0.0 to 1.0)
+- suggested_correction: Any suggested corrections
+- validation_notes: Detailed validation notes
 
 Provide detailed validation results with confidence scores and specific recommendations.
 """
@@ -237,6 +277,9 @@ Provide detailed validation results with confidence scores and specific recommen
             result = dict(tool_args)
             result["validation_method"] = "llm_function_call"
             result["thread_id"] = thread_id
+            
+            # Ensure input values are included in validation results
+            self._ensure_input_values_in_result(result, extracted_data)
             
             # Validate and correct result if needed
             validation_confidence = result.get("validation_confidence", 0.5)
@@ -271,6 +314,34 @@ Provide detailed validation results with confidence scores and specific recommen
             return "\n".join(summary_parts)
         else:
             return "No valid data to validate"
+
+    def _ensure_input_values_in_result(self, result: Dict[str, Any], extracted_data: Dict[str, Any]) -> None:
+        """Ensure input values are included in validation results."""
+        if "validation_results" not in result:
+            return
+            
+        validation_results = result["validation_results"]
+        
+        # Map extracted data keys to validation result keys
+        field_mapping = {
+            "origin": "origin_port",
+            "destination": "destination_port", 
+            "container_type": "container_type",
+            "shipment_date": "shipment_date",
+            "weight": "weight",
+            "volume": "volume"
+        }
+        
+        # Add input values to validation results
+        for extracted_key, validation_key in field_mapping.items():
+            if extracted_key in extracted_data and validation_key in validation_results:
+                input_value = extracted_data[extracted_key]
+                if input_value and str(input_value).strip():
+                    # Ensure the validation result has the input_value field
+                    if "input_value" not in validation_results[validation_key]:
+                        validation_results[validation_key]["input_value"] = str(input_value)
+                    elif not validation_results[validation_key]["input_value"]:
+                        validation_results[validation_key]["input_value"] = str(input_value)
 
 # =====================================================
 #                 🔁 Test Harness

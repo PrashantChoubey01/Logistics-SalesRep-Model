@@ -3,7 +3,7 @@ import sys
 import json
 import random
 from typing import Dict, Any
-from base_agent import BaseAgent
+from .base_agent import BaseAgent
 
 class ResponseGeneratorAgent(BaseAgent):
     """
@@ -189,6 +189,18 @@ class ResponseGeneratorAgent(BaseAgent):
         # Get customer information for personalized salutation
         customer_name = extraction_data.get("customer_name", "")
         customer_company = extraction_data.get("customer_company", "")
+        
+        # Get enriched data with port names
+        enriched_data = input_data.get("enriched_data", {})
+        rate_data_enriched = enriched_data.get("rate_data", {})
+        
+        # Use enriched port names if available, otherwise fall back to extraction data
+        origin_port_name = rate_data_enriched.get("origin_name", extraction_data.get("origin", ""))
+        destination_port_name = rate_data_enriched.get("destination_name", extraction_data.get("destination", ""))
+        
+        # Use standardized container type if available
+        container_standardization = enriched_data.get("container_standardization", {})
+        standardized_container_type = container_standardization.get("standard_type", extraction_data.get("container_type", ""))
 
         prompt = f"""
 You are an expert logistics customer service representative. Generate a comprehensive, customer-friendly response using the available information from our processing agents.
@@ -245,58 +257,36 @@ RATE INFORMATION:
 - Match Type: {rate_data.get('rate_recommendation', {}).get('match_type', 'Not available')}
 
 RESPONSE STRATEGY:
-1. SALUTATION: Use customer name if available (e.g., "Dear John"), otherwise use "Dear valued customer" or "Dear sir/madam"
-
-2. If clarification is needed (clarification_needed = True):
-   - Generate a clarification_request response
-   - FIRST list all extracted and standardized details clearly
-   - THEN ask for missing information using the smart_questions from smart clarification agent
-   - Use the smart_questions array - these are already conversational and human-like
-   - Follow the priorities order from smart_priorities
-   - Use the smart_reasoning to explain why information is needed
+1. **CLARIFICATION REQUEST** (when clarification_needed = True):
+   - List all extracted details clearly first
+   - Ask for missing information using smart_questions
+   - Include indicative rate if available
    - Be friendly and helpful, not demanding
-   - Set clarification_included = True
+   - Explain why information is needed
 
-3. If customer is confirming something (is_confirmation = True):
-   - Generate a confirmation_response
-   - Acknowledge their confirmation
-   - Provide next steps based on confirmation type
-   - Be enthusiastic and professional
-   - Set confirmation_handled = True
+2. **CONFIRMATION RESPONSE** (when is_confirmation = True):
+   - Acknowledge their confirmation enthusiastically
+   - Provide clear next steps
+   - Include indicative rate if available
+   - Be professional and reassuring
 
-4. If no clarification needed and no confirmation:
-   - Generate a standard_response or quote_response
-   - Confirm extracted details
-   - Include rate information if available
+3. **STANDARD RESPONSE** (when no clarification/confirmation needed):
+   - Confirm extracted details clearly
+   - Include indicative rate prominently
    - Ask for WhatsApp if not found
-
-5. Always consider special instructions/requirements in your response
-
-IMPORTANT: The response_type should match the actual response you generate!
+   - Provide clear next steps
 
 IMPORTANT INSTRUCTIONS:
-1. DO NOT mention validation details, port codes, or technical validation processes or forwarder assignment to the customer
-2. ALWAYS include indicative rate if available, regardless of response type (clarification, confirmation, or standard response) - include it prominently in the email body as "Indicative Rate: [rate] USD (freight cost only, based on current market analytics)" - DO NOT include rate in the email subject
-3. DO NOT use phrases like "before we proceed with providing a rate and assigning a forwarder"
-4. Use port names from port lookup results (not from extraction) to show user what ports were identified
-5. Include port names in the confirmation request so user can validate if port codes were picked correctly
-6. Use standardized container type from container standardization agent (not from extraction) to show user what container type was identified
-7. Summarize shipment details in a clear, bullet-pointed format that's easy for customers to understand, including shipment date if available
-8. Use a friendly, empathetic, and professional tone - do not sound like a bot
-9. Focus on customer needs and next steps
-10. Always include clear next steps and a polite closing
-11. Sign the email with the assigned sales person's name, designation, and company
-12. Include the sales person's contact information in the signature
-13. Address special instructions/requirements if provided
-14. For FCL shipments, don't ask for volume unless explicitly needed
-15. For container types, if FCL is mentioned, ask if they prefer 20 or 40 DC
-16. Ask for commodity first, then dangerous goods only if commodity is provided
-17. Don't ask for port validation - let the system handle this automatically
-18. ALWAYS include the indicative rate in ALL response types when available
-19. Use the smart_questions from smart clarification agent - they are already conversational and human-like
-20. ALWAYS include the email chain at the bottom showing the original email and your response
-21. CRITICAL: ALWAYS include the commodity in the shipment summary if it was extracted - do not show "Not specified" if commodity was actually extracted
-22. CRITICAL: Use the exact commodity value from extraction_data.get("commodity") in the response - do not change or omit it
+1. **ALWAYS include indicative rate** if available: "Indicative Rate: [rate] USD (freight cost only, based on current market analytics)"
+2. **Use port names** from port lookup results (not extraction)
+3. **Use standardized container type** from container standardization agent
+4. **Include exact commodity** from extraction - do not show "Not specified" if commodity was extracted
+5. **Be friendly, empathetic, and professional** - do not sound like a bot
+6. **Include clear next steps** and polite closing
+7. **Sign with sales person's details** and contact information
+8. **Include email chain** at the bottom
+9. **DO NOT mention** technical processes, validation, or forwarder assignment to customer
+10. **Focus on customer needs** and provide value
 
 RESPONSE EXAMPLES:
 
@@ -305,14 +295,14 @@ CLARIFICATION REQUEST:
 
 Thank you for your logistics request. Here's what I understand from your request:
 
-• Origin: [origin_port_name]
-• Destination: [destination_port_name]
-• Shipment Type: [shipment_type]
-• Container Type: [standardized_container_type]
-• Quantity: [quantity]
-• Weight: [weight]
-• Commodity: [commodity]
-• Shipment Date: [shipment_date if available]
+• Origin: {origin_port_name}
+• Destination: {destination_port_name}
+• Shipment Type: {extraction_data.get('shipment_type', 'FCL')}
+• Container Type: {standardized_container_type}
+• Quantity: {extraction_data.get('quantity', '')}
+• Weight: {extraction_data.get('weight', '')}
+• Commodity: {extraction_data.get('commodity', '')}
+• Shipment Date: {extraction_data.get('shipment_date', '')}
 
 [If rate available: Indicative Rate: [rate] USD (freight cost only, based on current market analytics)]
 
@@ -379,14 +369,14 @@ STANDARD RESPONSE:
 "Dear [customer_name if available, otherwise "valued customer"],
 
 Thank you for your logistics request. Here's a summary of your shipment details:
-• Origin: [origin_port_name]
-• Destination: [destination_port_name]
-• Shipment Type: [shipment_type]
-• Container Type: [standardized_container_type]
-• Quantity: [quantity]
-• Weight: [weight]
-• Commodity: [commodity - USE EXACT VALUE FROM EXTRACTION, DO NOT SHOW "Not specified" IF COMMODITY WAS EXTRACTED]
-• Shipment Date: [shipment_date if available]
+• Origin: {origin_port_name}
+• Destination: {destination_port_name}
+• Shipment Type: {extraction_data.get('shipment_type', 'FCL')}
+• Container Type: {standardized_container_type}
+• Quantity: {extraction_data.get('quantity', '')}
+• Weight: {extraction_data.get('weight', '')}
+• Commodity: {extraction_data.get('commodity', '')}
+• Shipment Date: {extraction_data.get('shipment_date', '')}
 
 [If rate available: Indicative Rate: [rate] USD (freight cost only, based on current market analytics)]
 
