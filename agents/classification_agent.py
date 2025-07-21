@@ -24,7 +24,7 @@ class ClassificationAgent(BaseAgent):
             "logistics_request",      # Customer requesting shipping quote/service
             "confirmation_reply",     # Customer confirming/accepting a proposal
             "forwarder_response",     # Freight forwarder providing rates/quotes
-            "clarification_reply",    # Customer providing requested information
+            "clarification_reply",    # Customer providing requested information            "confusing_email",        # Unclear, ambiguous, or mixed intent email
             "non_logistics"           # Not related to shipping/logistics
         ]
 
@@ -117,21 +117,34 @@ EMAIL CATEGORIES:
    - Keywords: "the origin", "the destination", "port is", "date is", "weight is"
    - Examples: "Origin is Shanghai", "The weight is 25 tons", "Departure date is..."
 
-5. non_logistics: Not related to shipping, logistics, or freight operations
+5. confusing_email: Unclear, ambiguous, or mixed intent email that needs human review
+   - Vague responses: "ok", "thanks", "will check", "let me see"
+   - Mixed signals: Both confirmation and new requests
+   - Unclear context: Missing key information
+   - Ambiguous language: Could be multiple types
+   - Examples: "Ok, thanks", "Will check and get back", "Let me think about it"
+
+6. non_logistics: Not related to shipping, logistics, or freight operations
    - Examples: Meeting invites, general business, personal messages
 
-ANALYSIS FACTORS:
-- Intent and context of the message
-- Keywords and phrases used
+THREAD-AWARE ANALYSIS FACTORS:
+- Intent and context of the message within the conversation flow
+- Keywords and phrases used in current and previous emails
 - Urgency indicators (urgent, ASAP, deadline, immediate)
 - Action requirements (confirm, book, proceed, quote)
-- Response patterns (Re:, answering questions)
+- Response patterns (Re:, answering questions, providing information)
+- Conversation progression and context from thread
+- Sender identification (customer vs forwarder vs sales)
+- Previous bot interactions and responses
 
 IMPORTANT CLASSIFICATION RULES:
 - If the email body contains only vague content (like "hi", "hello", "thanks", "ok") without specific logistics keywords, classify as "non_logistics"
 - The subject line should NOT override clear non-logistics content in the email body
 - For very short or vague messages, prioritize the actual content over the subject line
 - Messages with no logistics-specific content should be classified as "non_logistics" regardless of subject
+- **NEW**: If email is unclear, ambiguous, or could be multiple types, classify as "confusing_email"
+- **NEW**: Consider thread context - what was discussed before and what the customer is responding to
+- **NEW**: Detect forwarder emails by looking for rate information, pricing, and professional logistics language
 
 EMAIL TO CLASSIFY:
 Subject: {subject}
