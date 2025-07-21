@@ -1,300 +1,302 @@
-"""Forwarder Assignment Agent: Assigns forwarders based on country presence and capabilities."""
+#!/usr/bin/env python3
+"""
+Forwarder Assignment Agent
+==========================
+
+Assigns forwarders based on POL/POD countries and generates rate requests.
+"""
 
 import json
-import sys
-import os
+import logging
 from typing import Dict, Any, List
-
-# Add project root to Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    from agents.base_agent import BaseAgent
-except ImportError:
-    try:
-        from base_agent import BaseAgent
-    except ImportError:
-        import sys
-        import os
-        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from agents.base_agent import BaseAgent
+from agents.base_agent import BaseAgent
 
 class ForwarderAssignmentAgent(BaseAgent):
-    """Agent for assigning forwarders based on country presence and shipment requirements."""
-
+    """Agent for assigning forwarders and generating rate requests."""
+    
     def __init__(self):
         super().__init__("forwarder_assignment_agent")
+        self.logger = logging.getLogger(__name__)
         
-        # Forwarder database with country presence
-        self.forwarders = {
-            "DHL Global Forwarding": {
-                "countries": ["AE", "IN", "CN", "US", "DE", "GB", "FR", "NL", "SG", "HK"],
-                "specialties": ["electronics", "machinery", "textiles", "general"],
-                "service_levels": ["premium", "standard", "economy"],
-                "email": "rates@dhl.com",
-                "contact": "DHL Rate Team"
-            },
-            "Kuehne + Nagel": {
-                "countries": ["AE", "IN", "CN", "US", "DE", "GB", "FR", "NL", "SG", "HK", "AU"],
-                "specialties": ["machinery", "electronics", "automotive", "general"],
-                "service_levels": ["premium", "standard"],
-                "email": "quotes@kuehne-nagel.com",
-                "contact": "KN Rate Team"
-            },
-            "DB Schenker": {
-                "countries": ["AE", "IN", "CN", "US", "DE", "GB", "FR", "NL", "SG", "HK", "JP"],
-                "specialties": ["electronics", "machinery", "general"],
-                "service_levels": ["premium", "standard"],
-                "email": "rates@dbschenker.com",
-                "contact": "DB Schenker Rate Team"
-            },
-            "Expeditors": {
-                "countries": ["AE", "IN", "CN", "US", "DE", "GB", "FR", "NL", "SG", "HK"],
-                "specialties": ["electronics", "machinery", "textiles", "general"],
-                "service_levels": ["premium", "standard"],
-                "email": "quotes@expeditors.com",
-                "contact": "Expeditors Rate Team"
-            },
-            "Panalpina": {
-                "countries": ["AE", "IN", "CN", "US", "DE", "GB", "FR", "NL", "SG", "HK"],
-                "specialties": ["machinery", "electronics", "general"],
-                "service_levels": ["premium", "standard"],
-                "email": "rates@panalpina.com",
-                "contact": "Panalpina Rate Team"
+        # Forwarder database by country
+        self.forwarders_by_country = {
+            "China": [
+                {
+                    "name": "China Logistics Solutions",
+                    "email": "rates@chinalogistics.com",
+                    "phone": "+86-21-1234-5678",
+                    "specialties": ["FCL", "LCL", "Electronics"],
+                    "rating": 4.8
+                },
+                {
+                    "name": "Shanghai Freight Forwarders",
+                    "email": "quotes@shanghaifreight.com", 
+                    "phone": "+86-21-8765-4321",
+                    "specialties": ["FCL", "Heavy Cargo"],
+                    "rating": 4.6
+                }
+            ],
+            "USA": [
+                {
+                    "name": "American Cargo Solutions",
+                    "email": "rates@americancargo.com",
+                    "phone": "+1-310-555-0123",
+                    "specialties": ["FCL", "LCL", "Electronics"],
+                    "rating": 4.7
+                },
+                {
+                    "name": "LA Port Logistics",
+                    "email": "quotes@laportlogistics.com",
+                    "phone": "+1-310-555-0456",
+                    "specialties": ["FCL", "Import/Export"],
+                    "rating": 4.5
+                }
+            ],
+            "Germany": [
+                {
+                    "name": "German Freight Solutions",
+                    "email": "rates@germanfreight.de",
+                    "phone": "+49-40-1234-5678",
+                    "specialties": ["FCL", "LCL", "Automotive"],
+                    "rating": 4.9
+                }
+            ],
+            "India": [
+                {
+                    "name": "India Cargo Express",
+                    "email": "rates@indiacargo.in",
+                    "phone": "+91-22-1234-5678",
+                    "specialties": ["FCL", "LCL", "Textiles"],
+                    "rating": 4.4
+                }
+            ]
+        }
+        
+        # Default forwarders for unknown countries
+        self.default_forwarders = [
+            {
+                "name": "Global Logistics Partners",
+                "email": "rates@globallogistics.com",
+                "phone": "+1-800-555-0123",
+                "specialties": ["FCL", "LCL", "General Cargo"],
+                "rating": 4.3
+            }
+        ]
+
+    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Process forwarder assignment and rate request generation."""
+        print("🔧 FORWARDER_ASSIGNMENT: Starting forwarder assignment...")
+        
+        try:
+            # Extract shipment details
+            extracted_data = input_data.get("extraction_data", {})
+            enriched_data = input_data.get("enriched_data", {})
+            
+            # Get origin and destination countries
+            origin_country = extracted_data.get("origin_country", "")
+            destination_country = extracted_data.get("destination_country", "")
+            
+            # Assign forwarders based on countries
+            assigned_forwarders = self._assign_forwarders(origin_country, destination_country)
+            
+            # Generate rate requests for each forwarder
+            rate_requests = self._generate_rate_requests(assigned_forwarders, extracted_data, enriched_data)
+            
+            result = {
+                "assigned_forwarders": assigned_forwarders,
+                "rate_requests": rate_requests,
+                "total_forwarders": len(assigned_forwarders),
+                "origin_country": origin_country,
+                "destination_country": destination_country,
+                "assignment_method": "country_based",
+                "agent_name": self.agent_name,
+                "agent_id": self.agent_id,
+                "processed_at": self._now_iso(),
+                "status": "success"
+            }
+            
+            print(f"✅ FORWARDER_ASSIGNMENT: Assigned {len(assigned_forwarders)} forwarders")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Forwarder assignment failed: {e}")
+            print(f"❌ FORWARDER_ASSIGNMENT: Error - {str(e)}")
+            return {
+                "error": f"Forwarder assignment failed: {str(e)}",
+                "agent_name": self.agent_name,
+                "agent_id": self.agent_id,
+                "processed_at": self._now_iso(),
+                "status": "error"
+            }
+
+    def _assign_forwarders(self, origin_country: str, destination_country: str) -> List[Dict[str, Any]]:
+        """Assign forwarders based on POL/POD countries."""
+        assigned_forwarders = []
+        
+        # Get forwarders for origin country
+        if origin_country in self.forwarders_by_country:
+            origin_forwarders = self.forwarders_by_country[origin_country]
+            assigned_forwarders.extend(origin_forwarders)
+            print(f"🔧 FORWARDER_ASSIGNMENT: Added {len(origin_forwarders)} forwarders from {origin_country}")
+        
+        # Get forwarders for destination country
+        if destination_country in self.forwarders_by_country:
+            dest_forwarders = self.forwarders_by_country[destination_country]
+            # Avoid duplicates
+            for forwarder in dest_forwarders:
+                if forwarder not in assigned_forwarders:
+                    assigned_forwarders.append(forwarder)
+            print(f"🔧 FORWARDER_ASSIGNMENT: Added {len(dest_forwarders)} forwarders from {destination_country}")
+        
+        # If no specific forwarders found, use defaults
+        if not assigned_forwarders:
+            assigned_forwarders = self.default_forwarders
+            print(f"🔧 FORWARDER_ASSIGNMENT: Using default forwarders")
+        
+        return assigned_forwarders
+
+    def _generate_rate_requests(self, forwarders: List[Dict[str, Any]], extracted_data: Dict[str, Any], enriched_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate rate request emails for each forwarder."""
+        rate_requests = []
+        
+        for forwarder in forwarders:
+            rate_request = self._create_rate_request_email(forwarder, extracted_data, enriched_data)
+            rate_requests.append(rate_request)
+        
+        return rate_requests
+
+    def _create_rate_request_email(self, forwarder: Dict[str, Any], extracted_data: Dict[str, Any], enriched_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a rate request email for a specific forwarder."""
+        
+        # Get shipment details
+        origin_name = extracted_data.get("origin_name", "")
+        destination_name = extracted_data.get("destination_name", "")
+        shipment_type = extracted_data.get("shipment_type", "")
+        container_type = extracted_data.get("container_type", "")
+        weight = extracted_data.get("weight", "")
+        commodity = extracted_data.get("commodity", "")
+        shipment_date = extracted_data.get("shipment_date", "")
+        quantity = extracted_data.get("quantity", 1)
+        
+        # Get port codes from enriched data
+        rate_data = enriched_data.get("rate_data", {})
+        origin_code = rate_data.get("origin_code", "")
+        destination_code = rate_data.get("destination_code", "")
+        
+        # Create email subject and body
+        subject = f"Rate Request: {origin_name} to {destination_name} - {shipment_type}"
+        
+        body = f"""Dear {forwarder['name']} Team,
+
+We are seeking competitive rates for the following shipment:
+
+**Shipment Details:**
+* Origin: {origin_name} ({origin_code})
+* Destination: {destination_name} ({destination_code})
+* Shipment Type: {shipment_type}
+* Container Type: {container_type}
+* Weight: {weight}
+* Commodity: {commodity}
+* Shipment Date: {shipment_date}
+* Quantity: {quantity}
+
+**Request:**
+Please provide your best rates for this shipment, including:
+- Ocean freight rates
+- Additional charges (THC, documentation, etc.)
+- Transit time
+- Available sailing dates
+
+**Response Required:**
+Please respond within 24 hours with your competitive quote.
+
+Thank you for your prompt attention to this matter.
+
+Best regards,
+DP World Logistics Team
+rates@dpworld.com
++1-555-0123"""
+
+        return {
+            "forwarder_name": forwarder["name"],
+            "forwarder_email": forwarder["email"],
+            "forwarder_phone": forwarder["phone"],
+            "subject": subject,
+            "body": body,
+            "shipment_details": {
+                "origin": origin_name,
+                "destination": destination_name,
+                "origin_code": origin_code,
+                "destination_code": destination_code,
+                "shipment_type": shipment_type,
+                "container_type": container_type,
+                "weight": weight,
+                "commodity": commodity,
+                "shipment_date": shipment_date,
+                "quantity": quantity
             }
         }
 
-    def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Assign forwarders based on origin/destination countries and shipment requirements.
-        
-        Expected input:
-        - origin_country: Origin country code (e.g., "AE")
-        - destination_country: Destination country code (e.g., "IN")
-        - commodity: Shipment commodity type
-        - container_type: Container type
-        - quantity: Number of containers
-        - weight: Shipment weight
-        - volume: Shipment volume
-        - shipment_date: Ready date
-        - thread_id: Thread identifier
-        """
-        origin_country = input_data.get("origin_country", "").upper()
-        destination_country = input_data.get("destination_country", "").upper()
-        commodity = input_data.get("commodity", "").lower()
-        container_type = input_data.get("container_type", "")
-        quantity = input_data.get("quantity", 1)
-        weight = input_data.get("weight", "")
-        volume = input_data.get("volume", "")
-        shipment_date = input_data.get("shipment_date", "")
-        thread_id = input_data.get("thread_id", "")
+    def _now_iso(self):
+        """Get current timestamp in ISO format."""
+        import datetime
+        return datetime.datetime.utcnow().isoformat()
 
-        if not origin_country or not destination_country:
-            return {"error": "Origin and destination countries are required"}
-
-        if not self.client:
-            return {"error": "LLM client not initialized"}
-
-        return self._assign_forwarders(origin_country, destination_country, commodity, container_type, quantity, weight, volume, shipment_date, thread_id)
-
-    def _assign_forwarders(self, origin_country: str, destination_country: str, commodity: str, container_type: str, quantity: int, weight: str, volume: str, shipment_date: str, thread_id: str) -> Dict[str, Any]:
-        """Assign forwarders using LLM function calling."""
-        try:
-            function_schema = {
-                "name": "assign_forwarders",
-                "description": "Assign forwarders based on country presence and shipment requirements",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "assigned_forwarders": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "forwarder_name": {"type": "string"},
-                                    "email": {"type": "string"},
-                                    "contact": {"type": "string"},
-                                    "assignment_reason": {"type": "string"},
-                                    "priority": {"type": "string", "enum": ["primary", "secondary", "backup"]},
-                                    "specialty_match": {"type": "boolean"},
-                                    "country_coverage": {"type": "string"}
-                                },
-                                "required": ["forwarder_name", "email", "contact", "assignment_reason", "priority", "specialty_match", "country_coverage"]
-                            },
-                            "description": "List of assigned forwarders"
-                        },
-                        "total_forwarders_assigned": {
-                            "type": "integer",
-                            "description": "Total number of forwarders assigned"
-                        },
-                        "assignment_strategy": {
-                            "type": "string",
-                            "description": "Strategy used for forwarder assignment"
-                        },
-                        "confidence_score": {
-                            "type": "number",
-                            "minimum": 0.0,
-                            "maximum": 1.0,
-                            "description": "Confidence in forwarder assignment"
-                        }
-                    },
-                    "required": ["assigned_forwarders", "total_forwarders_assigned", "assignment_strategy", "confidence_score"]
-                }
-            }
-
-            # Create forwarder database for LLM
-            forwarder_db = []
-            for name, details in self.forwarders.items():
-                forwarder_db.append({
-                    "name": name,
-                    "countries": details["countries"],
-                    "specialties": details["specialties"],
-                    "service_levels": details["service_levels"],
-                    "email": details["email"],
-                    "contact": details["contact"]
-                })
-
-            prompt = f"""
-You are an expert logistics forwarder assignment specialist. Assign forwarders based on country presence and shipment requirements.
-
-AVAILABLE FORWARDERS:
-{json.dumps(forwarder_db, indent=2)}
-
-SHIPMENT DETAILS:
-- Origin Country: {origin_country}
-- Destination Country: {destination_country}
-- Commodity: {commodity}
-- Container Type: {container_type}
-- Quantity: {quantity}
-- Weight: {weight}
-- Volume: {volume}
-- Shipment Date: {shipment_date}
-
-ASSIGNMENT RULES:
-1. Only assign forwarders that have presence in BOTH origin and destination countries
-2. Prioritize forwarders with specialty matching the commodity
-3. Assign 2-3 forwarders maximum (1 primary, 1-2 secondary/backup)
-4. Consider service levels and capabilities
-5. Ensure geographic coverage for the route
-
-ASSIGNMENT STRATEGY:
-- Primary: Best match for commodity and route
-- Secondary: Good coverage with competitive rates
-- Backup: Reliable coverage as fallback
-
-Determine the best forwarders for this shipment and provide assignment reasoning.
-"""
-
-            response = self.client.chat.completions.create(
-                model=self.config.get("model_name"),
-                messages=[{"role": "user", "content": prompt}],
-                tools=[{
-                    "type": "function",
-                    "function": function_schema
-                }],
-                tool_choice={"type": "function", "function": {"name": function_schema["name"]}},
-                temperature=0.1,
-                max_tokens=500
-            )
-
-            tool_calls = getattr(response.choices[0].message, "tool_calls", None)
-            if not tool_calls:
-                raise Exception("No tool_calls in LLM response")
-
-            tool_args = tool_calls[0].function.arguments
-            if isinstance(tool_args, str):
-                tool_args = json.loads(tool_args)
-
-            result = dict(tool_args)
-            result["assignment_method"] = "llm_function_call"
-            result["thread_id"] = thread_id
-            result["origin_country"] = origin_country
-            result["destination_country"] = destination_country
-            
-            # Validate and correct result if needed
-            if not result.get("assigned_forwarders"):
-                result["assigned_forwarders"] = []
-                result["total_forwarders_assigned"] = 0
-                result["confidence_score"] = 0.0
-
-            # Ensure confidence is within bounds
-            confidence = result.get("confidence_score", 0.5)
-            if not (0.0 <= confidence <= 1.0):
-                result["confidence_score"] = max(0.0, min(1.0, confidence))
-
-            self.logger.info(f"Forwarder assignment successful: {result['total_forwarders_assigned']} forwarders assigned (confidence: {result['confidence_score']:.2f})")
-            
-            return result
-
-        except Exception as e:
-            self.logger.error(f"Forwarder assignment failed: {e}")
-            return {"error": f"Forwarder assignment failed: {str(e)}"}
 
 # =====================================================
 #                 🔁 Test Harness
 # =====================================================
 
 def test_forwarder_assignment_agent():
-    print("=== Testing Forwarder Assignment Agent ===")
+    """Test the forwarder assignment agent."""
+    print("🧪 Testing Forwarder Assignment Agent")
+    print("="*50)
+    
     agent = ForwarderAssignmentAgent()
+    agent.load_context()
     
-    if not agent.load_context():
-        print("✗ Failed to load context")
-        return
-    
-    # Test cases
-    test_cases = [
-        {
-            "name": "AE to IN Electronics",
-            "origin_country": "AE",
-            "destination_country": "IN",
-            "commodity": "electronics",
+    # Test data
+    test_input = {
+        "extraction_data": {
+            "origin_name": "Shanghai",
+            "origin_country": "China",
+            "destination_name": "Los Angeles",
+            "destination_country": "USA",
+            "shipment_type": "FCL",
             "container_type": "40HC",
-            "quantity": 2,
-            "weight": "25,000 kg",
-            "volume": "35 CBM",
-            "shipment_date": "2024-04-20"
+            "weight": "15 tons",
+            "commodity": "Electronics",
+            "shipment_date": "February 15, 2024",
+            "quantity": 1
         },
-        {
-            "name": "CN to US Machinery",
-            "origin_country": "CN",
-            "destination_country": "US",
-            "commodity": "machinery",
-            "container_type": "40GP",
-            "quantity": 1,
-            "weight": "15,000 kg",
-            "volume": "25 CBM",
-            "shipment_date": "2024-05-15"
+        "enriched_data": {
+            "rate_data": {
+                "origin_code": "CNSHG",
+                "destination_code": "USLAX",
+                "origin_name": "Shanghai",
+                "destination_name": "Los Angeles"
+            }
         }
-    ]
+    }
     
-    for test_case in test_cases:
-        print(f"\n--- Testing: {test_case['name']} ---")
-        result = agent.run(test_case)
-        
-        if result.get("status") == "success":
-            assigned_forwarders = result.get("assigned_forwarders", [])
-            total_assigned = result.get("total_forwarders_assigned", 0)
-            confidence = result.get("confidence_score", 0.0)
-            strategy = result.get("assignment_strategy", "")
-            
-            print(f"✓ Forwarders Assigned: {total_assigned}")
-            print(f"✓ Confidence: {confidence:.2f}")
-            print(f"✓ Strategy: {strategy}")
-            
-            for i, forwarder in enumerate(assigned_forwarders, 1):
-                print(f"  {i}. {forwarder.get('forwarder_name')} ({forwarder.get('priority')})")
-                print(f"     Email: {forwarder.get('email')}")
-                print(f"     Reason: {forwarder.get('assignment_reason')}")
-                print(f"     Specialty Match: {forwarder.get('specialty_match')}")
-                print(f"     Country Coverage: {forwarder.get('country_coverage')}")
-            
-            if total_assigned > 0:
-                print("✓ Forwarder assignment successful!")
-            else:
-                print("✗ No forwarders assigned")
-        else:
-            print(f"✗ Test failed: {result.get('error')}")
+    result = agent.process(test_input)
+    
+    print(f"✅ Result: {result.get('status')}")
+    print(f"📊 Assigned Forwarders: {result.get('total_forwarders', 0)}")
+    
+    if result.get("assigned_forwarders"):
+        print("\n📧 Forwarders Assigned:")
+        for i, forwarder in enumerate(result["assigned_forwarders"], 1):
+            print(f"  {i}. {forwarder['name']} ({forwarder['email']})")
+    
+    if result.get("rate_requests"):
+        print(f"\n📧 Rate Requests Generated: {len(result['rate_requests'])}")
+        for i, request in enumerate(result["rate_requests"], 1):
+            print(f"  {i}. To: {request['forwarder_name']}")
+            print(f"     Subject: {request['subject']}")
+    
+    print("="*50)
+    return result
 
 if __name__ == "__main__":
     test_forwarder_assignment_agent() 

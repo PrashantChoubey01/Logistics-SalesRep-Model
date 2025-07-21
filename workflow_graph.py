@@ -18,6 +18,8 @@ from workflow_nodes import (
     rate_recommendation_node,
     decision_node,
     confirmation_request_node,
+    confirmation_acknowledgment_node,
+    forwarder_assignment_node,
     escalation_node,
     route_decision
 )
@@ -39,6 +41,8 @@ def create_workflow_graph():
     workflow.add_node("RATE_RECOMMENDATION", rate_recommendation_node)
     workflow.add_node("DECISION", decision_node)
     workflow.add_node("CONFIRMATION_REQUEST", confirmation_request_node)
+    workflow.add_node("CONFIRMATION_ACKNOWLEDGMENT", confirmation_acknowledgment_node)
+    workflow.add_node("FORWARDER_ASSIGNMENT", forwarder_assignment_node)
     workflow.add_node("ESCALATION", escalation_node)
     
     # Set entry point
@@ -59,12 +63,16 @@ def create_workflow_graph():
         route_decision,
         {
             "CONFIRMATION_REQUEST": "CONFIRMATION_REQUEST",
+            "CONFIRMATION_ACKNOWLEDGMENT": "CONFIRMATION_ACKNOWLEDGMENT",
+            "FORWARDER_ASSIGNMENT": "FORWARDER_ASSIGNMENT",
             "ESCALATION": "ESCALATION"
         }
     )
     
     # Add edges to END
     workflow.add_edge("CONFIRMATION_REQUEST", END)
+    workflow.add_edge("CONFIRMATION_ACKNOWLEDGMENT", END)
+    workflow.add_edge("FORWARDER_ASSIGNMENT", END)
     workflow.add_edge("ESCALATION", END)
     
     print("✅ LangGraph workflow created successfully")

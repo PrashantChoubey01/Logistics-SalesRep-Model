@@ -25,6 +25,7 @@ from agents.enhanced_validation_agent import EnhancedValidationAgent
 from agents.rate_recommendation_agent import RateRecommendationAgent
 from agents.next_action_agent import NextActionAgent
 from agents.response_generator_agent import ResponseGeneratorAgent
+from agents.forwarder_assignment_agent import ForwarderAssignmentAgent
 
 # =====================================================
 #                 🏗️ STATE DEFINITION
@@ -49,6 +50,7 @@ class WorkflowState(TypedDict):
     enriched_data: Dict[str, Any]
     validation_results: Dict[str, Any]
     rate_recommendation: Dict[str, Any]
+    forwarder_assignment: Dict[str, Any]
     
     # Control
     current_node: str
@@ -621,6 +623,65 @@ def confirmation_acknowledgment_node(state: WorkflowState) -> WorkflowState:
     
     return state
 
+def forwarder_assignment_node(state: WorkflowState) -> WorkflowState:
+    """Assign forwarders and generate rate requests."""
+    print("🔧 FORWARDER_ASSIGNMENT: Starting")
+    
+    try:
+        agent = ForwarderAssignmentAgent()
+        agent.load_context()
+        
+        # Create input data for forwarder assignment
+        assignment_data = {
+            "extraction_data": state["extracted_data"],
+            "enriched_data": state.get("enriched_data", {}),
+            "validation_results": state.get("validation_results", {}),
+            "thread_id": state["thread_id"]
+        }
+        
+        result = agent.process(assignment_data)
+        
+        print(f"🔧 FORWARDER_ASSIGNMENT: Result = {result}")
+        
+        if isinstance(result, dict) and result.get("status") == "success":
+            # Store forwarder assignment results
+            state["forwarder_assignment"] = result
+            
+            # Generate customer acknowledgment response
+            response_agent = ResponseGeneratorAgent()
+            response_agent.load_context()
+            
+            # Create response data for customer acknowledgment
+            response_data = {
+                "extraction_data": state["extracted_data"],
+                "rate_data": state.get("rate_recommendation", {}),
+                "enriched_data": state.get("enriched_data", {}),
+                "next_action_data": state.get("decision_result", {}),
+                "validation_data": state.get("validation_results", {}),
+                "forwarder_data": result,  # Include forwarder assignment data
+                "is_confirmation": True,
+                "response_type": "confirmation_acknowledgment"
+            }
+            
+            customer_response = response_agent.run(response_data)
+            
+            if isinstance(customer_response, dict):
+                state["final_response"] = customer_response
+            
+            state["workflow_complete"] = True
+            state["workflow_history"].append("FORWARDER_ASSIGNMENT")
+            state["current_node"] = "FORWARDER_ASSIGNMENT"
+            
+        else:
+            state["errors"].append(f"Forwarder assignment failed: {result.get('error', 'Unknown error')}")
+            print(f"❌ FORWARDER_ASSIGNMENT: Assignment failed")
+        
+    except Exception as e:
+        state["errors"].append(f"Forwarder assignment error: {str(e)}")
+        print(f"❌ FORWARDER_ASSIGNMENT: Error = {str(e)}")
+    
+    return state
+
 def escalation_node(state: WorkflowState) -> WorkflowState:
     """Escalate to human."""
     print("🔍 ESCALATION: Starting")
@@ -650,8 +711,12 @@ def route_decision(state: WorkflowState) -> str:
     if next_action in ["send_confirmation_request", "send_clarification_request"]:
         return "CONFIRMATION_REQUEST"
     
-    # Route to CONFIRMATION_ACKNOWLEDGMENT for customer confirmations
-    elif next_action in ["booking_details_confirmed_assign_forwarders", "send_confirmation_acknowledgment"]:
+    # Route to FORWARDER_ASSIGNMENT for booking confirmations
+    elif next_action in ["booking_details_confirmed_assign_forwarders"]:
+        return "FORWARDER_ASSIGNMENT"
+    
+    # Route to CONFIRMATION_ACKNOWLEDGMENT for other confirmations
+    elif next_action in ["send_confirmation_acknowledgment"]:
         return "CONFIRMATION_ACKNOWLEDGMENT"
     
     # Route to CONFIRMATION_REQUEST for forwarder-related actions (since FORWARDER_ASSIGNMENT node doesn't exist yet)
