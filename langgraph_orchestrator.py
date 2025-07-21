@@ -28,11 +28,13 @@ class LangGraphOrchestrator:
         print("✅ Orchestrator initialized successfully")
     
     def orchestrate_workflow(self, email_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the workflow."""
+        """Execute the complete workflow with detailed logging."""
         print("🔄 Starting workflow execution...")
+        start_time = datetime.now()
         
         try:
             # Prepare initial state
+            print("📋 Preparing initial workflow state...")
             initial_state: WorkflowState = {
                 "email_text": email_data.get("email_text", ""),
                 "subject": email_data.get("subject", ""),
@@ -43,6 +45,7 @@ class LangGraphOrchestrator:
                 "confidence_score": 0.5,
                 "email_type": "unknown",
                 "intent": "unknown",
+                "email_classification": {},
                 "extracted_data": {},
                 "enriched_data": {},
                 "validation_results": {},
@@ -51,20 +54,34 @@ class LangGraphOrchestrator:
                 "workflow_history": [],
                 "errors": [],
                 "next_action": "",
+                "decision_result": {},
                 "final_response": {},
                 "workflow_complete": False
             }
             
             print(f"📧 Processing email from: {initial_state['sender']}")
+            print(f"📧 Subject: {initial_state['subject']}")
             print(f"📧 Thread ID: {initial_state['thread_id']}")
+            print(f"📧 Email length: {len(initial_state['email_text'])} characters")
             
             # Execute workflow
+            print("🚀 Invoking workflow graph...")
             result = self.app.invoke(initial_state)
             
             # Extract final state
             final_state = result.get("__end__", result)
             
-            print("✅ Workflow completed successfully")
+            # Calculate execution time
+            end_time = datetime.now()
+            execution_time = (end_time - start_time).total_seconds()
+            
+            print(f"✅ Workflow completed successfully in {execution_time:.2f} seconds")
+            print(f"📊 Workflow history: {' → '.join(final_state.get('workflow_history', []))}")
+            
+            if final_state.get("errors"):
+                print(f"⚠️ Workflow completed with {len(final_state['errors'])} errors")
+                for error in final_state["errors"]:
+                    print(f"   ❌ {error}")
             
             return {
                 "status": "success",
@@ -135,3 +152,5 @@ Mike Johnson""",
 
 if __name__ == "__main__":
     test_orchestrator() 
+
+

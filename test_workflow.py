@@ -18,7 +18,26 @@ def main():
     
     # Test data
     test_email = {
-        'email_text': "Hi, I need rates for 2 20 feet containers from jebel ali to mundra.",
+        'email_text': """From: john.smith@techcorp.com
+Subject: Re: Need shipping quote for electronics
+Date: 2024-01-15 14:45:00
+
+Hi Sarah,
+
+Thanks for your quick response. Here are the details:
+
+Origin: Shanghai, China
+Destination: Los Angeles, USA
+Container: 40ft HC
+Weight: 15 tons
+Shipment date: February 15, 2024
+Commodity: Electronics (smartphones and tablets)
+
+Please let me know the rates.
+
+Best regards,
+John Smith
+TechCorp Inc.""",
         'subject': 'Rate Request',
         'sender': 'test@example.com',
         'thread_id': 'debug-test-1'

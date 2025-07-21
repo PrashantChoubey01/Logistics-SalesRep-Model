@@ -37,27 +37,32 @@ class NextActionAgent(BaseAgent):
             "route_to_appropriate_department",
             "wait_for_forwarder_response",
             "wait_for_customer_response",
-            "booking_details_confirmed_assign_forwarders"
+            "booking_details_confirmed_assign_forwarders",
+            "send_forwarder_acknowledgment",
+            "escalate_confusing_email"
         ]
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Determine next action based on conversation state and extracted data.
+        Determine next action based on conversation state, email classification, and extracted data.
         
         Expected input:
         - conversation_state: Current conversation state
+        - email_classification: Email type classification (logistics_request, forwarder_response, etc.)
         - extracted_data: Extracted shipment data
         - confidence_score: Confidence in extraction/analysis
         - missing_fields: List of missing fields
         - thread_id: Thread identifier
         - latest_sender: Who sent the latest email
+        - thread_context: Thread analysis context (optional)
         """
         conversation_state = input_data.get("conversation_state", "")
+        email_classification = input_data.get("email_classification", {})
         extracted_data = input_data.get("extracted_data", {})
         confidence_score = input_data.get("confidence_score", 0.0)
-        missing_fields = input_data.get("missing_fields", [])
+        validation_results = input_data.get("validation_results", {})
+        enriched_data = input_data.get("enriched_data", {})
         thread_id = input_data.get("thread_id", "")
-        latest_sender = input_data.get("latest_sender", "unknown")
 
         if not conversation_state:
             return {"error": "No conversation state provided"}
@@ -65,9 +70,17 @@ class NextActionAgent(BaseAgent):
         if not self.client:
             return {"error": "LLM client not initialized"}
 
-        return self._determine_next_action(conversation_state, extracted_data, confidence_score, missing_fields, latest_sender, thread_id)
+        return self._determine_next_action(
+            conversation_state, 
+            email_classification, 
+            extracted_data, 
+            confidence_score, 
+            validation_results,
+            enriched_data,
+            thread_id
+        )
 
-    def _determine_next_action(self, conversation_state: str, extracted_data: Dict[str, Any], confidence_score: float, missing_fields: List[str], latest_sender: str, thread_id: str) -> Dict[str, Any]:
+    def _determine_next_action(self, conversation_state: str, email_classification: Dict[str, Any], extracted_data: Dict[str, Any], confidence_score: float, validation_results: Dict[str, Any], enriched_data: Dict[str, Any], thread_id: str) -> Dict[str, Any]:
         """Determine next action using LLM function calling."""
         try:
             function_schema = {
@@ -125,19 +138,32 @@ class NextActionAgent(BaseAgent):
             }
 
             # Format extracted data for analysis
+            missing_fields = validation_results.get("overall_validation", {}).get("missing_fields", [])
+            
+            # Apply FCL/LCL business rules to missing fields
+            missing_fields = self._apply_fcl_lcl_rules_to_missing_fields(missing_fields, extracted_data)
+            
+            # Check if customer has confirmed the details
+            customer_confirmed = self._check_customer_confirmation(conversation_state, email_classification)
+            
             data_summary = self._format_data_summary(extracted_data, missing_fields)
 
             prompt = f"""
-You are an expert logistics workflow coordinator. Determine the next action based on the current conversation state and data analysis.
+You are an expert logistics workflow coordinator. Determine the next action based on conversation state, email classification, and thread context.
 
 CONVERSATION STATE: {conversation_state}
-LATEST SENDER: {latest_sender}
+EMAIL CLASSIFICATION: {email_classification.get('email_type', 'unknown')} (confidence: {email_classification.get('confidence', 0.0):.2f})
 CONFIDENCE SCORE: {confidence_score:.2f}
+CUSTOMER CONFIRMED: {customer_confirmed}
+
+VALIDATION RESULTS:
+{json.dumps(validation_results, indent=2)}
+
+ENRICHED DATA:
+{json.dumps(enriched_data, indent=2)}
 
 EXTRACTED DATA SUMMARY:
 {data_summary}
-
-MISSING FIELDS: {missing_fields}
 
 AVAILABLE ACTIONS:
 1. send_clarification_request: Ask customer for missing information
@@ -150,36 +176,98 @@ AVAILABLE ACTIONS:
 8. route_to_appropriate_department: Route non-logistics emails
 9. wait_for_forwarder_response: Wait for forwarder to respond
 10. wait_for_customer_response: Wait for customer to respond
+11. send_forwarder_acknowledgment: Send acknowledgment to forwarder
+12. escalate_confusing_email: Escalate confusing/ambiguous email to human
 
-WORKFLOW RULES:
-1. **LOW CONFIDENCE (< 0.6)**: Escalate to human immediately
-2. **INCOMPLETE DATA (> 3 missing fields)**: Send clarification request to customer
-3. **COMPLETE DATA (new request)**: Send confirmation request to customer
-4. **CUSTOMER CONFIRMS**: Assign forwarders and send rate request emails
-5. **FORWARDER RESPONDS**: Collate rates and send summary to sales
-6. **UNCLEAR SITUATION**: Escalate to human
+INTELLIGENT ANALYSIS INSTRUCTIONS:
 
-SPECIFIC DECISIONS:
-- If customer gives incomplete details → send_clarification_request
-- If customer gives complete details → send_confirmation_request  
+**DATA QUALITY ANALYSIS:**
+- Analyze the validation results to understand data completeness and quality
+- Check if port codes are valid or if country names were provided instead
+- Evaluate if the enriched data contains specific port information or just country names
+- Assess the confidence levels across all validation fields
+- **CRITICAL**: Determine shipment type (FCL vs LCL) and apply appropriate field requirements
+
+**SMART DECISION MAKING:**
+
+**CONFIRMATION FLOW LOGIC:**
+- **Complete Data + No Customer Confirmation** → send_confirmation_request (ask customer to confirm)
+- **Complete Data + Customer Confirmed** → send_confirmation_acknowledgment (thank and proceed)
+- **Incomplete Data** → send_clarification_request (ask for missing info)
+- **Customer Confirmation Received** → proceed to next step (rate request, booking, etc.)
+
+**FCL SHIPMENT LOGIC:**
+- **Mandatory Fields**: Port names, shipment type, container type, shipment date
+- **Optional Fields**: Weight (not required for FCL)
+- **Never Required**: Volume (not needed for FCL - container type provides volume)
+- **Container Type Detection**: If container type is provided (20GP, 40GP, 40HC, etc.) → automatically FCL
+- **Container Type Required**: If shipment type is FCL but no container type → ask for container type
+- **Volume Logic**: For FCL with container type → NEVER ask for volume (container type determines volume)
+- **If customer confirms** → proceed with booking even without weight
+- **Only ask for weight** if explicitly missing AND customer hasn't confirmed
+
+**LCL SHIPMENT LOGIC:**
+- **Mandatory Fields**: Port names, shipment type, weight, volume, shipment date
+- **Both weight AND volume** are required for LCL
+- **No Container Type**: LCL shipments do NOT have container types
+- **Don't proceed** without both weight and volume
+- **Ask for missing weight/volume** even if customer confirms
+
+**FORWARDER EMAIL HANDLING:**
+- **forwarder_response**: When forwarder provides rates/quote → collate_rates_and_send_to_sales
+- **forwarder_acknowledgment**: When forwarder acknowledges request → send_forwarder_acknowledgment
+- **forwarder_inquiry**: When forwarder asks for more details → send_clarification_request
+
+**CUSTOMER EMAIL HANDLING:**
+- **logistics_request**: New customer request → send_confirmation_request or send_clarification_request
+- **customer_confirmation**: Customer confirms details → booking_details_confirmed_assign_forwarders
+- **customer_clarification**: Customer provides missing info → send_confirmation_request
+
+**GENERAL DECISION RULES:**
+- **Container Type Logic**: If container type is provided (20GP, 40GP, 40HC, etc.) → automatically set shipment_type to FCL
+- **Port Information**: If specific port names are provided (Shanghai, Los Angeles, etc.) → do NOT ask for port clarification
+- **Data Completeness**: Only ask for missing critical fields, not for information already provided
+- If validation shows invalid port codes but country names are provided → send_clarification_request for specific ports
+- If validation shows missing critical fields (ports, date, etc.) → send_clarification_request
+- If data is complete and valid → send_confirmation_request
 - If customer confirms details → booking_details_confirmed_assign_forwarders
-- If forwarder rates received → collate_rates_and_send_to_sales
-- If confidence < 0.6 or unclear → escalate_to_human
+- If forwarder provides rates → collate_rates_and_send_to_sales
+- If email is confusing/ambiguous → escalate_confusing_email
+
+**CONTEXT-AWARE REASONING:**
+- **PRIORITY 1**: Email classification determines the primary action
+- **PRIORITY 2**: Conversation state provides additional context
+- **PRIORITY 3**: Data validation results guide specific requirements
+- Consider the email classification and confidence level
+- Analyze the conversation state and progression
+- Evaluate the quality of extracted and enriched data
+- Make decisions based on the overall context, not just individual rules
+
+**EMAIL CLASSIFICATION PRIORITY:**
+- **forwarder_response** (95% confidence) → MUST route to collate_rates_and_send_to_sales
+- **customer_confirmation** → MUST route to booking_details_confirmed_assign_forwarders
+- **logistics_request** → Route to send_confirmation_request or send_clarification_request
+- **confusing_email** → MUST route to escalate_confusing_email
+
+**PRIORITY ASSESSMENT:**
+- High priority: Incomplete data, invalid port codes, missing critical information
+- Medium priority: Confirmation requests, standard responses
+- Low priority: Follow-ups, status updates
 
 PRIORITY LEVELS:
-- urgent: Customer frustration, high-value deals, immediate action needed
+- urgent: Customer frustration, high-value deals, confusing emails
 - high: Rate inquiries, booking requests, forwarder responses
 - medium: Clarification responses, confirmation replies
 - low: Follow-ups, status updates
 
 SALES HANDOFF RULES:
-- Only handoff when confidence < 0.6 (low confidence requires human intervention)
-- Only handoff when forwarder rates are received (forwarder_response conversation state)
-- Do NOT handoff for normal confirmation replies or new requests
-- Do NOT handoff for clarification responses
-- Do NOT handoff for rate inquiries (unless confidence is low)
+- Handoff when forwarder rates are received
+- Handoff for confusing emails (escalate_confusing_email)
+- Handoff when confidence < 0.6
+- Handoff for complex cases or escalations
+- Do NOT handoff for normal clarification/confirmation flows
 
-Determine the next action, priority, and whether escalation or sales handoff is needed.
+Determine the next action, priority, and whether escalation or sales handoff is needed based on ALL available context.
 """
 
             response = self.client.chat.completions.create(
@@ -242,10 +330,50 @@ Determine the next action, priority, and whether escalation or sales handoff is 
             if value and str(value).strip():
                 summary_parts.append(f"- {key}: {value}")
         
+        if missing_fields:
+            summary_parts.append(f"\nMissing fields: {', '.join(missing_fields)}")
+        
         if summary_parts:
             return "\n".join(summary_parts)
         else:
             return "No valid data extracted"
+
+    def _apply_fcl_lcl_rules_to_missing_fields(self, missing_fields: List[str], extracted_data: Dict[str, Any]) -> List[str]:
+        """Apply FCL/LCL business rules to filter missing fields."""
+        # Check if this is an FCL shipment (has container type)
+        container_type = extracted_data.get("container_type", "")
+        has_container_type = container_type and str(container_type).strip().upper() in [
+            "20GP", "40GP", "40HC", "20RF", "40RF", "20DC", "40DC", "20FT", "40FT"
+        ]
+        
+        if has_container_type:
+            # This is an FCL shipment - volume should NOT be required
+            if "volume" in missing_fields:
+                missing_fields.remove("volume")
+                print(f"✅ NEXT_ACTION: Removed volume from missing fields (FCL shipment with container type: {container_type})")
+        
+        return missing_fields
+
+    def _check_customer_confirmation(self, conversation_state: str, email_classification: Dict[str, Any]) -> bool:
+        """Check if customer has confirmed the shipment details."""
+        # Check conversation state for confirmation indicators
+        if "confirmation" in conversation_state.lower() or "confirmed" in conversation_state.lower():
+            return True
+        
+        # Check email classification for confirmation intent
+        email_type = email_classification.get("email_type", "").lower()
+        intent = email_classification.get("intent", "").lower()
+        
+        if "confirmation" in email_type or "confirmed" in intent:
+            return True
+        
+        # Check for confirmation keywords in email type
+        confirmation_keywords = ["confirmation", "confirmed", "yes", "correct", "proceed", "okay", "ok"]
+        for keyword in confirmation_keywords:
+            if keyword in email_type or keyword in intent:
+                return True
+        
+        return False
 
 # =====================================================
 #                 🔁 Test Harness

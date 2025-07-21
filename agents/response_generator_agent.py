@@ -102,9 +102,13 @@ class ResponseGeneratorAgent(BaseAgent):
         ]
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate customer-friendly response email using all agent outputs."""
+        print("📧 RESPONSE_GENERATOR: Starting response generation...")
+        
         if not self.client:
             return {"error": "LLM client not initialized"}
 
+        # Extract all input data
         classification_data = input_data.get("classification_data", {})
         confirmation_data = input_data.get("confirmation_data", {})
         extraction_data = input_data.get("extraction_data", {})
@@ -118,40 +122,25 @@ class ResponseGeneratorAgent(BaseAgent):
         sender = input_data.get("from", "customer@example.com")
         thread_id = input_data.get("thread_id", "")
         
-        # Randomly assign a sales person
+        # Assign a sales person for the response
         assigned_sales_person = random.choice(self.sales_team)
+        print(f"📧 RESPONSE_GENERATOR: Assigned sales person: {assigned_sales_person['name']}")
         
-        # Function schema for LLM output (OpenAI function-calling format)
+        # Simplified function schema for faster processing
         function_schema = {
             "name": "generate_response",
-            "description": "Generate a human-like, customer-friendly logistics response email using all agent outputs.",
+            "description": "Generate a customer-friendly logistics response email.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "response_subject": {"type": "string", "description": "Email subject line"},
-                    "response_body": {"type": "string", "description": "Email body, human-like, friendly, customer-focused"},
-                    "tone": {"type": "string", "description": "Tone of the message (friendly, professional, empathetic)"},
-                    "key_information_included": {"type": "array", "items": {"type": "string"}},
-                    "attachments_needed": {"type": "array", "items": {"type": "string"}},
-                    "next_steps": {"type": "string"},
-                    "urgency_level": {"type": "string"},
-                    "follow_up_required": {"type": "boolean"},
-                    "estimated_response_time": {"type": "string"},
-                    "extraction_method": {"type": "string"},
-                    "clarification_included": {"type": "boolean", "description": "Whether clarification questions were included"},
-                    "confirmation_handled": {"type": "boolean", "description": "Whether confirmation was handled appropriately"},
-                    "response_type": {"type": "string", "enum": ["clarification_request", "confirmation_response", "standard_response", "quote_response"], "description": "Type of response generated"},
+                    "response_body": {"type": "string", "description": "Email body, friendly and professional"},
+                    "response_type": {"type": "string", "enum": ["clarification_request", "confirmation_response", "standard_response", "quote_response", "escalation_response"], "description": "Type of response generated"},
                     "sales_person_name": {"type": "string", "description": "Name of the assigned sales person"},
-                    "sales_person_designation": {"type": "string", "description": "Designation of the sales person"},
-                    "sales_person_company": {"type": "string", "description": "Company of the sales person"},
                     "sales_person_email": {"type": "string", "description": "Email of the sales person"},
-                    "sales_person_phone": {"type": "string", "description": "Phone number of the sales person"},
-                    "sales_person_whatsapp": {"type": "string", "description": "WhatsApp number of the sales person"}
+                    "sales_person_phone": {"type": "string", "description": "Phone number of the sales person"}
                 },
-                "required": [
-                    "response_subject", "response_body", "tone", "key_information_included", "attachments_needed", "next_steps", "urgency_level", "follow_up_required", "estimated_response_time", "extraction_method", "clarification_included", "confirmation_handled", "response_type",
-                    "sales_person_name", "sales_person_designation", "sales_person_company", "sales_person_email", "sales_person_phone", "sales_person_whatsapp"
-                ]
+                "required": ["response_subject", "response_body", "response_type", "sales_person_name", "sales_person_email", "sales_person_phone"]
             }
         }
 
@@ -160,6 +149,22 @@ class ResponseGeneratorAgent(BaseAgent):
         clarification_message = clarification_data.get("clarification_message", "")
         clarification_details = clarification_data.get("clarification_details", [])
         missing_fields = clarification_data.get("missing_fields", [])
+        
+        # Get validation results for intelligent response generation
+        validation_data = input_data.get("validation_data", {})
+        validation_results = validation_data.get("validation_results", {})
+        overall_validation = validation_data.get("overall_validation", {})
+        
+        # Get missing fields from validation
+        missing_fields = overall_validation.get("missing_fields", [])
+        critical_issues = overall_validation.get("critical_issues", [])
+        warnings = overall_validation.get("warnings", [])
+        
+        # Apply FCL/LCL business rules to missing fields
+        missing_fields = self._apply_fcl_lcl_rules_to_missing_fields(missing_fields, extraction_data)
+        
+        # Analyze missing fields for better response generation
+        missing_fields = self._analyze_missing_fields_for_response(extraction_data, missing_fields)
         
         # Get smart clarification questions if available
         smart_questions = clarification_data.get("questions", [])
@@ -172,8 +177,42 @@ class ResponseGeneratorAgent(BaseAgent):
         confirmation_details = confirmation_data.get("confirmation_details", "")
         confirmation_confidence = confirmation_data.get("confidence", 0.0)
 
-        # Determine response type based on clarification and confirmation
-        if clarification_needed:
+        # Get next action decision for intelligent response generation
+        # The next action data comes from the previous agent in the workflow
+        next_action_data = input_data.get("next_action_data", {})
+        if not next_action_data:
+            # Try to get from decision result if available
+            decision_result = input_data.get("decision_result", {})
+            if decision_result:
+                next_action_data = decision_result
+        
+        # Ensure next_action_data is a dictionary
+        if not isinstance(next_action_data, dict):
+            next_action_data = {}
+        
+        next_action = next_action_data.get("next_action", "")
+        response_type_decision = next_action_data.get("response_type", "")
+        
+        # Determine response type based on next action decision (priority) and fallback to existing logic
+        if next_action == "send_clarification_request":
+            response_type = "clarification_request"
+        elif next_action == "send_confirmation_request":
+            response_type = "confirmation_response"
+        elif next_action == "booking_details_confirmed_assign_forwarders":
+            response_type = "confirmation_acknowledgment"  # Send acknowledgment to customer
+        elif next_action == "escalate_confusing_email":
+            response_type = "escalation_response"
+        elif next_action == "send_forwarder_acknowledgment":
+            response_type = "forwarder_acknowledgment"
+        elif next_action == "collate_rates_and_send_to_sales":
+            response_type = "sales_notification"  # This will trigger sales notification response
+        elif next_action == "notify_sales_team":
+            response_type = "sales_notification"
+        elif next_action == "send_status_update":
+            response_type = "status_update"
+        elif response_type_decision:  # Use decision from next action agent
+            response_type = response_type_decision
+        elif clarification_needed:  # Fallback to existing logic
             response_type = "clarification_request"
         elif is_confirmation:
             response_type = "confirmation_response"
@@ -194,212 +233,140 @@ class ResponseGeneratorAgent(BaseAgent):
         enriched_data = input_data.get("enriched_data", {})
         rate_data_enriched = enriched_data.get("rate_data", {})
         
-        # Use enriched port names if available, otherwise fall back to extraction data
-        origin_port_name = rate_data_enriched.get("origin_name", extraction_data.get("origin", ""))
-        destination_port_name = rate_data_enriched.get("destination_name", extraction_data.get("destination", ""))
+        # Format extracted data for better prompt generation
+        formatted_data = self._format_extracted_data_for_prompt(extraction_data)
+        
+        # Get appropriate response template
+        response_template = self._get_response_template(extraction_data, missing_fields, response_type)
+        
+        # Use enriched port names if available, otherwise fall back to formatted data
+        origin_port_name = rate_data_enriched.get("origin_name", formatted_data.get("origin", ""))
+        destination_port_name = rate_data_enriched.get("destination_name", formatted_data.get("destination", ""))
         
         # Use standardized container type if available
         container_standardization = enriched_data.get("container_standardization", {})
-        standardized_container_type = container_standardization.get("standard_type", extraction_data.get("container_type", ""))
+        standardized_container_type = container_standardization.get("standard_type", formatted_data.get("container_type", ""))
 
+        # Enhanced prompt with better business logic
         prompt = f"""
-You are an expert logistics customer service representative. Generate a comprehensive, customer-friendly response using the available information from our processing agents.
+Generate a customer-friendly logistics response email.
 
-ASSIGNED SALES PERSON:
-Name: {assigned_sales_person['name']}
-Designation: {assigned_sales_person['designation']}
-Company: {assigned_sales_person['company']}
-Email: {assigned_sales_person['email']}
-Phone: {assigned_sales_person['phone']}
-WhatsApp: {assigned_sales_person['whatsapp']}
+SALES PERSON: {assigned_sales_person['name']} ({assigned_sales_person['email']}, {assigned_sales_person['phone']})
 
-ORIGINAL EMAIL:
-Subject: {subject}
-From: {sender}
-Body: {email_text}
+CUSTOMER: {customer_name or 'Valued Customer'} from {customer_company or 'your company'}
 
-INFORMATION FROM AGENTS:
-Classification: {json.dumps(classification_data, indent=2)}
-Confirmation: {json.dumps(confirmation_data, indent=2)}
-Extraction: {json.dumps(extraction_data, indent=2)}
-Validation: {json.dumps(validation_data, indent=2)}
-Smart Clarification: {json.dumps(clarification_data, indent=2)}
-Container Standardization: {json.dumps(container_standardization_data, indent=2)}
-Port Lookup: {json.dumps(port_lookup_data, indent=2)}
-Rate: {json.dumps(rate_data, indent=2)}
+RESPONSE TYPE: {response_type}
+RESPONSE TEMPLATE: {response_template}
 
-EXTRACTED COMMODITY: {extraction_data.get('commodity', 'Not extracted')}
+EXTRACTED DATA:
+- Origin: {origin_port_name}
+- Destination: {destination_port_name}
+- Shipment Type: {formatted_data.get('shipment_type')}
+- Container: {standardized_container_type or formatted_data.get('container_type')}
+- Weight: {formatted_data.get('weight')}
+- Volume: {formatted_data.get('volume')}
+- Commodity: {formatted_data.get('commodity')}
+- Shipment Date: {formatted_data.get('shipment_date')}
+- Quantity: {formatted_data.get('quantity')}
 
-SMART CLARIFICATION STATUS:
-- Clarification needed: {clarification_needed}
-- Smart questions: {json.dumps(smart_questions, indent=2)}
-- Priorities: {json.dumps(smart_priorities, indent=2)}
-- Reasoning: {smart_reasoning}
-- Missing fields: {missing_fields}
+MISSING FIELDS: {missing_fields if missing_fields else 'None'}
 
-CONFIRMATION STATUS:
-- Is confirmation: {is_confirmation}
-- Confirmation type: {confirmation_type}
-- Confirmation details: {confirmation_details}
-- Confidence: {confirmation_confidence}
-
-CUSTOMER INFORMATION:
-- Customer name: {customer_name}
-- Customer company: {customer_company}
-
-SPECIAL INSTRUCTIONS/REQUIREMENTS:
-- Special instructions: {special_instructions}
-- Special requirements: {special_requirements}
-
-RATE INFORMATION:
-- Indicative Rate: {rate_data.get('indicative_rate', 'Not available')}
-- Rate Range: {rate_data.get('rate_recommendation', {}).get('rate_range', 'Not available')}
-- Match Type: {rate_data.get('rate_recommendation', {}).get('match_type', 'Not available')}
+RATE: {rate_data.get('indicative_rate', 'Not available')}
 
 RESPONSE STRATEGY:
-1. **CLARIFICATION REQUEST** (when clarification_needed = True):
-   - List all extracted details clearly first
-   - Ask for missing information using smart_questions
-   - Include indicative rate if available
-   - Be friendly and helpful, not demanding
-   - Explain why information is needed
+1. **FCL Shipments**: Ask for container type if missing, NEVER ask for volume
+2. **LCL Shipments**: Ask for both weight AND volume if missing
+3. **Port Information**: If only country provided, ask for specific ports
+4. **Be Specific**: Mention exactly what information is needed
+5. **Professional Sales Tone**: Warm, friendly, and professional like a real sales person
+6. **Natural Flow**: Sound human, not robotic
+7. **Rate Information**: Include if available, mention if not available
 
-2. **CONFIRMATION RESPONSE** (when is_confirmation = True):
-   - Acknowledge their confirmation enthusiastically
-   - Provide clear next steps
-   - Include indicative rate if available
-   - Be professional and reassuring
+RESPONSE FORMATTING:
+- Use structured format with bullet points for shipment details
+- Keep paragraphs natural and conversational
+- Avoid robotic phrases like "Next steps:" or "Please respond to this email"
+- Make it sound like a real sales person writing to a client
 
-3. **STANDARD RESPONSE** (when no clarification/confirmation needed):
-   - Confirm extracted details clearly
-   - Include indicative rate prominently
-   - Ask for WhatsApp if not found
-   - Provide clear next steps
+CONFIRMATION LOGIC:
+- **CONFIRMATION_REQUEST**: Present details naturally and ask for confirmation
+- **CONFIRMATION_ACKNOWLEDGMENT**: Thank customer warmly and proceed
+- Ask for confirmation in a friendly, professional way
 
-IMPORTANT INSTRUCTIONS:
-1. **ALWAYS include indicative rate** if available: "Indicative Rate: [rate] USD (freight cost only, based on current market analytics)"
-2. **Use port names** from port lookup results (not extraction)
-3. **Use standardized container type** from container standardization agent
-4. **Include exact commodity** from extraction - do not show "Not specified" if commodity was extracted
-5. **Be friendly, empathetic, and professional** - do not sound like a bot
-6. **Include clear next steps** and polite closing
-7. **Sign with sales person's details** and contact information
-8. **Include email chain** at the bottom
-9. **DO NOT mention** technical processes, validation, or forwarder assignment to customer
-10. **Focus on customer needs** and provide value
+SPECIFIC INSTRUCTIONS:
+- Write like a professional sales person, not a bot
+- Use warm, friendly tone while maintaining professionalism
+- Avoid robotic phrases like "We hope this email finds you well" or "Please respond to this email"
+- Be conversational and natural
+- If asking for container type (FCL), suggest common types: 20GP, 40GP, 40HC
+- If asking for ports, request SPECIFIC port names (e.g., "Shanghai", "Los Angeles", "New York") not just countries
+- If asking for weight/volume (LCL), specify units (tons, CBM)
+- Keep response concise and to the point
+- Be very specific about what information is needed
+- For ports, ask for the exact port/city name, not just "port name"
+- Use bullet points for shipment details but keep the rest conversational
 
-RESPONSE EXAMPLES:
+**RESPONSE EXAMPLES:**
 
-CLARIFICATION REQUEST:
-"Dear [customer_name if available, otherwise "valued customer"],
+**CONFIRMATION_REQUEST (Natural Sales Style):**
+"Hi [Customer Name],
 
-Thank you for your logistics request. Here's what I understand from your request:
+Thanks for reaching out about your shipment from [Origin] to [Destination]. I've reviewed your details and wanted to confirm everything before we proceed:
 
-• Origin: {origin_port_name}
-• Destination: {destination_port_name}
-• Shipment Type: {extraction_data.get('shipment_type', 'FCL')}
-• Container Type: {standardized_container_type}
-• Quantity: {extraction_data.get('quantity', '')}
-• Weight: {extraction_data.get('weight', '')}
-• Commodity: {extraction_data.get('commodity', '')}
-• Shipment Date: {extraction_data.get('shipment_date', '')}
+* Origin: [Origin]
+* Destination: [Destination]
+* Shipment Type: [Type]
+* Container: [Container Type]
+* Weight: [Weight]
+* Commodity: [Commodity]
+* Shipment Date: [Date]
+* Quantity: [Quantity]
 
-[If rate available: Indicative Rate: [rate] USD (freight cost only, based on current market analytics)]
+Could you please confirm these details are correct? Once you give me the green light, I'll get started on securing the best rates for you.
 
-To provide you with the most accurate quote and service, I need a few additional details:
-
-[Use the smart_questions from smart clarification agent - they are already conversational, for example:]
-• Could you please let us know when you'd like to ship this cargo?
-• Could you please specify the type of goods you wish to ship? (e.g., electronics, textiles, machinery, food products)
-
-[If smart_reasoning is available, use it to explain why the information is needed]
-
-Once you provide these details, I'll be able to give you a comprehensive quote and arrange everything for you.
+Feel free to reach out if you need any adjustments or have questions.
 
 Best regards,
-{assigned_sales_person['name']}
+[Sales Person Name]"
 
----
-Email Chain:
-From: {sender}
-Subject: {subject}
-Date: [current_date]
+**CLARIFICATION_REQUEST (Natural Sales Style):**
+"Hi [Customer Name],
 
-{email_text}
+Thanks for your inquiry about shipping from [Origin] to [Destination]. I just need a couple of details to get you the best rates:
 
----
-Reply:
-From: {assigned_sales_person['email']}
-Subject: Re: {subject}
-Date: [current_date]
+* [Missing field 1]: [Specific request]
+* [Missing field 2]: [Specific request]
 
-[Your generated response body goes here]"
+Once you provide these details, I'll be able to give you a comprehensive quote right away.
 
-CONFIRMATION RESPONSE:
-"Dear [customer_name if available, otherwise "valued customer"],
-
-Excellent! I'm pleased to confirm that I've received your [confirmation_type] for [confirmation_details].
-
-[If rate available: Indicative Rate: [rate] USD (freight cost only, based on current market analytics)]
-
-[Next steps based on confirmation type]
-
-I'll proceed with [specific action] and will keep you updated throughout the process.
+Looking forward to hearing from you!
 
 Best regards,
-{assigned_sales_person['name']}
+[Sales Person Name]"
 
----
-Email Chain:
-From: {sender}
-Subject: {subject}
-Date: [current_date]
+**CONFIRMATION_ACKNOWLEDGMENT (Natural Sales Style):**
+"Hi [Customer Name],
 
-{email_text}
+Perfect! Thanks for confirming the details. I've got everything I need to proceed with your shipment from [Origin] to [Destination].
 
----
-Reply:
-From: {assigned_sales_person['email']}
-Subject: Re: {subject}
-Date: [current_date]
+* Origin: [Origin]
+* Destination: [Destination]
+* Shipment Type: [Type]
+* Container: [Container Type]
+* Weight: [Weight]
+* Commodity: [Commodity]
+* Shipment Date: [Date]
+* Quantity: [Quantity]
 
-[Your generated response body goes here]"
+I'm now working on securing the best rates and arrangements for your shipment. I'll be in touch with a comprehensive quote and next steps shortly.
 
-STANDARD RESPONSE:
-"Dear [customer_name if available, otherwise "valued customer"],
+Regarding your question about insurance coverage for the electronics - yes, we can definitely arrange that. I'll include insurance options in the quote I send you.
 
-Thank you for your logistics request. Here's a summary of your shipment details:
-• Origin: {origin_port_name}
-• Destination: {destination_port_name}
-• Shipment Type: {extraction_data.get('shipment_type', 'FCL')}
-• Container Type: {standardized_container_type}
-• Quantity: {extraction_data.get('quantity', '')}
-• Weight: {extraction_data.get('weight', '')}
-• Commodity: {extraction_data.get('commodity', '')}
-• Shipment Date: {extraction_data.get('shipment_date', '')}
-
-[If rate available: Indicative Rate: [rate] USD (freight cost only, based on current market analytics)]
-
-Please confirm these details are correct so I can proceed with your booking.
+Thanks for choosing us for your logistics needs!
 
 Best regards,
-{assigned_sales_person['name']}
+[Sales Person Name]"
 
----
-Email Chain:
-From: {sender}
-Subject: {subject}
-Date: [current_date]
-
-{email_text}
-
----
-Reply:
-From: {assigned_sales_person['email']}
-Subject: Re: {subject}
-Date: [current_date]
-
-[Your generated response body goes here]"
 """
 
         # Ensure model is always a string
@@ -429,11 +396,133 @@ Date: [current_date]
             # Add assigned sales person information
             result["assigned_sales_person"] = assigned_sales_person
             
+            print(f"✅ RESPONSE_GENERATOR: Response generated successfully")
+            print(f"📧 RESPONSE_GENERATOR: Response type: {result.get('response_type', 'unknown')}")
+            
             return result
         except Exception as e:
             self.logger.error(f"LLM response generation failed: {e}")
+            print(f"❌ RESPONSE_GENERATOR: Error occurred - {str(e)}")
             return {"error": f"LLM response generation failed: {str(e)}"}
 
     def _now_iso(self):
         import datetime
         return datetime.datetime.utcnow().isoformat()
+
+    def _apply_fcl_lcl_rules_to_missing_fields(self, missing_fields: list, extracted_data: dict) -> list:
+        """Apply FCL/LCL business rules to filter missing fields."""
+        # Check if this is an FCL shipment (has container type)
+        container_type = extracted_data.get("container_type", "")
+        has_container_type = container_type and str(container_type).strip().upper() in [
+            "20GP", "40GP", "40HC", "20RF", "40RF", "20DC", "40DC", "20FT", "40FT"
+        ]
+        
+        if has_container_type:
+            # This is an FCL shipment - volume should NOT be required
+            if "volume" in missing_fields:
+                missing_fields.remove("volume")
+                print(f"✅ RESPONSE_GENERATOR: Removed volume from missing fields (FCL shipment with container type: {container_type})")
+        
+        return missing_fields
+
+    def _analyze_missing_fields_for_response(self, extracted_data: dict, missing_fields: list) -> list:
+        """Analyze what's actually missing vs what should be asked for based on shipment type."""
+        shipment_type = extracted_data.get("shipment_type", "")
+        
+        # FCL Logic
+        if shipment_type == "FCL":
+            # For FCL: container_type is mandatory, weight/volume optional
+            if not extracted_data.get("container_type"):
+                if "container_type" not in missing_fields:
+                    missing_fields.append("container_type")
+            # Remove volume/weight from missing fields for FCL
+            if "volume" in missing_fields:
+                missing_fields.remove("volume")
+                print(f"✅ RESPONSE_GENERATOR: Removed volume from missing fields (FCL shipment)")
+            if "weight" in missing_fields:
+                missing_fields.remove("weight")
+                print(f"✅ RESPONSE_GENERATOR: Removed weight from missing fields (FCL shipment)")
+        
+        # LCL Logic  
+        elif shipment_type == "LCL":
+            # For LCL: weight and volume are mandatory, no container type
+            if not extracted_data.get("weight"):
+                if "weight" not in missing_fields:
+                    missing_fields.append("weight")
+            if not extracted_data.get("volume"):
+                if "volume" not in missing_fields:
+                    missing_fields.append("volume")
+            # Remove container_type from missing fields for LCL
+            if "container_type" in missing_fields:
+                missing_fields.remove("container_type")
+                print(f"✅ RESPONSE_GENERATOR: Removed container_type from missing fields (LCL shipment)")
+        
+        # Port specificity logic
+        if not extracted_data.get("origin_name") and extracted_data.get("origin_country"):
+            if "origin_name" not in missing_fields:
+                missing_fields.append("origin_name")
+        if not extracted_data.get("destination_name") and extracted_data.get("destination_country"):
+            if "destination_name" not in missing_fields:
+                missing_fields.append("destination_name")
+        
+        return missing_fields
+
+    def _format_extracted_data_for_prompt(self, extracted_data: dict) -> dict:
+        """Format extracted data with proper NULL handling for better prompt generation."""
+        formatted = {}
+        
+        # Handle port information intelligently
+        if extracted_data.get("origin_name"):
+            formatted["origin"] = extracted_data["origin_name"]
+        elif extracted_data.get("origin_country"):
+            formatted["origin"] = f"country: {extracted_data['origin_country']}"
+        else:
+            formatted["origin"] = "Not specified"
+        
+        if extracted_data.get("destination_name"):
+            formatted["destination"] = extracted_data["destination_name"]
+        elif extracted_data.get("destination_country"):
+            formatted["destination"] = f"country: {extracted_data['destination_country']}"
+        else:
+            formatted["destination"] = "Not specified"
+        
+        # Handle other fields
+        formatted["shipment_type"] = extracted_data.get("shipment_type", "Not specified")
+        formatted["container_type"] = extracted_data.get("container_type", "Not specified")
+        formatted["weight"] = extracted_data.get("weight", "Not specified")
+        formatted["volume"] = extracted_data.get("volume", "Not specified")
+        formatted["commodity"] = extracted_data.get("commodity", "Not specified")
+        formatted["shipment_date"] = extracted_data.get("shipment_date", "Not specified")
+        formatted["quantity"] = extracted_data.get("quantity", "Not specified")
+        formatted["dangerous_goods"] = extracted_data.get("dangerous_goods", False)
+        formatted["special_requirements"] = extracted_data.get("special_requirements", "")
+        formatted["insurance"] = extracted_data.get("insurance", False)
+        formatted["packaging"] = extracted_data.get("packaging", "")
+        formatted["customs_clearance"] = extracted_data.get("customs_clearance", False)
+        
+        return formatted
+
+    def _get_response_template(self, extracted_data: dict, missing_fields: list, response_type: str) -> str:
+        """Get appropriate response template based on data completeness and type."""
+        shipment_type = extracted_data.get("shipment_type", "")
+        
+        if missing_fields:
+            if "container_type" in missing_fields and shipment_type == "FCL":
+                return "FCL_CLARIFICATION_CONTAINER"
+            elif ("weight" in missing_fields or "volume" in missing_fields) and shipment_type == "LCL":
+                return "LCL_CLARIFICATION_WEIGHT_VOLUME"
+            elif "origin_name" in missing_fields or "destination_name" in missing_fields:
+                return "CLARIFICATION_PORTS"
+            elif "shipment_date" in missing_fields:
+                return "CLARIFICATION_DATE"
+            else:
+                return "GENERAL_CLARIFICATION"
+        else:
+            if response_type == "confirmation_response":
+                return "CONFIRMATION_REQUEST"  # Ask customer to confirm details
+            elif response_type == "confirmation_acknowledgment":
+                return "CONFIRMATION_ACKNOWLEDGMENT"  # Thank for confirmation
+            elif response_type == "quote_response":
+                return "QUOTE_WITH_RATE"
+            else:
+                return "STANDARD_RESPONSE"

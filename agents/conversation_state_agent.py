@@ -76,6 +76,18 @@ class ConversationStateAgent(BaseAgent):
                             "enum": self.conversation_states,
                             "description": "Current conversation state based on thread analysis"
                         },
+                        "thread_context": {
+                            "type": "object",
+                            "properties": {
+                                "is_thread": {"type": "boolean", "description": "Whether this is part of an email thread"},
+                                "email_count": {"type": "integer", "description": "Number of emails in the thread"},
+                                "has_bot_response": {"type": "boolean", "description": "Whether bot has already responded in this thread"},
+                                "conversation_progression": {"type": "string", "description": "How the conversation has progressed (new request, clarification, confirmation, etc.)"},
+                                "missing_information": {"type": "array", "items": {"type": "string"}, "description": "Information still missing from customer"},
+                                "previous_topics": {"type": "array", "items": {"type": "string"}, "description": "Topics discussed in previous emails"}
+                            },
+                            "description": "Analysis of email thread context and progression"
+                        },
                         "latest_sender": {
                             "type": "string",
                             "enum": ["customer", "forwarder", "sales_team", "bot", "unknown"],
@@ -181,6 +193,14 @@ SALES HANDOFF RULES:
 - Handoff for complex cases or escalations
 - Handoff when customer wants to proceed with booking
 
+EMAIL THREAD ANALYSIS INSTRUCTIONS:
+1. **Thread Detection**: Look for email separators (---, "Previous Conversation:", "From:", timestamps)
+2. **Conversation Flow**: Analyze how the conversation has progressed
+3. **Context Extraction**: Identify what information has been exchanged
+4. **Missing Information**: Determine what details are still needed
+5. **Bot Interaction**: Check if bot has already responded and what was said
+6. **Customer Intent**: Understand what the customer wants to achieve
+
 ANALYSIS FACTORS:
 - Email thread content and progression
 - Sender identification (customer/forwarder/sales)
@@ -188,10 +208,13 @@ ANALYSIS FACTORS:
 - Urgency indicators
 - Conversation flow patterns
 - Response patterns (Re:, answering questions)
+- Thread length and complexity
 
 EMAIL TO ANALYZE:
 Subject: {subject}
 Thread Content: {email_text}
+
+IMPORTANT: Analyze the ENTIRE email thread, not just the latest email. Consider the conversation history and progression to make intelligent decisions about the current state and next action.
 
 Analyze this email thread and determine the conversation state, next action, and whether sales handoff is needed.
 """
