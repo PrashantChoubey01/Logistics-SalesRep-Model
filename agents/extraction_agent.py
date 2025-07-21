@@ -58,13 +58,21 @@ class ExtractionAgent(BaseAgent):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "origin": {
-                            "type": "string",
-                            "description": "Origin port or city (e.g., 'Shanghai', 'Hamburg', 'CNSHA')"
+                        "origin_name": {
+                            "type": ["string", "null"],
+                            "description": "Origin port/city name only if explicitly mentioned (e.g., 'Shanghai', 'Hamburg', 'Ningbo'). Leave as null if no specific port/city is mentioned."
                         },
-                        "destination": {
-                            "type": "string", 
-                            "description": "Destination port or city (e.g., 'Long Beach', 'Rotterdam', 'USLGB')"
+                        "origin_country": {
+                            "type": ["string", "null"],
+                            "description": "Origin country only if explicitly mentioned (e.g., 'China', 'Germany', 'USA'). Leave as null if no specific country is mentioned."
+                        },
+                        "destination_name": {
+                            "type": ["string", "null"], 
+                            "description": "Destination port/city name only if explicitly mentioned (e.g., 'Los Angeles', 'Rotterdam', 'New York'). Leave as null if no specific port/city is mentioned."
+                        },
+                        "destination_country": {
+                            "type": ["string", "null"],
+                            "description": "Destination country only if explicitly mentioned (e.g., 'USA', 'Netherlands', 'Germany'). Leave as null if no specific country is mentioned."
                         },
                         "shipment_type": {
                             "type": "string",
@@ -72,29 +80,29 @@ class ExtractionAgent(BaseAgent):
                             "enum": ["FCL", "LCL"]
                         },
                         "container_type": {
-                            "type": "string",
-                            "description": "Container type (e.g., '20GP', '40GP', '40HC', '20RF', '40RF')"
+                            "type": ["string", "null"],
+                            "description": "Container type if explicitly mentioned (e.g., '20GP', '40GP', '40HC', '20RF', '40RF'). Leave as null if not mentioned."
                         },
                         "quantity": {
-                            "type": "integer",
-                            "description": "Number of containers or packages",
+                            "type": ["integer", "null"],
+                            "description": "Number of containers or packages if explicitly mentioned. Leave as null if not mentioned.",
                             "minimum": 1
                         },
                         "weight": {
-                            "type": "string",
-                            "description": "Weight with unit (e.g., '25 tons', '15000 kg', '30000 lbs')"
+                            "type": ["string", "null"],
+                            "description": "Weight with unit if explicitly mentioned (e.g., '25 tons', '15000 kg', '30000 lbs'). Leave as null if not mentioned."
                         },
                         "volume": {
-                            "type": "string",
-                            "description": "Volume with unit (e.g., '67 CBM', '2400 ft3', '15 m3')"
+                            "type": ["string", "null"],
+                            "description": "Volume with unit if explicitly mentioned (e.g., '67 CBM', '2400 ft3', '15 m3'). Leave as null if not mentioned."
                         },
                         "shipment_date": {
-                            "type": "string",
-                            "description": "Shipment date, ready date, pickup date, or any date mentioned in the email. Look for dates in shipment details, requirements, or timeline sections. Examples: 'February 15th, 2025', '2024-07-15', 'July 15th', 'next week', '15th June 2025', 'ETD: March 20th'"
+                            "type": ["string", "null"],
+                            "description": "Shipment date if explicitly mentioned in the email. Examples: 'February 15th, 2025', '2024-07-15', 'July 15th', 'next week'. Leave as null if not mentioned."
                         },
                         "commodity": {
-                            "type": "string",
-                            "description": "Type of goods (e.g., 'electronics', 'textiles', 'machinery', 'food products')"
+                            "type": ["string", "null"],
+                            "description": "Type of goods if explicitly mentioned (e.g., 'electronics', 'textiles', 'machinery', 'food products'). Leave as null if not mentioned."
                         },
                         "dangerous_goods": {
                             "type": "boolean",
@@ -146,26 +154,65 @@ class ExtractionAgent(BaseAgent):
             }
 
             prompt = f"""
-Extract structured shipment information from the complete email thread below.
+Extract structured shipment information from the email content below.
+
+CRITICAL RULES:
+- Extract ONLY information that is EXPLICITLY mentioned in the email
+- DO NOT infer, assume, or add information that is not present
+- DO NOT use information from previous emails in the thread
+- If information is not mentioned, leave the field as null
+- Be conservative - it's better to miss information than to hallucinate it
 
 GUIDELINES:
-- Extract ALL information mentioned across the entire email thread
 - For container types, use standard codes: 20GP, 40GP, 40HC, 20RF, 40RF, etc.
 - For shipment type, determine FCL (Full Container Load) or LCL (Less Container Load)
 - Set dangerous_goods to true ONLY if explicitly mentioned (hazardous, dangerous, DG, IMDG, UN codes)
 - Include units for weight and volume exactly as mentioned
+
+**PORT AND COUNTRY EXTRACTION:**
+- **origin_name**: Extract ONLY the port/city name if explicitly mentioned (e.g., "Shanghai", "Los Angeles", "Hamburg"). If no specific port/city is mentioned, leave as null.
+- **origin_country**: Extract ONLY the country name if explicitly mentioned (e.g., "China", "USA", "Germany"). If no specific country is mentioned, leave as null.
+- **destination_name**: Extract ONLY the port/city name if explicitly mentioned (e.g., "Los Angeles", "Rotterdam", "New York"). If no specific port/city is mentioned, leave as null.
+- **destination_country**: Extract ONLY the country name if explicitly mentioned (e.g., "USA", "Netherlands", "Germany"). If no specific country is mentioned, leave as null.
+
+**SHIPMENT TYPE LOGIC:**
+- **Container Type Detection**: If container type is provided (20GP, 40GP, 40HC, 20RF, 40RF, etc.) → automatically set shipment_type to "FCL"
+- **LCL Detection**: If volume is mentioned without container type → set shipment_type to "LCL"
+- **Default**: If unclear, set shipment_type to "FCL" (most common)
+
+**EXAMPLES:**
+- "Shanghai, China" → origin_name: "Shanghai", origin_country: "China"
+- "Los Angeles, USA" → destination_name: "Los Angeles", destination_country: "USA"
+- "from China to USA" → origin_country: "China", destination_country: "USA" (no specific ports)
+- "shipping to Europe" → destination_country: null (too vague)
+- "2x40HC" → container_type: "40HC", shipment_type: "FCL", quantity: 2
+- "LCL 5 CBM" → shipment_type: "LCL", volume: "5 CBM" (no container_type)
+- "40GP container" → container_type: "40GP", shipment_type: "FCL"
+
 - IMPORTANT: Extract ANY date mentioned in the thread as shipment_date, including:
   * Ready Date, Shipment Date, Pickup Date, Loading Date, ETD (Estimated Time of Departure)
   * Dates in formats like "February 15th, 2025", "15th Feb 2025", "2025-02-15", "next week", "end of month"
   * Look for dates in shipment details, requirements, or timeline sections
+- IMPORTANT: Extract weight information from ANY format mentioned:
+  * "Weight: 15 tons" → weight: "15 tons"
+  * "15 tons" → weight: "15 tons"
+  * "weight 25,000 kg" → weight: "25,000 kg"
+  * "cargo weight: 30,000 lbs" → weight: "30,000 lbs"
+  * Look for weight in shipment details, requirements, or cargo descriptions
+- IMPORTANT: Extract volume information from ANY format mentioned:
+  * "Volume: 67 CBM" → volume: "67 CBM"
+  * "5 cubic meters" → volume: "5 CBM"
+  * "67 CBM" → volume: "67 CBM"
+  * Look for volume in shipment details, requirements, or cargo descriptions
 - Extract customer name from email signature or salutation (e.g., "Best regards, John Smith" → customer_name: "John Smith")
 - Extract company name from signature if available (e.g., "ABC Electronics Ltd." → customer_company: "ABC Electronics Ltd.")
 - For LCL shipments, volume is especially important
 - Look for insurance, packaging, customs clearance, and address requirements
 - For dangerous goods, identify required documents (MSDS, DG declaration, etc.)
-- IMPORTANT: Process the ENTIRE thread as one complete message - combine all information from all emails
-- If information is provided across multiple emails, merge it into a complete picture
-- Look for updates and corrections in follow-up emails
+- IMPORTANT: Focus ONLY on the current email content
+- DO NOT combine information from multiple emails
+- DO NOT use historical context from previous emails
+- Extract only what is explicitly stated in this email
 
 EXAMPLES:
 - "2x40ft FCL" → quantity: 2, container_type: "40GP", shipment_type: "FCL"
@@ -175,6 +222,12 @@ EXAMPLES:
 - "ready July 15th" → shipment_date: "July 15th"
 - "shipment date: 2025-03-20" → shipment_date: "2025-03-20"
 - "ETD: next week" → shipment_date: "next week"
+- "Weight: 15 tons" → weight: "15 tons"
+- "weight 25,000 kg" → weight: "25,000 kg"
+- "15 tons cargo" → weight: "15 tons"
+- "cargo weight: 30,000 lbs" → weight: "30,000 lbs"
+- "Volume: 67 CBM" → volume: "67 CBM"
+- "5 cubic meters" → volume: "5 CBM"
 - "dangerous goods" → dangerous_goods: true
 - "need insurance" → insurance: true
 - "wooden crates" → packaging: "wooden crates"
@@ -191,6 +244,8 @@ COMPLETE EMAIL THREAD:
 Use the extract_shipment_info function to return the extracted data from the complete thread.
 """
 
+
+            
             response = self.client.chat.completions.create(
                 model=self.config.get("model_name", "databricks-meta-llama-3-3-70b-instruct"),
                 messages=[{"role": "user", "content": prompt}],
@@ -219,7 +274,8 @@ Use the extract_shipment_info function to return the extracted data from the com
 
             # Ensure all expected fields exist
             expected_fields = [
-                "origin", "destination", "shipment_type", "container_type", "quantity",
+                "origin_name", "origin_country", "destination_name", "destination_country",
+                "shipment_type", "container_type", "quantity",
                 "weight", "volume", "shipment_date", "commodity", "dangerous_goods", "special_requirements",
                 "customer_name", "customer_company", "customer_email", "insurance", "packaging",
                 "customs_clearance", "delivery_address", "pickup_address", "documents_required"

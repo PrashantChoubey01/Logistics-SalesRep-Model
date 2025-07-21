@@ -319,6 +319,27 @@ def main():
             help="Paste the email content that needs to be processed"
         )
         
+        # Email Thread History
+        st.markdown("### 📧 Email Thread History")
+        
+        # Initialize thread history if not exists
+        if 'email_thread_history' not in st.session_state:
+            st.session_state.email_thread_history = []
+        
+        # Display current thread as structured JSON
+        if st.session_state.email_thread_history:
+            with st.expander("📚 Current Email Thread (JSON)", expanded=False):
+                st.json(st.session_state.email_thread_history)
+        
+        # Show formatted thread for reference
+        email_thread = st.text_area(
+            "Formatted Email Thread (Most Recent First)",
+            value=st.session_state.get('email_thread', ''),
+            height=200,
+            placeholder="Email thread will be built here automatically...",
+            help="Complete email conversation history (most recent emails at top)"
+        )
+        
         # Email metadata
         st.markdown("### 📋 Email Metadata")
         col1, col2 = st.columns(2)
@@ -338,7 +359,19 @@ def main():
         
         # Process button
         st.markdown("---")
-        process_button = st.button("🚀 Process Email", type="primary", use_container_width=True)
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            process_button = st.button("🚀 Process Email", type="primary", use_container_width=True)
+        
+        with col2:
+            clear_thread_button = st.button("🗑️ Clear Thread", use_container_width=True)
+            
+        # Clear thread if button clicked
+        if clear_thread_button:
+            st.session_state.email_thread = ""
+            st.session_state.email_thread_history = []
+            st.rerun()
     
     # Main content area
     if process_button and email_text:
@@ -351,9 +384,63 @@ def main():
                 st.error(f"❌ Failed to initialize orchestrator: {e}")
                 return
         
-        # Prepare email data
+        # Combine new email with existing thread
+        if st.session_state.email_thread_history:
+            # Build full email content from structured history
+            full_email_content = f"""
+{email_text}
+
+---
+Previous Conversation:
+"""
+            # Add previous emails in reverse chronological order (most recent first, excluding current email)
+            # Skip the first entry (current email) and show the rest in reverse order
+            previous_emails = st.session_state.email_thread_history[1:]  # Exclude current email
+            for email in previous_emails:
+                full_email_content += f"""
+From: {email['sender']}
+Subject: {email['subject']}
+Date: {email['timestamp']}
+
+{email['content']}
+
+"""
+        else:
+            full_email_content = email_text
+        
+        # Create structured email entry for customer email
+        customer_email_entry = {
+            "timestamp": timestamp,
+            "sender": sender,
+            "subject": subject,
+            "content": email_text,
+            "type": "customer",
+            "thread_id": thread_id
+        }
+        
+        # Add customer email to structured thread history (most recent first)
+        st.session_state.email_thread_history.insert(0, customer_email_entry)
+        
+        # Update formatted thread for backward compatibility (most recent first)
+        new_email_formatted = f"""
+From: {sender}
+Subject: {subject}
+Date: {timestamp}
+
+{email_text}
+
+"""
+        
+        if email_thread:
+            # Add new email at the top (most recent first)
+            st.session_state.email_thread = new_email_formatted + "---\n" + email_thread
+        else:
+            # First email
+            st.session_state.email_thread = new_email_formatted.strip()
+        
+        # Prepare email data with full thread
         email_data = {
-            'email_text': email_text,
+            'email_text': full_email_content,
             'subject': subject,
             'sender': sender,
             'thread_id': thread_id,
@@ -377,6 +464,58 @@ def main():
         
         # Display results
         st.markdown("## 📊 Processing Results")
+        
+        # Show current thread status
+        if st.session_state.email_thread_history:
+            with st.expander("📧 Current Email Thread", expanded=False):
+                st.markdown("**Structured conversation history being processed:**")
+                
+                # Display thread summary
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    customer_emails = len([e for e in st.session_state.email_thread_history if e['type'] == 'customer'])
+                    st.metric("Customer Emails", customer_emails)
+                
+                with col2:
+                    bot_responses = len([e for e in st.session_state.email_thread_history if e['type'] == 'bot'])
+                    st.metric("Bot Responses", bot_responses)
+                
+                with col3:
+                    total_emails = len(st.session_state.email_thread_history)
+                    st.metric("Total Messages", total_emails)
+                
+                # Show thread timeline (most recent first)
+                st.markdown("### 📅 Thread Timeline (Most Recent First)")
+                for i, email in enumerate(st.session_state.email_thread_history):
+                    if email['type'] == 'customer':
+                        st.markdown(f"**{i+1}. 📧 Customer** - {email['timestamp']} - {email['subject']}")
+                    else:
+                        st.markdown(f"**{i+1}. 🤖 Bot** - {email['timestamp']} - {email.get('response_type', 'response')}")
+                
+                # Show complete thread content
+                st.markdown("### 📝 Complete Thread Content")
+                complete_thread_content = ""
+                for email in st.session_state.email_thread_history:
+                    if email['type'] == 'customer':
+                        complete_thread_content += f"""
+From: {email['sender']}
+Subject: {email['subject']}
+Date: {email['timestamp']}
+
+{email['content']}
+
+"""
+                    else:
+                        complete_thread_content += f"""
+From: {email['sender']}
+Subject: {email['subject']}
+Date: {email['timestamp']}
+
+{email['content']}
+
+"""
+                
+                st.text_area("Thread Content", value=complete_thread_content.strip(), height=300, disabled=True)
         
         # Metrics dashboard
         create_metrics_dashboard(result)
@@ -448,21 +587,74 @@ def main():
         
         extracted_data = result.get('final_state', {}).get('extracted_data', {})
         if extracted_data:
-            # Convert to DataFrame for better display
-            data_items = []
-            for key, value in extracted_data.items():
-                if isinstance(value, (str, int, float, bool)):
-                    data_items.append({
-                        'Field': key.replace('_', ' ').title(),
-                        'Value': str(value),
-                        'Type': type(value).__name__
-                    })
+            # Display in organized sections
+            col1, col2 = st.columns(2)
             
-            if data_items:
-                df = pd.DataFrame(data_items)
-                st.dataframe(df, use_container_width=True)
-            else:
-                st.info("No structured data extracted")
+            with col1:
+                st.markdown("### 🏠 Port Information")
+                port_data = {
+                    "Origin Port": extracted_data.get('origin_port', 'N/A'),
+                    "Origin Country": extracted_data.get('origin_country', 'N/A'),
+                    "Destination Port": extracted_data.get('destination_port', 'N/A'),
+                    "Destination Country": extracted_data.get('destination_country', 'N/A'),
+                    "Origin (Full)": extracted_data.get('origin', 'N/A'),
+                    "Destination (Full)": extracted_data.get('destination', 'N/A')
+                }
+                
+                for key, value in port_data.items():
+                    if value and value != 'N/A':
+                        st.markdown(f"**{key}:** {value}")
+                
+                if not any(v and v != 'N/A' for v in port_data.values()):
+                    st.info("No port information extracted")
+            
+            with col2:
+                st.markdown("### 📦 Shipment Details")
+                shipment_data = {
+                    "Shipment Type": extracted_data.get('shipment_type', 'N/A'),
+                    "Container Type": extracted_data.get('container_type', 'N/A'),
+                    "Quantity": extracted_data.get('quantity', 'N/A'),
+                    "Weight": extracted_data.get('weight', 'N/A'),
+                    "Volume": extracted_data.get('volume', 'N/A'),
+                    "Shipment Date": extracted_data.get('shipment_date', 'N/A'),
+                    "Commodity": extracted_data.get('commodity', 'N/A')
+                }
+                
+                for key, value in shipment_data.items():
+                    if value and value != 'N/A':
+                        st.markdown(f"**{key}:** {value}")
+                
+                if not any(v and v != 'N/A' for v in shipment_data.values()):
+                    st.info("No shipment details extracted")
+            
+            # Additional information
+            st.markdown("### 📋 Additional Information")
+            additional_data = {
+                "Customer Name": extracted_data.get('customer_name', 'N/A'),
+                "Customer Company": extracted_data.get('customer_company', 'N/A'),
+                "Customer Email": extracted_data.get('customer_email', 'N/A'),
+                "Dangerous Goods": extracted_data.get('dangerous_goods', 'N/A'),
+                "Insurance": extracted_data.get('insurance', 'N/A'),
+                "Customs Clearance": extracted_data.get('customs_clearance', 'N/A'),
+                "Special Requirements": extracted_data.get('special_requirements', 'N/A'),
+                "Packaging": extracted_data.get('packaging', 'N/A'),
+                "Delivery Address": extracted_data.get('delivery_address', 'N/A'),
+                "Pickup Address": extracted_data.get('pickup_address', 'N/A')
+            }
+            
+            col1, col2, col3 = st.columns(3)
+            for i, (key, value) in enumerate(additional_data.items()):
+                if value and value != 'N/A':
+                    if i % 3 == 0:
+                        col1.markdown(f"**{key}:** {value}")
+                    elif i % 3 == 1:
+                        col2.markdown(f"**{key}:** {value}")
+                    else:
+                        col3.markdown(f"**{key}:** {value}")
+            
+            # Show raw extracted data in expander
+            with st.expander("🔍 Raw Extracted Data (JSON)"):
+                st.json(extracted_data)
         else:
             st.info("No data extracted")
         
@@ -642,27 +834,15 @@ def main():
         else:
             st.info("No rate recommendation available")
         
-        # Final response
-        st.markdown("## 📧 Final Response")
+        # Final response details (metadata only, since content is shown in Latest Bot Response)
+        st.markdown("## 📊 Response Details")
         
         final_response = result.get('final_response', {})
         if final_response:
-            col1, col2 = st.columns([2, 1])
+            col1, col2, col3 = st.columns(3)
             
             with col1:
-                # Response content
-                if 'response_body' in final_response:
-                    st.markdown("### 📝 Response Content")
-                    st.markdown(final_response['response_body'])
-                
-                if 'response_subject' in final_response:
-                    st.markdown("### 📋 Subject")
-                    st.info(final_response['response_subject'])
-            
-            with col2:
-                # Response metadata
-                st.markdown("### 📊 Response Metadata")
-                
+                st.markdown("### 📋 Response Metadata")
                 metadata = {
                     "Response Type": final_response.get('response_type', 'N/A'),
                     "Tone": final_response.get('tone', 'N/A'),
@@ -673,27 +853,156 @@ def main():
                 
                 for key, value in metadata.items():
                     st.markdown(f"**{key}:** {value}")
-                
-                # Sales person info
+            
+            with col2:
+                st.markdown("### 👤 Sales Person Details")
                 if 'sales_person_name' in final_response:
-                    st.markdown("### 👤 Assigned Sales Person")
                     st.markdown(f"**Name:** {final_response.get('sales_person_name', 'N/A')}")
                     st.markdown(f"**Designation:** {final_response.get('sales_person_designation', 'N/A')}")
                     st.markdown(f"**Company:** {final_response.get('sales_person_company', 'N/A')}")
                     st.markdown(f"**Email:** {final_response.get('sales_person_email', 'N/A')}")
                     st.markdown(f"**Phone:** {final_response.get('sales_person_phone', 'N/A')}")
+                else:
+                    st.info("No sales person assigned")
+            
+            with col3:
+                st.markdown("### 📈 Key Information")
+                key_info = final_response.get('key_information_included', [])
+                if key_info:
+                    st.markdown("**Included in response:**")
+                    for info in key_info:
+                        st.markdown(f"• {info}")
+                else:
+                    st.info("No key information tracked")
         else:
             st.info("No final response generated")
+        
+        # Latest Bot Response Display
+        st.markdown("## 🤖 Latest Bot Response")
+        
+        if final_response and 'response_body' in final_response:
+            # Display the latest bot response prominently
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.markdown("### 📝 Response Content")
+                st.markdown(final_response['response_body'])
+            
+            with col2:
+                st.markdown("### 📊 Response Details")
+                st.markdown(f"**Type:** {final_response.get('response_type', 'unknown')}")
+                st.markdown(f"**Tone:** {final_response.get('tone', 'professional')}")
+                st.markdown(f"**Urgency:** {final_response.get('urgency_level', 'normal')}")
+                st.markdown(f"**Follow-up Required:** {'Yes' if final_response.get('follow_up_required', False) else 'No'}")
+                st.markdown(f"**Response Time:** {final_response.get('estimated_response_time', 'N/A')}")
+                
+                # Sales person info
+                if 'sales_person_name' in final_response:
+                    st.markdown("### 👤 Assigned Sales Person")
+                    st.markdown(f"**Name:** {final_response.get('sales_person_name', 'N/A')}")
+                    st.markdown(f"**Email:** {final_response.get('sales_person_email', 'N/A')}")
+                    st.markdown(f"**Phone:** {final_response.get('sales_person_phone', 'N/A')}")
+        else:
+            st.warning("No bot response generated")
+        
+        # Get current timestamp for bot response
+        bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Add bot response to structured thread history (most recent first)
+        if final_response and 'response_body' in final_response:
+            bot_email_entry = {
+                "timestamp": bot_timestamp,
+                "sender": final_response.get('sales_person_email', 'logistics@company.com'),
+                "subject": f"Re: {subject}",
+                "content": final_response['response_body'],
+                "type": "bot",
+                "thread_id": thread_id,
+                "response_type": final_response.get('response_type', 'unknown'),
+                "next_action": result.get('final_state', {}).get('next_action', 'unknown')
+            }
+            # Insert bot response at the top (most recent first)
+            st.session_state.email_thread_history.insert(0, bot_email_entry)
+        
+        # Email Thread History
+        st.markdown("## 📧 Complete Email Thread History")
+        
+        if st.session_state.email_thread_history:
+            # Show complete thread in chronological order (oldest to newest)
+            st.markdown("### 📚 Full Conversation History")
+            
+            # Create complete thread display with proper numbering
+            complete_thread_display = ""
+            total_emails = len(st.session_state.email_thread_history)
+            
+            # Show emails in reverse chronological order (newest first)
+            for i, email in enumerate(st.session_state.email_thread_history):
+                email_number = i + 1
+                
+                if email['type'] == 'customer':
+                    complete_thread_display += f"""
+📧 CUSTOMER EMAIL #{email_number}
+From: {email['sender']}
+Subject: {email['subject']}
+Date: {email['timestamp']}
+
+{email['content']}
+
+"""
+                else:  # bot
+                    complete_thread_display += f"""
+🤖 BOT RESPONSE #{email_number}
+From: {email['sender']}
+Subject: {email['subject']}
+Date: {email['timestamp']}
+Type: {email.get('response_type', 'unknown')}
+Action: {email.get('next_action', 'unknown')}
+
+{email['content']}
+
+"""
+            
+            # Add thread summary
+            customer_count = len([e for e in st.session_state.email_thread_history if e['type'] == 'customer'])
+            bot_count = len([e for e in st.session_state.email_thread_history if e['type'] == 'bot'])
+            
+            st.markdown(f"**Thread Summary:** {total_emails} total messages ({customer_count} customer emails, {bot_count} bot responses)")
+            
+            st.text_area(
+                "Complete Email Thread",
+                value=complete_thread_display.strip(),
+                height=500,
+                disabled=True,
+                help="Complete email conversation history (newest to oldest)"
+            )
+            
+            # Show thread timeline for quick reference
+            with st.expander("📅 Thread Timeline", expanded=False):
+                st.markdown("**Reverse Chronological Order (Newest to Oldest):**")
+                for i, email in enumerate(st.session_state.email_thread_history):
+                    email_number = i + 1
+                    if email['type'] == 'customer':
+                        st.markdown(f"**{email_number}. 📧 Customer** - {email['timestamp']} - {email['subject']}")
+                    else:
+                        st.markdown(f"**{email_number}. 🤖 Bot** - {email['timestamp']} - {email.get('response_type', 'response')}")
+        else:
+            st.info("No email thread history available")
         
         # Debug information
         if enable_debug:
             st.markdown("## 🔍 Debug Information")
             
-            with st.expander("Raw Result Data"):
-                st.json(result)
+            col1, col2 = st.columns(2)
             
-            with st.expander("Final State"):
-                st.json(result.get('final_state', {}))
+            with col1:
+                with st.expander("Raw Result Data"):
+                    st.json(result)
+                
+                with st.expander("Final State"):
+                    st.json(result.get('final_state', {}))
+            
+            with col2:
+                with st.expander("Structured Thread History"):
+                    st.json(st.session_state.email_thread_history)
     
     else:
         # Welcome screen
