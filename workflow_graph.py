@@ -19,6 +19,7 @@ from workflow_nodes import (
     validation_node,
     rate_recommendation_node,
     decision_node,
+    clarification_request_node,
     confirmation_request_node,
     confirmation_acknowledgment_node,
     forwarder_assignment_node,
@@ -44,6 +45,7 @@ def create_workflow_graph():
     workflow.add_node("VALIDATION", validation_node)
     workflow.add_node("RATE_RECOMMENDATION", rate_recommendation_node)
     workflow.add_node("DECISION", decision_node)
+    workflow.add_node("CLARIFICATION_REQUEST", clarification_request_node)
     workflow.add_node("CONFIRMATION_REQUEST", confirmation_request_node)
     workflow.add_node("CONFIRMATION_ACKNOWLEDGMENT", confirmation_acknowledgment_node)
     workflow.add_node("FORWARDER_ASSIGNMENT", forwarder_assignment_node)
@@ -52,7 +54,7 @@ def create_workflow_graph():
     # Set entry point
     workflow.set_entry_point("EMAIL_INPUT")
     
-    # Add edges (with forwarder detection routing)
+    # Add edges for main flow
     workflow.add_edge("EMAIL_INPUT", "CONVERSATION_STATE")
     workflow.add_edge("CONVERSATION_STATE", "FORWARDER_DETECTION")
     
@@ -66,7 +68,7 @@ def create_workflow_graph():
         }
     )
     
-    # Customer path (existing flow)
+    # Add customer path edges
     workflow.add_edge("CLASSIFICATION", "DATA_EXTRACTION")
     workflow.add_edge("DATA_EXTRACTION", "DATA_ENRICHMENT")
     workflow.add_edge("DATA_ENRICHMENT", "VALIDATION")
@@ -78,6 +80,7 @@ def create_workflow_graph():
         "DECISION",
         route_decision,
         {
+            "CLARIFICATION_REQUEST": "CLARIFICATION_REQUEST",
             "CONFIRMATION_REQUEST": "CONFIRMATION_REQUEST",
             "CONFIRMATION_ACKNOWLEDGMENT": "CONFIRMATION_ACKNOWLEDGMENT",
             "FORWARDER_ASSIGNMENT": "FORWARDER_ASSIGNMENT",
@@ -85,11 +88,14 @@ def create_workflow_graph():
         }
     )
     
+    # Add forwarder assignment response
+    workflow.add_edge("FORWARDER_ASSIGNMENT", "FORWARDER_RESPONSE")
+    
     # Add edges to END
-    workflow.add_edge("FORWARDER_RESPONSE", END)  # Forwarder path ends here
+    workflow.add_edge("CLARIFICATION_REQUEST", END)
     workflow.add_edge("CONFIRMATION_REQUEST", END)
     workflow.add_edge("CONFIRMATION_ACKNOWLEDGMENT", END)
-    workflow.add_edge("FORWARDER_ASSIGNMENT", END)
+    workflow.add_edge("FORWARDER_RESPONSE", END)
     workflow.add_edge("ESCALATION", END)
     
     print("✅ LangGraph workflow created successfully")

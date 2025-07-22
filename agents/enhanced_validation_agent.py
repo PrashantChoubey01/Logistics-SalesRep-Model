@@ -213,13 +213,14 @@ VALIDATION REQUIREMENTS:
 7. Provide confidence scores
 8. Suggest corrections where needed
 
-IMPORTANT: For each field you validate, you MUST include the original input_value in your response. This shows what was actually provided for validation.
+IMPORTANT: For each field you validate, you MUST include the original input_value in your response. This shows what was actually provided for validation. DO NOT generate fake or example values - only validate what was actually provided.
 
 PORT CODE VALIDATION:
-- Check if port codes are valid (e.g., CNSHA, USNYC, DEHAM)
-- Validate port names and locations
-- Check for common port code variations
-- Suggest corrections for invalid codes
+- ONLY validate the port codes that were actually provided in the input data
+- DO NOT generate or suggest port codes if none were provided
+- If no port code is provided, mark as invalid with "No value provided"
+- Validate port names and locations only if provided
+- Check for common port code variations only if provided
 - Include the original input value in the validation result
 
 CONTAINER TYPE VALIDATION:
@@ -354,7 +355,8 @@ Provide detailed validation results with confidence scores and specific recommen
         
         summary_parts = []
         for key, value in extracted_data.items():
-            if value and str(value).strip():
+            # Only include non-null, non-empty values
+            if value is not None and str(value).strip() and str(value).lower() not in ['null', 'none', '']:
                 summary_parts.append(f"- {key}: {value}")
         
         if summary_parts:
@@ -383,12 +385,19 @@ Provide detailed validation results with confidence scores and specific recommen
         for extracted_key, validation_key in field_mapping.items():
             if extracted_key in extracted_data and validation_key in validation_results:
                 input_value = extracted_data[extracted_key]
-                if input_value and str(input_value).strip():
+                # Only set input_value if it's not null/empty
+                if input_value is not None and str(input_value).strip() and str(input_value).lower() not in ['null', 'none', '']:
                     # Ensure the validation result has the input_value field
                     if "input_value" not in validation_results[validation_key]:
                         validation_results[validation_key]["input_value"] = str(input_value)
                     elif not validation_results[validation_key]["input_value"]:
                         validation_results[validation_key]["input_value"] = str(input_value)
+                else:
+                    # Mark as invalid if input is null/empty
+                    validation_results[validation_key]["input_value"] = ""
+                    validation_results[validation_key]["is_valid"] = False
+                    validation_results[validation_key]["validation_notes"] = "No value provided"
+                    validation_results[validation_key]["confidence"] = 0.0
 
     def _apply_fcl_lcl_rules(self, result: Dict[str, Any], extracted_data: Dict[str, Any]) -> None:
         """Apply FCL/LCL business rules to filter missing fields."""

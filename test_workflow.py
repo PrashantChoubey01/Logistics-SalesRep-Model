@@ -11,7 +11,7 @@ from langgraph_orchestrator import LangGraphOrchestrator
 def main():
     """Run the workflow test."""
     print("🧪 Testing LangGraph Workflow")
-    print("=" * 40)
+    print("=" * 40) 
     
     # Initialize orchestrator
     orchestrator = LangGraphOrchestrator()

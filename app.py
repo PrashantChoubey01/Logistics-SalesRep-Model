@@ -27,6 +27,13 @@ except ImportError as e:
     st.error(f"❌ Failed to import LangGraph orchestrator: {e}")
     st.stop()
 
+# Import forwarder acknowledgment API
+try:
+    from api.forwarder_acknowledgment_api import generate_forwarder_acknowledgment, get_forwarder_mail_trail
+except ImportError as e:
+    st.error(f"❌ Failed to import forwarder acknowledgment API: {e}")
+    st.stop()
+
 # =====================================================
 #                 🎨 PAGE CONFIGURATION
 # =====================================================
@@ -308,6 +315,32 @@ st.markdown("""
         color: var(--text-primary);
     }
     
+    .email-display {
+        background-color: var(--email-bg);
+        border: 1px solid var(--email-border);
+        border-radius: 8px;
+        margin: 1rem 0;
+        overflow: hidden;
+        box-shadow: 0 2px 4px var(--shadow-color);
+    }
+    
+    .email-header {
+        background-color: var(--bg-tertiary);
+        padding: 1rem;
+        border-bottom: 1px solid var(--email-border);
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+    }
+    
+    .email-body {
+        padding: 1.5rem;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 1rem;
+        line-height: 1.6;
+        color: var(--text-primary);
+        white-space: pre-wrap;
+    }
+    
     .sidebar-section {
         background: var(--bg-secondary);
         border-radius: 8px;
@@ -491,6 +524,56 @@ def main():
         st.markdown("### 📧 Email Input")
         email_text = st.text_area(
             "Email Content",
+            value="""Dear SeaRates Team,
+
+I hope this email finds you well. I am reaching out regarding a shipping requirement for our company, TechCorp Solutions.
+
+We need to ship a significant volume of electronics from Jebel Ali, UAE to Mundra, India. Here are the details:
+
+**Shipment Details:**
+- Origin: Jebel Ali, UAE
+- Destination: Mundra, India
+- Container Type: 20GP
+- Quantity: 5 containers
+- Commodity: Electronics (Smartphones, Tablets, Laptops)
+- Weight: Approximately 25,000 kg per container
+- Volume: 67.2 CBM per container
+
+**Special Requirements:**
+- Temperature controlled environment (15-25°C)
+- Insurance coverage for full value
+- Door-to-door service preferred
+- Real-time tracking capability
+- Fastest transit time available
+- Flexible sailing dates between March 15-30, 2024
+
+**Additional Information:**
+- This is a regular monthly shipment
+- We have specific delivery requirements at destination
+- Need documentation assistance for customs clearance
+- Prefer a reliable forwarder with good track record
+
+Could you please provide:
+1. Competitive rates for this route
+2. Transit time options
+3. Available sailing dates
+4. Forwarder recommendations
+5. Insurance options and costs
+6. Door-to-door service availability
+
+We are looking to finalize this booking within the next 3-5 days, so a quick response would be greatly appreciated.
+
+Please feel free to contact me if you need any additional information.
+
+Best regards,
+Sarah Johnson
+Logistics Manager
+TechCorp Solutions
+Email: sarah.johnson@techcorp.com
+Phone: +1-555-0123
+Website: www.techcorp.com
+
+P.S. We have been working with SeaRates for the past 2 years and are very satisfied with your services.""",
             height=200,
             placeholder="Enter the email content here...",
             help="Paste the email content that needs to be processed"
@@ -502,6 +585,14 @@ def main():
         # Initialize thread history if not exists
         if 'email_thread_history' not in st.session_state:
             st.session_state.email_thread_history = []
+        
+        # Initialize forwarder acknowledgments if not exists
+        if 'forwarder_acknowledgments' not in st.session_state:
+            st.session_state.forwarder_acknowledgments = []
+        
+        # Initialize show_mail_trails flag if not exists
+        if 'show_mail_trails' not in st.session_state:
+            st.session_state.show_mail_trails = False
         
         # Display current thread as structured JSON
         if st.session_state.email_thread_history:
@@ -522,7 +613,7 @@ def main():
         col1, col2 = st.columns(2)
         
         with col1:
-            subject = st.text_input("Subject", value="Rate Request")
+            subject = st.text_input("Subject", value="Urgent: Jebel Ali to Mundra Electronics Shipment - 5x40HC - March 2024")
             sender = st.text_input("Sender", value="customer@example.com")
         
         with col2:
@@ -639,60 +730,73 @@ Date: {timestamp}
                 st.error(f"❌ Processing error: {e}")
                 return
         
-        # Display results
-        st.markdown("## 📊 Processing Results")
+        # =====================================================
+        #                 🤖 BOT RESPONSE (TOP PRIORITY)
+        # =====================================================
         
-        # Show current thread status
-        if st.session_state.email_thread_history:
-            with st.expander("📧 Current Email Thread", expanded=False):
-                st.markdown("**Structured conversation history being processed:**")
+        # Display the bot response prominently at the top
+        final_response = result.get('final_response', {})
+        
+        if final_response and 'response_body' in final_response:
+            st.markdown("## 🤖 Bot Response")
+            
+            # Create a styled response display
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.markdown("### 📝 Response Content")
                 
-                # Display thread summary
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    customer_emails = len([e for e in st.session_state.email_thread_history if e['type'] == 'customer'])
-                    st.metric("Customer Emails", customer_emails)
-                
-                with col2:
-                    bot_responses = len([e for e in st.session_state.email_thread_history if e['type'] == 'bot'])
-                    st.metric("Bot Responses", bot_responses)
-                
-                with col3:
-                    total_emails = len(st.session_state.email_thread_history)
-                    st.metric("Total Messages", total_emails)
-                
-                # Show thread timeline (most recent first)
-                st.markdown("### 📅 Thread Timeline (Most Recent First)")
-                for i, email in enumerate(st.session_state.email_thread_history):
-                    if email['type'] == 'customer':
-                        st.markdown(f"**{i+1}. 📧 Customer** - {email['timestamp']} - {email['subject']}")
-                    else:
-                        st.markdown(f"**{i+1}. 🤖 Bot** - {email['timestamp']} - {email.get('response_type', 'response')}")
-                
-                # Show complete thread content
-                st.markdown("### 📝 Complete Thread Content")
-                complete_thread_content = ""
-                for email in st.session_state.email_thread_history:
-                    if email['type'] == 'customer':
-                        complete_thread_content += f"""
-From: {email['sender']}
-Subject: {email['subject']}
-Date: {email['timestamp']}
+                # Display response in email-like format
+                response_display = f"""
+<div class="email-display">
+<div class="email-header">
+<strong>📧 Bot Response</strong><br>
+<small>From: {final_response.get('sales_person_name', 'SeaRates Team')} &lt;{final_response.get('sales_person_email', 'logistics@searates.com')}&gt;</small><br>
+<small>To: {sender}</small><br>
+<small>Subject: {final_response.get('response_subject', f'Re: {subject}')}</small><br>
+<small>Type: {final_response.get('response_type', 'unknown')}</small>
+</div>
 
-{email['content']}
-
-"""
-                    else:
-                        complete_thread_content += f"""
-From: {email['sender']}
-Subject: {email['subject']}
-Date: {email['timestamp']}
-
-{email['content']}
-
+<div class="email-body">
+{final_response['response_body']}
+</div>
+</div>
 """
                 
-                st.text_area("Thread Content", value=complete_thread_content.strip(), height=300, disabled=True)
+                st.markdown(response_display, unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("### 📊 Response Details")
+                st.markdown(f"**Type:** {final_response.get('response_type', 'unknown')}")
+                st.markdown(f"**Tone:** {final_response.get('tone', 'professional')}")
+                st.markdown(f"**Urgency:** {final_response.get('urgency_level', 'normal')}")
+                st.markdown(f"**Follow-up Required:** {'Yes' if final_response.get('follow_up_required', False) else 'No'}")
+                st.markdown(f"**Response Time:** {final_response.get('estimated_response_time', 'N/A')}")
+                
+                # Sales person info
+                if 'sales_person_name' in final_response:
+                    st.markdown("### 👤 Assigned Sales Person")
+                    st.markdown(f"**Name:** {final_response.get('sales_person_name', 'N/A')}")
+                    st.markdown(f"**Email:** {final_response.get('sales_person_email', 'N/A')}")
+                    st.markdown(f"**Phone:** {final_response.get('sales_person_phone', 'N/A')}")
+                
+                # Collate email info if available
+                collate_email = final_response.get('collate_email')
+                if collate_email:
+                    st.markdown("### 🎯 Sales Team Notification")
+                    st.markdown(f"**Subject:** {collate_email.get('subject', 'N/A')}")
+                    st.markdown(f"**Priority:** {collate_email.get('priority', 'N/A')}")
+                    st.markdown(f"**Customer:** {collate_email.get('customer_email', 'N/A')}")
+                    st.markdown(f"**Forwarder:** {collate_email.get('forwarder_email', 'N/A')}")
+        else:
+            st.warning("No bot response generated")
+        
+        # Get current timestamp for bot response
+        bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # =====================================================
+        #                 📊 WORKFLOW OVERVIEW
+        # =====================================================
         
         # Metrics dashboard
         create_metrics_dashboard(result)
@@ -1011,76 +1115,115 @@ Date: {email['timestamp']}
         else:
             st.info("No rate recommendation available")
         
-        # Final response details (metadata only, since content is shown in Latest Bot Response)
-        st.markdown("## 📊 Response Details")
+        # =====================================================
+        #                 📋 DETAILED WORKFLOW ANALYSIS
+        # =====================================================
         
-        final_response = result.get('final_response', {})
-        if final_response:
-            col1, col2, col3 = st.columns(3)
+        # Detailed workflow information
+        st.markdown("## 📋 Workflow Details")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # Workflow history
+            st.markdown("### 🔄 Workflow History")
+            workflow_history = result.get('final_state', {}).get('workflow_history', [])
             
-            with col1:
-                st.markdown("### 📋 Response Metadata")
-                metadata = {
-                    "Response Type": final_response.get('response_type', 'N/A'),
-                    "Tone": final_response.get('tone', 'N/A'),
-                    "Urgency Level": final_response.get('urgency_level', 'N/A'),
-                    "Follow Up Required": "Yes" if final_response.get('follow_up_required', False) else "No",
-                    "Estimated Response Time": final_response.get('estimated_response_time', 'N/A')
-                }
+            for i, node in enumerate(workflow_history):
+                status_icon = "✅" if i < len(workflow_history) - 1 else "🔄"
+                st.markdown(f"{status_icon} **{node}**")
+            
+            # Current status
+            st.markdown("### 📈 Current Status")
+            final_state = result.get('final_state', {})
+            
+            status_data = {
+                "Conversation State": final_state.get('conversation_state', 'N/A'),
+                "Email Type": final_state.get('email_type', 'N/A'),
+                "Intent": final_state.get('intent', 'N/A'),
+                "Confidence Score": f"{final_state.get('confidence_score', 0):.1%}",
+                "Next Action": final_state.get('next_action', 'N/A'),
+                "Workflow Complete": "Yes" if result.get('workflow_complete', False) else "No"
+            }
+            
+            for key, value in status_data.items():
+                st.markdown(f"**{key}:** {value}")
+        
+        with col2:
+            # Errors and warnings
+            st.markdown("### ⚠️ Issues")
+            
+            errors = result.get('final_state', {}).get('errors', [])
+            warnings = result.get('final_state', {}).get('warnings', [])
+            
+            if errors:
+                st.markdown("#### ❌ Errors")
+                for error in errors:
+                    st.error(error)
+            
+            if warnings:
+                st.markdown("#### ⚠️ Warnings")
+                for warning in warnings:
+                    st.warning(warning)
+            
+            if not errors and not warnings:
+                st.success("✅ No issues detected!")
+        
+        # =====================================================
+        #                 📊 AGENT DATA & ANALYSIS
+        # =====================================================
+        
+        # Show current thread status
+        if st.session_state.email_thread_history:
+            with st.expander("📧 Current Email Thread", expanded=False):
+                st.markdown("**Structured conversation history being processed:**")
                 
-                for key, value in metadata.items():
-                    st.markdown(f"**{key}:** {value}")
-            
-            with col2:
-                st.markdown("### 👤 Sales Person Details")
-                if 'sales_person_name' in final_response:
-                    st.markdown(f"**Name:** {final_response.get('sales_person_name', 'N/A')}")
-                    st.markdown(f"**Designation:** {final_response.get('sales_person_designation', 'N/A')}")
-                    st.markdown(f"**Company:** {final_response.get('sales_person_company', 'N/A')}")
-                    st.markdown(f"**Email:** {final_response.get('sales_person_email', 'N/A')}")
-                    st.markdown(f"**Phone:** {final_response.get('sales_person_phone', 'N/A')}")
-                else:
-                    st.info("No sales person assigned")
-            
-            with col3:
-                st.markdown("### 📈 Key Information")
-                key_info = final_response.get('key_information_included', [])
-                if key_info:
-                    st.markdown("**Included in response:**")
-                    for info in key_info:
-                        st.markdown(f"• {info}")
-                else:
-                    st.info("No key information tracked")
-        else:
-            st.info("No final response generated")
-        
-        # Latest Bot Response Display
-        st.markdown("## 🤖 Latest Bot Response")
-        
-        if final_response and 'response_body' in final_response:
-            # Display the latest bot response prominently
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                st.markdown("### 📝 Response Content")
-                st.markdown(final_response['response_body'])
-            
-            with col2:
-                st.markdown("### 📊 Response Details")
-                st.markdown(f"**Type:** {final_response.get('response_type', 'unknown')}")
-                st.markdown(f"**Tone:** {final_response.get('tone', 'professional')}")
-                st.markdown(f"**Urgency:** {final_response.get('urgency_level', 'normal')}")
-                st.markdown(f"**Follow-up Required:** {'Yes' if final_response.get('follow_up_required', False) else 'No'}")
-                st.markdown(f"**Response Time:** {final_response.get('estimated_response_time', 'N/A')}")
+                # Display thread summary
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    customer_emails = len([e for e in st.session_state.email_thread_history if e['type'] == 'customer'])
+                    st.metric("Customer Emails", customer_emails)
                 
-                # Sales person info
-                if 'sales_person_name' in final_response:
-                    st.markdown("### 👤 Assigned Sales Person")
-                    st.markdown(f"**Name:** {final_response.get('sales_person_name', 'N/A')}")
-                    st.markdown(f"**Email:** {final_response.get('sales_person_email', 'N/A')}")
-                    st.markdown(f"**Phone:** {final_response.get('sales_person_phone', 'N/A')}")
-        else:
-            st.warning("No bot response generated")
+                with col2:
+                    bot_responses = len([e for e in st.session_state.email_thread_history if e['type'] == 'bot'])
+                    st.metric("Bot Responses", bot_responses)
+                
+                with col3:
+                    total_emails = len(st.session_state.email_thread_history)
+                    st.metric("Total Messages", total_emails)
+                
+                # Show thread timeline (most recent first)
+                st.markdown("### 📅 Thread Timeline (Most Recent First)")
+                for i, email in enumerate(st.session_state.email_thread_history):
+                    if email['type'] == 'customer':
+                        st.markdown(f"**{i+1}. 📧 Customer** - {email['timestamp']} - {email['subject']}")
+                    else:
+                        st.markdown(f"**{i+1}. 🤖 Bot** - {email['timestamp']} - {email.get('response_type', 'response')}")
+                
+                # Show complete thread content
+                st.markdown("### 📝 Complete Thread Content")
+                complete_thread_content = ""
+                for email in st.session_state.email_thread_history:
+                    if email['type'] == 'customer':
+                        complete_thread_content += f"""
+From: {email['sender']}
+Subject: {email['subject']}
+Date: {email['timestamp']}
+
+{email['content']}
+
+"""
+                    else:
+                        complete_thread_content += f"""
+From: {email['sender']}
+Subject: {email['subject']}
+Date: {email['timestamp']}
+
+{email['content']}
+
+"""
+                
+                st.text_area("Thread Content", value=complete_thread_content.strip(), height=300, disabled=True)
         
         # Get current timestamp for bot response
         bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1157,9 +1300,62 @@ AI Logistics System
         
         # Check if forwarders were assigned
         forwarder_assignment = result.get('final_state', {}).get('forwarder_assignment', {})
+        forwarder_responses = result.get('final_state', {}).get('forwarder_responses', [])
         
         if forwarder_assignment and forwarder_assignment.get('assigned_forwarders'):
-            st.markdown("## 🔧 Forwarder Email Engagement")
+            st.markdown("## 🔧 Forwarder Assignment")
+            
+            # Show forwarder assignment status
+            st.success(f"✅ {len(forwarder_assignment['assigned_forwarders'])} forwarders assigned")
+            
+            # Show forwarder details
+            with st.expander("📋 Forwarder Details", expanded=False):
+                for i, forwarder in enumerate(forwarder_assignment['assigned_forwarders'], 1):
+                    st.markdown(f"**{i}. {forwarder.get('name', 'N/A')}**")
+                    st.markdown(f"   📧 {forwarder.get('email', 'N/A')}")
+                    st.markdown(f"   📞 {forwarder.get('phone', 'N/A')}")
+                    st.markdown(f"   🌍 {forwarder.get('country', 'N/A')}")
+                    st.markdown("---")
+            
+            # Show forwarder response emails immediately
+            if forwarder_responses:
+                st.markdown("### 📧 Forwarder Response Emails Generated")
+                st.info(f"📧 {len(forwarder_responses)} forwarder response emails ready to send")
+                
+                # Display forwarder response emails immediately
+                for i, response in enumerate(forwarder_responses, 1):
+                    st.markdown(f"**📧 Forwarder Response #{i}**")
+                    st.markdown(f"**To:** {response['forwarder_name']} <{response['forwarder_email']}>")
+                    st.markdown(f"**Subject:** {response['subject']}")
+                    st.markdown(f"**Date:** {response['timestamp']}")
+                    
+                    # Display forwarder email in styled format
+                    forwarder_display = f"""
+<div class="email-display">
+<div class="email-header">
+<strong>📧 Forwarder Rate Request</strong><br>
+<small>To: {response['forwarder_name']} &lt;{response['forwarder_email']}&gt;</small><br>
+<small>Subject: {response['subject']}</small><br>
+<small>Date: {response['timestamp']}</small>
+</div>
+
+<div class="email-body">
+{response['body']}
+</div>
+</div>
+"""
+                    st.markdown(forwarder_display, unsafe_allow_html=True)
+                    st.markdown("---")
+                
+                # Send button for forwarder acknowledgments
+                if st.button("📤 Send Forwarder Acknowledgments", type="primary", use_container_width=True):
+                    # Store forwarder responses in session state for mail trail display
+                    st.session_state.forwarder_acknowledgments = forwarder_responses
+                    st.session_state.show_mail_trails = True  # Flag to show mail trails
+                    st.success("✅ Forwarder acknowledgments sent! View mail trails below.")
+                    st.rerun()
+            else:
+                st.warning("⚠️ No forwarder response emails generated")
             
             col1, col2 = st.columns([2, 1])
             
@@ -1536,12 +1732,124 @@ AI Logistics System
             # Insert bot response at the top (most recent first)
             st.session_state.email_thread_history.insert(0, bot_email_entry)
         
-        # Email Thread History
-        st.markdown("## 📧 Complete Email Thread History")
+                # =====================================================
+        #                 📧 MAIL TRAIL DISPLAY
+        # =====================================================
         
-        if st.session_state.email_thread_history:
-            # Show complete thread in chronological order (oldest to newest)
-            st.markdown("### 📚 Full Conversation History")
+        # Check if we have emails to display
+        has_customer_emails = len(st.session_state.email_thread_history) > 0
+        has_forwarder_emails = len(st.session_state.forwarder_acknowledgments) > 0
+        show_mail_trails = st.session_state.get('show_mail_trails', False)
+        
+        # Show mail trail display if we have emails or if send button was clicked
+        if has_customer_emails or has_forwarder_emails or show_mail_trails:
+            st.markdown("## 📧 Mail Trail Display")
+            
+            # Add a note about the mail trail
+            if has_forwarder_emails:
+                st.success("✅ Forwarder acknowledgments sent! Below are the complete mail trails.")
+            else:
+                st.info("📧 Email conversation history:")
+            
+            # Customer Mail Trail
+            if has_customer_emails:
+                st.markdown("### 🤖 Customer Email Trail")
+                
+                # Display customer emails in chronological order
+                for i, email in enumerate(st.session_state.email_thread_history):
+                    if email['type'] == 'customer':
+                        st.markdown(f"**📧 Customer Email #{i+1}**")
+                        st.markdown(f"**From:** {email['sender']}")
+                        st.markdown(f"**Subject:** {email['subject']}")
+                        st.markdown(f"**Date:** {email['timestamp']}")
+                        
+                        # Display email content in styled format
+                        email_display = f"""
+<div class="email-display">
+<div class="email-header">
+<strong>📧 Customer Email</strong><br>
+<small>From: {email['sender']}</small><br>
+<small>Subject: {email['subject']}</small><br>
+<small>Date: {email['timestamp']}</small>
+</div>
+
+<div class="email-body">
+{email['content']}
+</div>
+</div>
+"""
+                        st.markdown(email_display, unsafe_allow_html=True)
+                        
+                    elif email['type'] == 'bot':
+                        st.markdown(f"**🤖 Bot Response #{i+1}**")
+                        st.markdown(f"**From:** {email['sender']}")
+                        st.markdown(f"**Subject:** {email['subject']}")
+                        st.markdown(f"**Date:** {email['timestamp']}")
+                        st.markdown(f"**Type:** {email.get('response_type', 'unknown')}")
+                        
+                        # Display bot response in styled format
+                        response_display = f"""
+<div class="email-display">
+<div class="email-header">
+<strong>🤖 Bot Response</strong><br>
+<small>From: {email['sender']}</small><br>
+<small>Subject: {email['subject']}</small><br>
+<small>Type: {email.get('response_type', 'unknown')}</small>
+</div>
+
+<div class="email-body">
+{email['content']}
+</div>
+</div>
+"""
+                        st.markdown(response_display, unsafe_allow_html=True)
+                    
+                    st.markdown("---")
+            
+            # Forwarder Mail Trail
+            if has_forwarder_emails:
+                st.markdown("### 🚢 Forwarder Email Trail")
+                
+                # Display forwarder acknowledgment emails
+                for i, ack in enumerate(st.session_state.forwarder_acknowledgments):
+                    st.markdown(f"**📧 Forwarder Email #{i+1}**")
+                    st.markdown(f"**To:** {ack['forwarder_name']} <{ack['forwarder_email']}>")
+                    st.markdown(f"**Subject:** {ack['subject']}")
+                    st.markdown(f"**Date:** {ack['timestamp']}")
+                    
+                    # Display forwarder email in styled format
+                    forwarder_display = f"""
+<div class="email-display">
+<div class="email-header">
+<strong>📧 Forwarder Rate Request</strong><br>
+<small>To: {ack['forwarder_name']} &lt;{ack['forwarder_email']}&gt;</small><br>
+<small>Subject: {ack['subject']}</small><br>
+<small>Date: {ack['timestamp']}</small>
+</div>
+
+<div class="email-body">
+{ack['body']}
+</div>
+</div>
+"""
+                    st.markdown(forwarder_display, unsafe_allow_html=True)
+                    
+                    # Add action buttons for each forwarder email
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        if st.button(f"📤 Send", key=f"send_forwarder_{i}", use_container_width=True):
+                            st.success(f"✅ Email sent to {ack['forwarder_name']}!")
+                            st.info("Note: This is a demo - emails are not actually sent")
+                    
+                    with col2:
+                        if st.button(f"📝 Edit", key=f"edit_forwarder_{i}", use_container_width=True):
+                            st.info("Edit functionality would open email editor")
+                    
+                    with col3:
+                        if st.button(f"📋 Copy", key=f"copy_forwarder_{i}", use_container_width=True):
+                            st.info("Email content copied to clipboard")
+                    
+                    st.markdown("---")
             
             # Create complete thread display with proper numbering
             complete_thread_display = ""
@@ -1664,7 +1972,7 @@ Action: {email.get('next_action', 'unknown')}
         # Sample email
         st.markdown("## 📧 Sample Email")
         
-        sample_email = """Hi, I need rates for 2x40HC from Shanghai to Los Angeles.
+        sample_email = """Hi, I need rates for 2x40HC from Jebel Ali to Mundra.
 Cargo: Electronics, weight: 25,000 kg, volume: 35 CBM
 Ready date: 20th April 2024
 

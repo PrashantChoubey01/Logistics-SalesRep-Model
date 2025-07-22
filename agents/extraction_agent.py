@@ -136,14 +136,7 @@ class ExtractionAgent(BaseAgent):
                             "type": "boolean",
                             "description": "Whether customer needs customs clearance services"
                         },
-                        "delivery_address": {
-                            "type": "string",
-                            "description": "Final delivery address if different from destination port"
-                        },
-                        "pickup_address": {
-                            "type": "string",
-                            "description": "Pickup address if different from origin port"
-                        },
+                        # Removed pickup_address and delivery_address as requested
                         "documents_required": {
                             "type": "array",
                             "items": {"type": "string"},
@@ -232,7 +225,6 @@ EXAMPLES:
 - "need insurance" → insurance: true
 - "wooden crates" → packaging: "wooden crates"
 - "customs clearance needed" → customs_clearance: true
-- "deliver to warehouse" → delivery_address: "warehouse"
 - "Best regards, John Smith" → customer_name: "John Smith"
 - "ABC Electronics Ltd." → customer_company: "ABC Electronics Ltd."
 - "I want to ship to Jebel Ali" → destination: "Jebel Ali"
@@ -278,7 +270,7 @@ Use the extract_shipment_info function to return the extracted data from the com
                 "shipment_type", "container_type", "quantity",
                 "weight", "volume", "shipment_date", "commodity", "dangerous_goods", "special_requirements",
                 "customer_name", "customer_company", "customer_email", "insurance", "packaging",
-                "customs_clearance", "delivery_address", "pickup_address", "documents_required"
+                "customs_clearance", "documents_required"
             ]
             
             for field in expected_fields:
