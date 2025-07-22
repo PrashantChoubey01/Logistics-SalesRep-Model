@@ -29,17 +29,20 @@ class NextActionAgent(BaseAgent):
         self.available_actions = [
             "send_clarification_request",
             "send_confirmation_request", 
-            "assign_forwarder_and_send_rate_request",
-            "collate_rates_and_send_to_sales",
-            "notify_sales_team",
-            "send_status_update",
-            "escalate_to_human",
-            "route_to_appropriate_department",
+            "send_confirmation_acknowledgment",
+            "booking_details_confirmed_assign_forwarders",
+            "send_forwarder_rate_request",
+            "send_rate_recommendation",
+            "send_rate_inquiry_response",
+            "send_booking_confirmation",
+            "send_forwarder_response_to_customer",
+            "send_follow_up",
+            "send_sales_notification",
+            "escalate_to_sales",
+            "escalate_confusing_email",
             "wait_for_forwarder_response",
             "wait_for_customer_response",
-            "booking_details_confirmed_assign_forwarders",
-            "send_forwarder_acknowledgment",
-            "escalate_confusing_email"
+            "no_action_required"
         ]
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:

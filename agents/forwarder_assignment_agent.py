@@ -15,7 +15,7 @@ from agents.base_agent import BaseAgent
 
 class ForwarderAssignmentAgent(BaseAgent):
     """Agent for assigning forwarders and generating rate requests."""
-    
+
     def __init__(self):
         super().__init__("forwarder_assignment_agent")
         self.logger = logging.getLogger(__name__)
@@ -110,7 +110,7 @@ class ForwarderAssignmentAgent(BaseAgent):
             
             print(f"✅ FORWARDER_ASSIGNMENT: Assigned {len(assigned_forwarders)} forwarders")
             return result
-            
+
         except Exception as e:
             self.logger.error(f"Forwarder assignment failed: {e}")
             print(f"❌ FORWARDER_ASSIGNMENT: Error - {str(e)}")
@@ -207,7 +207,7 @@ We are seeking competitive rates for the following shipment:
 * Quantity: {quantity}
 * Preferred Operator: {operator}"""
 
-        # Add special instructions section if any special requirements exist
+        # Add only essential special instructions to email body
         special_sections = []
         
         if special_instructions:
@@ -222,18 +222,7 @@ We are seeking competitive rates for the following shipment:
         if insurance:
             special_sections.append("* Insurance: Required - Please include insurance coverage options")
         
-        if packaging:
-            special_sections.append(f"* Packaging: {packaging}")
-        
-        if customs_clearance:
-            special_sections.append("* Customs Clearance: Required - Please include customs clearance services")
-        
-        if delivery_address:
-            special_sections.append(f"* Delivery Address: {delivery_address}")
-        
-        if pickup_address:
-            special_sections.append(f"* Pickup Address: {pickup_address}")
-        
+        # Only add critical special requirements to email body
         if special_sections:
             body += "\n\n**Special Requirements:**\n" + "\n".join(special_sections)
         
@@ -247,7 +236,7 @@ Please provide your best rates for this shipment, including:
 - Available sailing dates
 - Operator-specific rates if applicable"""
 
-        # Add specific requests based on special requirements
+        # Add specific requests based on critical special requirements
         if dangerous_goods:
             body += """
 - DG handling charges and documentation requirements
@@ -258,11 +247,6 @@ Please provide your best rates for this shipment, including:
             body += """
 - Insurance coverage options and costs
 - Coverage limits and terms"""
-        
-        if customs_clearance:
-            body += """
-- Customs clearance services and costs
-- Documentation requirements"""
         
         body += f"""
 
