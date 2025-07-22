@@ -278,10 +278,6 @@ EXTRACTED DATA:
 - Special Requirements: {special_requirements if special_requirements else 'None'}
 - Dangerous Goods: {'Yes' if dangerous_goods else 'No'}
 - Insurance: {'Required' if insurance else 'Not specified'}
-- Packaging: {packaging if packaging else 'Standard'}
-- Customs Clearance: {'Required' if customs_clearance else 'Not specified'}
-- Delivery Address: {delivery_address if delivery_address else 'Standard delivery'}
-- Pickup Address: {pickup_address if pickup_address else 'Standard pickup'}
 
 MISSING FIELDS: {missing_fields if missing_fields else 'None'}
 
@@ -340,10 +336,6 @@ Thanks for reaching out about your shipment from [Origin] to [Destination]. I've
 * Special Instructions: [Special Instructions]
 * Dangerous Goods: [Yes/No]
 * Insurance: [Required/Not specified]
-* Packaging: [Packaging details]
-* Customs Clearance: [Required/Not specified]
-* Delivery Address: [Address details]
-* Pickup Address: [Address details]
 
 Could you please confirm these details are correct? Once you give me the green light, I'll get started on securing the best rates for you.
 
@@ -385,10 +377,6 @@ Perfect! Thanks for confirming the details. I've got everything I need to procee
 * Special Instructions: [Special Instructions]
 * Dangerous Goods: [Yes/No]
 * Insurance: [Required/Not specified]
-* Packaging: [Packaging details]
-* Customs Clearance: [Required/Not specified]
-* Delivery Address: [Address details]
-* Pickup Address: [Address details]
 
 I'm now working on securing the best rates and arrangements for your shipment, including all your special requirements. I'll be in touch with a comprehensive quote and next steps shortly.
 

@@ -109,8 +109,7 @@ def conversation_state_node(state: WorkflowState) -> WorkflowState:
     
     try:
         # Load conversation state agent
-        agent = ConversationStateAgent()
-        agent.load_context()
+        agent = get_cached_agent(ConversationStateAgent, "conversation_state")
         
         result = agent.run({
             "email_text": state["email_text"],
@@ -145,8 +144,7 @@ def classification_node(state: WorkflowState) -> WorkflowState:
     
     try:
         # Load classification agent
-        agent = ClassificationAgent()
-        agent.load_context()
+        agent = get_cached_agent(ClassificationAgent, "classification")
         
         # Classify email
         print("🏷️ CLASSIFICATION: Running email classification...")
@@ -182,8 +180,7 @@ def data_extraction_node(state: WorkflowState) -> WorkflowState:
     
     try:
         # Load extraction agent
-        agent = ExtractionAgent()
-        agent.load_context()
+        agent = get_cached_agent(ExtractionAgent, "extraction")
         
         # Extract shipment data
         print("📋 DATA_EXTRACTION: Running data extraction...")
@@ -415,8 +412,7 @@ def validation_node(state: WorkflowState) -> WorkflowState:
     
     try:
         # Load validation agent
-        agent = EnhancedValidationAgent()
-        agent.load_context()
+        agent = get_cached_agent(EnhancedValidationAgent, "validation")
         
         # Get port codes from enriched data
         rate_data = state["enriched_data"].get("rate_data", {})

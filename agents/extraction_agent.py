@@ -157,10 +157,10 @@ class ExtractionAgent(BaseAgent):
 Extract structured shipment information from the email content below.
 
 CRITICAL RULES:
-- Extract ONLY information that is EXPLICITLY mentioned in the email
+- Extract information that is EXPLICITLY mentioned in the COMPLETE email thread
 - DO NOT infer, assume, or add information that is not present
-- DO NOT use information from previous emails in the thread
-- If information is not mentioned, leave the field as null
+- DO use information from the entire email thread including previous conversation
+- If information is not mentioned anywhere in the thread, leave the field as null
 - Be conservative - it's better to miss information than to hallucinate it
 
 GUIDELINES:
@@ -209,10 +209,10 @@ GUIDELINES:
 - For LCL shipments, volume is especially important
 - Look for insurance, packaging, customs clearance, and address requirements
 - For dangerous goods, identify required documents (MSDS, DG declaration, etc.)
-- IMPORTANT: Focus ONLY on the current email content
-- DO NOT combine information from multiple emails
-- DO NOT use historical context from previous emails
-- Extract only what is explicitly stated in this email
+- IMPORTANT: Extract from the COMPLETE email thread including previous conversation
+- DO combine information from the entire email thread
+- DO use historical context from previous emails in the thread
+- Extract all information explicitly stated anywhere in the email thread
 
 EXAMPLES:
 - "2x40ft FCL" → quantity: 2, container_type: "40GP", shipment_type: "FCL"
