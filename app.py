@@ -44,99 +44,276 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    /* Theme-aware color variables */
+    :root {
+        --primary-color: #667eea;
+        --secondary-color: #764ba2;
+        --success-color: #28a745;
+        --warning-color: #ffc107;
+        --error-color: #dc3545;
+        --info-color: #17a2b8;
+        
+        /* Light mode colors */
+        --bg-primary: #ffffff;
+        --bg-secondary: #f8f9fa;
+        --bg-tertiary: #e9ecef;
+        --text-primary: #212529;
+        --text-secondary: #6c757d;
+        --text-muted: #adb5bd;
+        --border-color: #dee2e6;
+        --shadow-color: rgba(0,0,0,0.1);
+        --card-bg: #ffffff;
+        --email-bg: #f8f9fa;
+        --email-border: #dee2e6;
+    }
+    
+    /* Dark mode colors */
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg-primary: #0e1117;
+            --bg-secondary: #262730;
+            --bg-tertiary: #1e1e1e;
+            --text-primary: #fafafa;
+            --text-secondary: #b0b0b0;
+            --text-muted: #808080;
+            --border-color: #404040;
+            --shadow-color: rgba(255,255,255,0.1);
+            --card-bg: #262730;
+            --email-bg: #1e1e1e;
+            --email-border: #404040;
+        }
+    }
+    
+    /* Streamlit dark mode detection */
+    .stApp[data-testid="stAppViewContainer"] {
+        background-color: var(--bg-primary) !important;
+    }
+    
     .main-header {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(90deg, var(--primary-color) 0%, var(--secondary-color) 100%);
         padding: 2rem;
         border-radius: 10px;
         color: white;
         text-align: center;
         margin-bottom: 2rem;
+        box-shadow: 0 4px 6px var(--shadow-color);
     }
     
     .workflow-node {
-        background: #f8f9fa;
-        border: 2px solid #dee2e6;
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
         border-radius: 8px;
         padding: 1rem;
         margin: 0.5rem 0;
         transition: all 0.3s ease;
+        color: var(--text-primary);
     }
     
     .workflow-node.completed {
-        background: #d4edda;
-        border-color: #28a745;
+        background: rgba(40, 167, 69, 0.1);
+        border-color: var(--success-color);
+        color: var(--text-primary);
     }
     
     .workflow-node.error {
-        background: #f8d7da;
-        border-color: #dc3545;
+        background: rgba(220, 53, 69, 0.1);
+        border-color: var(--error-color);
+        color: var(--text-primary);
     }
     
     .workflow-node.current {
-        background: #fff3cd;
-        border-color: #ffc107;
+        background: rgba(255, 193, 7, 0.1);
+        border-color: var(--warning-color);
         box-shadow: 0 0 10px rgba(255, 193, 7, 0.3);
+        color: var(--text-primary);
     }
     
     .metric-card {
-        background: white;
-        border: 1px solid #dee2e6;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
         border-radius: 8px;
         padding: 1.5rem;
         text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 4px var(--shadow-color);
+        color: var(--text-primary);
     }
     
     .metric-value {
         font-size: 2rem;
         font-weight: bold;
-        color: #667eea;
+        color: var(--primary-color);
     }
     
     .metric-label {
-        color: #6c757d;
+        color: var(--text-secondary);
         font-size: 0.9rem;
         margin-top: 0.5rem;
     }
     
-    .status-success {
-        color: #28a745;
-        font-weight: bold;
+    /* Email display styling */
+    .email-display {
+        background: var(--email-bg);
+        border: 1px solid var(--email-border);
+        border-radius: 8px;
+        padding: 20px;
+        margin: 10px 0;
+        color: var(--text-primary);
     }
     
-    .status-error {
-        color: #dc3545;
-        font-weight: bold;
+    .email-header {
+        border-bottom: 2px solid var(--primary-color);
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+        color: var(--text-primary);
+    }
+    
+    .email-body {
+        color: var(--text-primary);
+        line-height: 1.6;
+    }
+    
+    /* Section headers */
+    .section-header {
+        color: var(--text-primary);
+        border-bottom: 2px solid var(--primary-color);
+        padding-bottom: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    /* Status indicators */
+    .status-success {
+        color: var(--success-color);
+        background: rgba(40, 167, 69, 0.1);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--success-color);
     }
     
     .status-warning {
-        color: #ffc107;
-        font-weight: bold;
+        color: var(--warning-color);
+        background: rgba(255, 193, 7, 0.1);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--warning-color);
     }
     
+    .status-error {
+        color: var(--error-color);
+        background: rgba(220, 53, 69, 0.1);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--error-color);
+    }
+    
+    .status-info {
+        color: var(--info-color);
+        background: rgba(23, 162, 184, 0.1);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--info-color);
+    }
+    
+    /* Card styling */
+    .info-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        box-shadow: 0 2px 4px var(--shadow-color);
+        color: var(--text-primary);
+    }
+    
+    /* Text colors */
+    .text-primary {
+        color: var(--text-primary) !important;
+    }
+    
+    .text-secondary {
+        color: var(--text-secondary) !important;
+    }
+    
+    .text-muted {
+        color: var(--text-muted) !important;
+    }
+    
+    /* Background colors */
+    .bg-primary {
+        background-color: var(--bg-primary) !important;
+    }
+    
+    .bg-secondary {
+        background-color: var(--bg-secondary) !important;
+    }
+    
+    .bg-tertiary {
+        background-color: var(--bg-tertiary) !important;
+    }
+    
+    /* Responsive design */
+    @media (max-width: 768px) {
+        .main-header {
+            padding: 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .metric-card {
+            padding: 1rem;
+        }
+        
+        .email-display {
+            padding: 15px;
+        }
+    }
+    
+    /* Hover effects */
+    .workflow-node:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px var(--shadow-color);
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px var(--shadow-color);
+    }
+    
+    /* Animation for status changes */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+        .fade-in {
+        animation: fadeIn 0.3s ease-in-out;
+    }
+    
+    /* Additional utility classes for dark/light mode compatibility */
     .workflow-graph {
-        background: white;
-        border: 1px solid #dee2e6;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
         border-radius: 8px;
         padding: 1rem;
         margin: 1rem 0;
+        color: var(--text-primary);
     }
     
     .email-preview {
-        background: #f8f9fa;
-        border: 1px solid #dee2e6;
+        background: var(--email-bg);
+        border: 1px solid var(--email-border);
         border-radius: 8px;
         padding: 1rem;
         margin: 1rem 0;
         font-family: 'Courier New', monospace;
         font-size: 0.9rem;
+        color: var(--text-primary);
     }
     
     .sidebar-section {
-        background: #f8f9fa;
+        background: var(--bg-secondary);
         border-radius: 8px;
         padding: 1rem;
         margin: 1rem 0;
+        color: var(--text-primary);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -907,6 +1084,442 @@ Date: {email['timestamp']}
         
         # Get current timestamp for bot response
         bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # =====================================================
+        #                 🚨 ESCALATION SECTION
+        # =====================================================
+        
+        # Check if workflow was escalated
+        final_state = result.get('final_state', {})
+        next_action = final_state.get('next_action', '')
+        current_node = final_state.get('current_node', '')
+        
+        if current_node == 'ESCALATION' or 'escalate' in next_action.lower():
+            st.markdown("## 🚨 Escalation to Human")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.error("⚠️ **Email Escalated to Human**")
+                st.markdown("""
+                **Reason for Escalation:**
+                - Low confidence in processing
+                - Complex or unclear request
+                - System error or timeout
+                - Manual intervention required
+                """)
+                
+                # Escalation details
+                escalation_data = {
+                    "Escalation Reason": final_state.get('escalation_reason', 'Low confidence or system error'),
+                    "Confidence Score": f"{final_state.get('confidence_score', 0):.1%}",
+                    "Escalation Time": bot_timestamp,
+                    "Assigned To": "Sales Team",
+                    "Priority": "High" if final_state.get('confidence_score', 0) < 0.5 else "Medium"
+                }
+                
+                for key, value in escalation_data.items():
+                    st.markdown(f"**{key}:** {value}")
+            
+            with col2:
+                st.markdown("### 📧 Escalation Email Template")
+                
+                escalation_email = f"""Subject: URGENT - Manual Review Required - {subject}
+
+Dear Sales Team,
+
+An email has been escalated for manual review:
+
+**Customer Details:**
+- From: {sender}
+- Subject: {subject}
+- Thread ID: {thread_id}
+- Escalation Time: {bot_timestamp}
+
+**Escalation Reason:**
+{escalation_data['Escalation Reason']}
+
+**Original Email Content:**
+{email_text[:500]}{'...' if len(email_text) > 500 else ''}
+
+**Required Action:**
+Please review this email and respond appropriately to the customer.
+
+Best regards,
+AI Logistics System
+"""
+                
+                st.text_area("Escalation Email", value=escalation_email, height=300, disabled=True)
+        
+        # =====================================================
+        #                 🔧 FORWARDER ENGAGEMENT SECTION
+        # =====================================================
+        
+        # Check if forwarders were assigned
+        forwarder_assignment = result.get('final_state', {}).get('forwarder_assignment', {})
+        
+        if forwarder_assignment and forwarder_assignment.get('assigned_forwarders'):
+            st.markdown("## 🔧 Forwarder Email Engagement")
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.markdown("### 📧 Rate Requests Sent to Forwarders")
+                
+                # Display forwarder assignment summary
+                assignment_summary = {
+                    "Total Forwarders": forwarder_assignment.get('total_forwarders', 0),
+                    "Origin Country": forwarder_assignment.get('origin_country', 'N/A'),
+                    "Destination Country": forwarder_assignment.get('destination_country', 'N/A'),
+                    "Assignment Method": forwarder_assignment.get('assignment_method', 'N/A'),
+                    "Rate Requests Generated": len(forwarder_assignment.get('rate_requests', []))
+                }
+                
+                for key, value in assignment_summary.items():
+                    st.markdown(f"**{key}:** {value}")
+                
+                # Show forwarder details
+                st.markdown("### 🔧 Assigned Forwarders")
+                forwarders = forwarder_assignment.get('assigned_forwarders', [])
+                
+                for i, forwarder in enumerate(forwarders, 1):
+                    with st.expander(f"{i}. {forwarder['name']}", expanded=False):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown(f"**Email:** {forwarder['email']}")
+                            st.markdown(f"**Phone:** {forwarder['phone']}")
+                            st.markdown(f"**Operator:** {forwarder.get('operator', 'N/A')}")
+                        
+                        with col2:
+                            st.markdown(f"**Specialties:** {', '.join(forwarder.get('specialties', []))}")
+                            st.markdown(f"**Rating:** {forwarder.get('rating', 'N/A')}")
+                            st.markdown(f"**Country:** {forwarder.get('country', 'N/A')}")
+            
+            with col2:
+                st.markdown("### 📊 Forwarder Engagement Stats")
+                
+                # Engagement metrics
+                engagement_metrics = {
+                    "Rate Requests Sent": len(forwarder_assignment.get('rate_requests', [])),
+                    "Response Expected": "24 hours",
+                    "Follow-up Required": "Yes",
+                    "Status": "Pending Responses"
+                }
+                
+                for key, value in engagement_metrics.items():
+                    st.metric(key, value)
+                
+                # Show rate request preview
+                if forwarder_assignment.get('rate_requests'):
+                    st.markdown("### 📝 Rate Request Preview")
+                    
+                    # Show first rate request as example
+                    first_request = forwarder_assignment['rate_requests'][0]
+                    
+                    with st.expander("📧 Sample Rate Request Email", expanded=False):
+                        st.markdown(f"**To:** {first_request['forwarder_name']}")
+                        st.markdown(f"**Subject:** {first_request['subject']}")
+                        st.markdown("**Body:**")
+                        st.text_area("Email Content", value=first_request['body'], height=200, disabled=True)
+        
+        # =====================================================
+        #                 📧 FORWARDER RATE REQUEST EMAILS
+        # =====================================================
+        
+        # Display all forwarder rate request emails
+        if forwarder_assignment and forwarder_assignment.get('rate_requests'):
+            st.markdown("## 📧 Forwarder Rate Request Emails")
+            st.markdown("### 📤 Emails to be sent to forwarders for rate procurement")
+            
+            # Show summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total Emails", len(forwarder_assignment['rate_requests']))
+            
+            with col2:
+                st.metric("Origin Country", forwarder_assignment.get('origin_country', 'N/A'))
+            
+            with col3:
+                st.metric("Destination Country", forwarder_assignment.get('destination_country', 'N/A'))
+            
+            with col4:
+                st.metric("Shipment Type", "FCL" if forwarder_assignment.get('rate_requests') else 'N/A')
+            
+            # Display rate request emails in dropdown format
+            st.markdown("### 📧 Rate Request Emails")
+            
+            # Create a summary table first
+            email_summary_data = []
+            for i, rate_request in enumerate(forwarder_assignment['rate_requests'], 1):
+                shipment_details = rate_request['shipment_details']
+                email_summary_data.append({
+                    "Email #": i,
+                    "Forwarder": rate_request['forwarder_name'],
+                    "Email": rate_request['forwarder_email'],
+                    "Operator": shipment_details.get('operator', 'N/A'),
+                    "Route": f"{shipment_details.get('origin', 'N/A')} → {shipment_details.get('destination', 'N/A')}",
+                    "Container": shipment_details.get('container_type', 'N/A'),
+                    "Status": "Ready to Send"
+                })
+            
+            # Display summary table
+            if email_summary_data:
+                summary_df = pd.DataFrame(email_summary_data)
+                st.dataframe(summary_df, use_container_width=True)
+            
+            # Display each email in expandable sections
+            for i, rate_request in enumerate(forwarder_assignment['rate_requests'], 1):
+                shipment_details = rate_request['shipment_details']
+                
+                # Create expander title with key information
+                expander_title = f"📧 Email #{i}: {rate_request['forwarder_name']} ({shipment_details.get('operator', 'N/A')}) - {shipment_details.get('origin', 'N/A')} → {shipment_details.get('destination', 'N/A')}"
+                
+                with st.expander(expander_title, expanded=False):
+                    # Email header information
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.markdown("**📋 Email Details:**")
+                        st.markdown(f"**To:** {rate_request['forwarder_name']}")
+                        st.markdown(f"**Email:** {rate_request['forwarder_email']}")
+                        st.markdown(f"**Subject:** {rate_request['subject']}")
+                        st.markdown(f"**Operator:** {shipment_details.get('operator', 'N/A')}")
+                        
+                        # Shipment details summary
+                        st.markdown("**📦 Shipment Details:**")
+                        st.markdown(f"- **Route:** {shipment_details.get('origin', 'N/A')} → {shipment_details.get('destination', 'N/A')}")
+                        st.markdown(f"- **Container:** {shipment_details.get('container_type', 'N/A')}")
+                        st.markdown(f"- **Weight:** {shipment_details.get('weight', 'N/A')}")
+                        st.markdown(f"- **Commodity:** {shipment_details.get('commodity', 'N/A')}")
+                        st.markdown(f"- **Shipment Date:** {shipment_details.get('shipment_date', 'N/A')}")
+                    
+                    with col2:
+                        # Email status and actions
+                        st.markdown("**📊 Status:**")
+                        st.success("✅ Ready to Send")
+                        
+                        st.markdown("**⚡ Quick Actions:**")
+                        if st.button(f"📤 Send", key=f"send_email_{i}", use_container_width=True):
+                            st.success(f"✅ Email sent to {rate_request['forwarder_name']}!")
+                            st.info("Note: This is a demo - emails are not actually sent")
+                        
+                        if st.button(f"📝 Edit", key=f"edit_email_{i}", use_container_width=True):
+                            st.info("Edit functionality would open email editor")
+                        
+                        if st.button(f"📋 Copy", key=f"copy_email_{i}", use_container_width=True):
+                            st.info("Email content copied to clipboard")
+                    
+                    # Email body in styled format
+                    st.markdown("**📝 Email Content:**")
+                    
+                    # Create a styled email display
+                    email_display = f"""
+<div class="email-display">
+<div class="email-header">
+<strong>📧 Rate Request Email</strong><br>
+<small>From: DP World Logistics Team &lt;rates@dpworld.com&gt;</small><br>
+<small>To: {rate_request['forwarder_name']} &lt;{rate_request['forwarder_email']}&gt;</small><br>
+<small>Subject: {rate_request['subject']}</small>
+</div>
+
+<div class="email-body">
+{rate_request['body'].replace('**', '<strong>').replace('*', '•')}
+</div>
+</div>
+"""
+                    
+                    st.markdown(email_display, unsafe_allow_html=True)
+                    
+                    # Forwarder details in a sub-expander
+                    with st.expander("🔧 Forwarder Details", expanded=False):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("**👤 Forwarder Information:**")
+                            st.markdown(f"- **Name:** {rate_request['forwarder_name']}")
+                            st.markdown(f"- **Email:** {rate_request['forwarder_email']}")
+                            st.markdown(f"- **Phone:** {rate_request['forwarder_phone']}")
+                            
+                            # Find forwarder details for additional info
+                            forwarder_details = next((f for f in forwarder_assignment['assigned_forwarders'] 
+                                                    if f['name'] == rate_request['forwarder_name']), None)
+                            if forwarder_details:
+                                st.markdown(f"- **Operator:** {forwarder_details.get('operator', 'N/A')}")
+                                st.markdown(f"- **Specialties:** {', '.join(forwarder_details.get('specialties', []))}")
+                        
+                        with col2:
+                            st.markdown("**📦 Complete Shipment Info:**")
+                            for key, value in shipment_details.items():
+                                if key != 'operator':  # Already shown above
+                                    st.markdown(f"- **{key.replace('_', ' ').title()}:** {value}")
+            
+            # Bulk actions with enhanced functionality
+            st.markdown("### 🚀 Bulk Actions")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                if st.button("📤 Send All Emails", type="primary", use_container_width=True):
+                    st.success("✅ All rate request emails sent!")
+                    st.info("Note: This is a demo - emails are not actually sent")
+            
+            with col2:
+                if st.button("📊 Track Responses", use_container_width=True):
+                    st.info("📊 Response tracking dashboard would open")
+                    st.markdown("**Expected Responses:** 24 hours")
+                    st.markdown("**Follow-up Required:** Yes")
+            
+            with col3:
+                if st.button("📋 Export Email List", use_container_width=True):
+                    st.info("📋 Email list exported to CSV")
+                    st.markdown("**Format:** Forwarder, Email, Subject, Status")
+            
+            with col4:
+                if st.button("🔍 Preview All", use_container_width=True):
+                    st.info("🔍 All emails expanded for preview")
+                    st.markdown("**Tip:** Use individual expanders for detailed view")
+        
+        # =====================================================
+        #                 📊 FORWARDER RESPONSE TRACKING
+        # =====================================================
+        
+        # Add forwarder response tracking section
+        if forwarder_assignment and forwarder_assignment.get('rate_requests'):
+            st.markdown("## 📊 Forwarder Response Tracking")
+            
+            # Create a mock response tracking table
+            response_data = []
+            for rate_request in forwarder_assignment['rate_requests']:
+                response_data.append({
+                    "Forwarder": rate_request['forwarder_name'],
+                    "Email": rate_request['forwarder_email'],
+                    "Subject": rate_request['subject'],
+                    "Sent Date": datetime.now().strftime("%Y-%m-%d"),
+                    "Status": "Pending",
+                    "Expected Response": "24 hours",
+                    "Follow-up": "Required",
+                    "Operator": rate_request['shipment_details'].get('operator', 'N/A')
+                })
+            
+            # Display as a table
+            if response_data:
+                df = pd.DataFrame(response_data)
+                st.dataframe(df, use_container_width=True)
+                
+                # Response statistics
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Sent", len(response_data))
+                
+                with col2:
+                    st.metric("Pending", len(response_data))
+                
+                with col3:
+                    st.metric("Responses", 0)
+                
+                with col4:
+                    st.metric("Response Rate", "0%")
+        
+        # =====================================================
+        #                 📧 EMAIL RECIPIENT SELECTION
+        # =====================================================
+        
+        # Add email recipient selection interface
+        st.markdown("## 📧 Email Recipient Selection")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 👤 Send Email To")
+            
+            # Email recipient options
+            recipient_options = ["Customer", "Forwarder", "Sales Team", "Custom"]
+            selected_recipient = st.selectbox("Choose Recipient", recipient_options, index=0)
+            
+            if selected_recipient == "Customer":
+                st.info("📧 **Customer Email** - Standard response to customer")
+                st.markdown(f"**Recipient:** {sender}")
+                st.markdown(f"**Subject:** Re: {subject}")
+                
+            elif selected_recipient == "Forwarder":
+                st.info("🔧 **Forwarder Email** - Rate request or follow-up")
+                
+                # Show available forwarders
+                if forwarder_assignment and forwarder_assignment.get('assigned_forwarders'):
+                    forwarder_names = [f['name'] for f in forwarder_assignment['assigned_forwarders']]
+                    selected_forwarder = st.selectbox("Select Forwarder", forwarder_names, index=0)
+                    
+                    # Find selected forwarder details
+                    selected_fwd = next((f for f in forwarder_assignment['assigned_forwarders'] if f['name'] == selected_forwarder), None)
+                    
+                    if selected_fwd:
+                        st.markdown(f"**Recipient:** {selected_fwd['email']}")
+                        st.markdown(f"**Forwarder:** {selected_fwd['name']}")
+                        st.markdown(f"**Operator:** {selected_fwd.get('operator', 'N/A')}")
+                else:
+                    st.warning("No forwarders assigned yet")
+                    
+            elif selected_recipient == "Sales Team":
+                st.info("🚨 **Sales Team Email** - Escalation or notification")
+                st.markdown("**Recipient:** sales@company.com")
+                st.markdown("**Subject:** Manual Review Required")
+                
+            elif selected_recipient == "Custom":
+                custom_email = st.text_input("Custom Email Address", placeholder="Enter email address")
+                custom_subject = st.text_input("Custom Subject", placeholder="Enter subject")
+                if custom_email:
+                    st.markdown(f"**Recipient:** {custom_email}")
+                    st.markdown(f"**Subject:** {custom_subject}")
+        
+        with col2:
+            st.markdown("### 📝 Email Content")
+            
+            # Email content options based on recipient
+            if selected_recipient == "Customer":
+                content_options = ["Confirmation", "Clarification Request", "Rate Quote", "Status Update", "Custom"]
+                selected_content = st.selectbox("Email Type", content_options, index=0)
+                
+                if selected_content == "Confirmation":
+                    st.success("✅ Confirmation email template")
+                elif selected_content == "Clarification Request":
+                    st.warning("❓ Clarification request template")
+                elif selected_content == "Rate Quote":
+                    st.info("💰 Rate quote template")
+                elif selected_content == "Status Update":
+                    st.info("📊 Status update template")
+                elif selected_content == "Custom":
+                    custom_content = st.text_area("Custom Email Content", height=150)
+                    
+            elif selected_recipient == "Forwarder":
+                content_options = ["Rate Request", "Follow-up", "Rate Negotiation", "Custom"]
+                selected_content = st.selectbox("Email Type", content_options, index=0)
+                
+                if selected_content == "Rate Request":
+                    st.info("💰 Rate request template")
+                elif selected_content == "Follow-up":
+                    st.warning("⏰ Follow-up template")
+                elif selected_content == "Rate Negotiation":
+                    st.info("🤝 Rate negotiation template")
+                elif selected_content == "Custom":
+                    custom_content = st.text_area("Custom Email Content", height=150)
+                    
+            elif selected_recipient == "Sales Team":
+                content_options = ["Escalation", "Notification", "Custom"]
+                selected_content = st.selectbox("Email Type", content_options, index=0)
+                
+                if selected_content == "Escalation":
+                    st.error("🚨 Escalation template")
+                elif selected_content == "Notification":
+                    st.info("📢 Notification template")
+                elif selected_content == "Custom":
+                    custom_content = st.text_area("Custom Email Content", height=150)
+            
+            # Send button
+            if st.button("📧 Send Email", type="primary"):
+                st.success(f"✅ Email sent to {selected_recipient}!")
+                st.info("Note: This is a demo - emails are not actually sent")
         
         # Add bot response to structured thread history (most recent first)
         if final_response and 'response_body' in final_response:
