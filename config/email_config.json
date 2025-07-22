@@ -1,0 +1,32 @@
+{
+  "smtp_server": "smtp.gmail.com",
+  "smtp_port": 587,
+  "sender_email": "logistics@dummycompany.com",
+  "sender_password": "dummy_password",
+  "enable_email_sending": false,
+  "test_mode": true,
+  "allowed_domains": [
+    "dummycompany.com",
+    "test.com",
+    "example.com"
+  ],
+  "max_emails_per_request": 2,
+  "email_templates": {
+    "customer_acknowledgment": {
+      "subject_template": "Thank you for your confirmation",
+      "body_template": "Dear Customer,\n\nThank you for your {confirmation_message}. I'm pleased to confirm that I've received your confirmation and will proceed accordingly.\n\nI will reach out to you shortly with the rates and further details for your shipment.\n\nIf you have any questions in the meantime, please don't hesitate to contact us.\n\nBest regards,\nLogistics AI Assistant"
+    },
+    "forwarder_notification": {
+      "subject_template": "New Shipment Assignment - {origin_country} to {destination_country}",
+      "body_template": "Dear {forwarder_name} Team,\n\nA new shipment has been assigned to your company for handling.\n\n**Shipment Details:**\n- Origin Country: {origin_country}\n- Destination Country: {destination_country}\n- Customer Email: {customer_email}\n- Shipment Type: {shipment_type}\n- Container Type: {container_type}\n\nPlease review the shipment details and contact the customer to proceed with the booking process. Rate requested within 24 hours.\n\nIf you have any questions or need additional information, please contact our support team.\n\nBest regards,\nLogistics AI System"
+    }
+  },
+  "confirmation_messages": {
+    "booking_confirmation": "booking confirmation for {details}",
+    "quote_acceptance": "acceptance of our quote for {details}",
+    "shipment_approval": "approval of shipment details for {details}",
+    "schedule_confirmation": "confirmation of the schedule for {details}",
+    "document_approval": "approval of documents for {details}",
+    "no_confirmation": "your message regarding {details}"
+  }
+} 
