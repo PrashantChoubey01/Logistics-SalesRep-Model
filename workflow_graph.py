@@ -11,6 +11,8 @@ from workflow_nodes import (
     WorkflowState,
     email_input_node,
     conversation_state_node,
+    forwarder_detection_node,
+    forwarder_response_node,
     classification_node,
     data_extraction_node,
     data_enrichment_node,
@@ -34,6 +36,8 @@ def create_workflow_graph():
     # Add nodes
     workflow.add_node("EMAIL_INPUT", email_input_node)
     workflow.add_node("CONVERSATION_STATE", conversation_state_node)
+    workflow.add_node("FORWARDER_DETECTION", forwarder_detection_node)
+    workflow.add_node("FORWARDER_RESPONSE", forwarder_response_node)
     workflow.add_node("CLASSIFICATION", classification_node)
     workflow.add_node("DATA_EXTRACTION", data_extraction_node)
     workflow.add_node("DATA_ENRICHMENT", data_enrichment_node)
@@ -48,9 +52,21 @@ def create_workflow_graph():
     # Set entry point
     workflow.set_entry_point("EMAIL_INPUT")
     
-    # Add edges (linear flow)
+    # Add edges (with forwarder detection routing)
     workflow.add_edge("EMAIL_INPUT", "CONVERSATION_STATE")
-    workflow.add_edge("CONVERSATION_STATE", "CLASSIFICATION")
+    workflow.add_edge("CONVERSATION_STATE", "FORWARDER_DETECTION")
+    
+    # Add conditional routing based on forwarder detection
+    workflow.add_conditional_edges(
+        "FORWARDER_DETECTION",
+        forwarder_routing_decision,
+        {
+            "FORWARDER_PATH": "FORWARDER_RESPONSE",
+            "CUSTOMER_PATH": "CLASSIFICATION"
+        }
+    )
+    
+    # Customer path (existing flow)
     workflow.add_edge("CLASSIFICATION", "DATA_EXTRACTION")
     workflow.add_edge("DATA_EXTRACTION", "DATA_ENRICHMENT")
     workflow.add_edge("DATA_ENRICHMENT", "VALIDATION")
@@ -70,10 +86,23 @@ def create_workflow_graph():
     )
     
     # Add edges to END
+    workflow.add_edge("FORWARDER_RESPONSE", END)  # Forwarder path ends here
     workflow.add_edge("CONFIRMATION_REQUEST", END)
     workflow.add_edge("CONFIRMATION_ACKNOWLEDGMENT", END)
     workflow.add_edge("FORWARDER_ASSIGNMENT", END)
     workflow.add_edge("ESCALATION", END)
     
     print("✅ LangGraph workflow created successfully")
-    return workflow 
+    return workflow
+
+def forwarder_routing_decision(state: WorkflowState) -> str:
+    """Route to forwarder path or customer path based on forwarder detection."""
+    forwarder_detection = state.get("forwarder_detection", {})
+    is_forwarder = forwarder_detection.get("is_forwarder", False)
+    
+    if is_forwarder:
+        print("🔄 ROUTING: Email from forwarder - routing to FORWARDER_PATH")
+        return "FORWARDER_PATH"
+    else:
+        print("🔄 ROUTING: Email from customer - routing to CUSTOMER_PATH")
+        return "CUSTOMER_PATH" 
