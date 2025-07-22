@@ -208,9 +208,17 @@ class PortLookupAgent(BaseAgent):
         port_code = port_name.upper()
         
         if port_code in self.port_data:
+            port_name = self.port_data[port_code]
+            # Try to get country information from embeddings
+            country = "Unknown"
+            if self.embeddings and port_code in self.embeddings:
+                country = self.embeddings[port_code].get("country", "Unknown")
+            
             return {
                 "port_code": port_code,
-                "port_name": self.port_data[port_code],
+                "port_name": port_name,
+                "country": country,
+                "full_name": f"{port_name} ({port_code}) - {country}",
                 "confidence": 1.0,
                 "method": "exact_code_match"
             }
@@ -218,6 +226,8 @@ class PortLookupAgent(BaseAgent):
         return {
             "port_code": None,
             "port_name": None,
+            "country": None,
+            "full_name": None,
             "confidence": 0.0,
             "method": "exact_code_match"
         }
@@ -225,7 +235,7 @@ class PortLookupAgent(BaseAgent):
     def _exact_name_match(self, port_name: str) -> Dict[str, Any]:
         """Check for exact name match"""
         for port_code, name in self.port_data.items():
-            if port_name.lower() == name.lower():
+            if str(port_name).lower() == str(name).lower():
                 return {
                     "port_code": port_code,
                     "port_name": name,
@@ -291,7 +301,7 @@ class PortLookupAgent(BaseAgent):
             
             for port_code, name in self.port_data.items():
                 # Compare with port name
-                ratio = SequenceMatcher(None, port_name.lower(), name.lower()).ratio()
+                ratio = SequenceMatcher(None, str(port_name).lower(), str(name).lower()).ratio()
                 
                 if ratio > best_ratio:
                     best_ratio = ratio
@@ -317,12 +327,12 @@ class PortLookupAgent(BaseAgent):
 
     def _partial_match(self, port_name: str) -> Dict[str, Any]:
         """Partial matching as last resort"""
-        port_name_lower = port_name.lower()
+        port_name_lower = str(port_name).lower()
         
         # Check if port name is contained in any port
         for port_code, name in self.port_data.items():
-            if port_name_lower in name.lower() or name.lower() in port_name_lower:
-                confidence = min(len(port_name_lower), len(name.lower())) / max(len(port_name_lower), len(name.lower()))
+            if port_name_lower in str(name).lower() or str(name).lower() in port_name_lower:
+                confidence = min(len(port_name_lower), len(str(name).lower())) / max(len(port_name_lower), len(str(name).lower()))
                 
                 return {
                     "port_code": port_code,
@@ -351,10 +361,10 @@ class PortLookupAgent(BaseAgent):
     def get_port_suggestions(self, partial_name: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Get port suggestions for partial input"""
         suggestions = []
-        partial_lower = partial_name.lower()
+        partial_lower = str(partial_name).lower()
         
         for port_code, name in self.port_data.items():
-            if partial_lower in name.lower():
+            if partial_lower in str(name).lower():
                 suggestions.append({
                     "port_code": port_code,
                     "port_name": name,

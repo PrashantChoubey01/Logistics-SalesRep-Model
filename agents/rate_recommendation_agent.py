@@ -65,13 +65,13 @@ class RateRecommendationAgent(BaseAgent):
                 self.rates_df[col] = pd.to_numeric(self.rates_df[col], errors='coerce')
 
     def _extract_origin(self, input_data: Dict[str, Any]) -> Optional[str]:
-        for key in ['Origin_Code', 'origin', 'origin_code', 'from', 'from_port']:
+        for key in ['origin_code', 'Origin_Code', 'from_port', 'from', 'origin']:
             if key in input_data and input_data[key]:
                 return str(input_data[key]).strip().upper()
         return None
 
     def _extract_destination(self, input_data: Dict[str, Any]) -> Optional[str]:
-        for key in ['Destination_Code', 'destination', 'destination_code', 'to', 'to_port']:
+        for key in ['destination_code', 'Destination_Code', 'to_port', 'to', 'destination']:
             if key in input_data and input_data[key]:
                 return str(input_data[key]).strip().upper()
         return None
@@ -104,9 +104,15 @@ class RateRecommendationAgent(BaseAgent):
         if not self.data_loaded:
             return {"error": "Rate data not loaded. Please check if rate_recommendation.csv exists."}
 
+        # Debug: Print all input data to see what's being passed
+        print(f"🔍 Rate Recommendation Agent Input Data: {input_data}")
+        
         origin = self._extract_origin(input_data)
         destination = self._extract_destination(input_data)
         container_type = self._extract_container_type(input_data)
+        
+        # Debug: Print what was extracted
+        print(f"🔍 Extracted - Origin: '{origin}', Destination: '{destination}', Container: '{container_type}'")
 
         if not origin:
             return {"error": "Origin code not provided"}
@@ -116,6 +122,11 @@ class RateRecommendationAgent(BaseAgent):
             return {"error": "Container type not provided"}
 
         container_type = self._normalize_container_type(container_type)
+        
+        # Check if rates_df is loaded
+        if self.rates_df is None:
+            return {"error": "Rate data not loaded"}
+            
         matches_df = self.rates_df[
             (self.rates_df['Origin_Code'] == origin) &
             (self.rates_df['Destination_Code'] == destination) &
@@ -125,9 +136,9 @@ class RateRecommendationAgent(BaseAgent):
         indicative_rate = None
         price_range_str = None
         if not matches_df.empty and 'price_range_recommendation' in matches_df.columns:
-            price_range_str = matches_df['price_range_recommendation'].dropna().astype(str).values
-            if len(price_range_str) > 0:
-                price_range_str = price_range_str[0]
+            price_range_series = matches_df['price_range_recommendation'].dropna()
+            if len(price_range_series) > 0:
+                price_range_str = str(price_range_series.iloc[0])
                 indicative_rate = self._parse_price_range(price_range_str)
 
         # Fallback: try to get from any available match (ignore container type)
@@ -137,9 +148,9 @@ class RateRecommendationAgent(BaseAgent):
                 (self.rates_df['Destination_Code'] == destination)
             ]
             if not fallback_df.empty and 'price_range_recommendation' in fallback_df.columns:
-                price_range_str = fallback_df['price_range_recommendation'].dropna().astype(str).values
-                if len(price_range_str) > 0:
-                    price_range_str = price_range_str[0]
+                price_range_series = fallback_df['price_range_recommendation'].dropna()
+                if len(price_range_series) > 0:
+                    price_range_str = str(price_range_series.iloc[0])
                     indicative_rate = self._parse_price_range(price_range_str)
 
         # Prepare rate_results (minimal for this example)
@@ -156,10 +167,23 @@ class RateRecommendationAgent(BaseAgent):
             total_found = 0
             rate_range = None
 
+        # Get the raw price range recommendation from CSV
+        price_range_recommendation = None
+        if not matches_df.empty and 'price_range_recommendation' in matches_df.columns:
+            price_range_series = matches_df['price_range_recommendation'].dropna()
+            if len(price_range_series) > 0:
+                price_range_recommendation = str(price_range_series.iloc[0])
+        elif not fallback_df.empty and 'price_range_recommendation' in fallback_df.columns:
+            price_range_series = fallback_df['price_range_recommendation'].dropna()
+            if len(price_range_series) > 0:
+                price_range_recommendation = str(price_range_series.iloc[0])
+
         rate_results = {
             "match_type": match_type,
             "total_rates_found": total_found,
             "rate_range": rate_range,
+            "price_range_recommendation": price_range_recommendation,
+            "formatted_rate_range": rate_range
         }
 
         return {
@@ -170,8 +194,10 @@ class RateRecommendationAgent(BaseAgent):
             },
             "rate_recommendation": rate_results,
             "indicative_rate": indicative_rate,
+            "price_range_recommendation": price_range_recommendation,
+            "formatted_rate_range": rate_range,
             "data_source": self.data_file_path,
-            "total_records_searched": len(self.rates_df)
+            "total_records_searched": len(self.rates_df) if self.rates_df is not None else 0
         }
 
 # =====================================================
