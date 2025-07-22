@@ -193,11 +193,17 @@ INTELLIGENT ANALYSIS INSTRUCTIONS:
 
 **SMART DECISION MAKING:**
 
+**CLARIFICATION FLOW LOGIC:**
+- **Incomplete Data** → send_clarification_request (ask for missing info)
+- **Missing Critical Fields** → send_clarification_request (specific questions)
+- **Unclear Requirements** → send_clarification_request (clarify details)
+- **Null/Empty Values** → send_clarification_request (ask for missing info)
+- **No Origin/Destination** → send_clarification_request (critical for routing)
+
 **CONFIRMATION FLOW LOGIC:**
 - **Complete Data + No Customer Confirmation** → send_confirmation_request (ask customer to confirm)
-- **Complete Data + Customer Confirmed** → send_confirmation_acknowledgment (thank and proceed)
-- **Incomplete Data** → send_clarification_request (ask for missing info)
-- **Customer Confirmation Received** → proceed to next step (rate request, booking, etc.)
+- **Complete Data + Customer Confirmed** → booking_details_confirmed_assign_forwarders (proceed to forwarder assignment)
+- **Customer Confirmation Received** → booking_details_confirmed_assign_forwarders (assign forwarder)
 
 **FCL SHIPMENT LOGIC:**
 - **Mandatory Fields**: Port names, shipment type, container type, shipment date
@@ -232,10 +238,18 @@ INTELLIGENT ANALYSIS INSTRUCTIONS:
 - **Data Completeness**: Only ask for missing critical fields, not for information already provided
 - If validation shows invalid port codes but country names are provided → send_clarification_request for specific ports
 - If validation shows missing critical fields (ports, date, etc.) → send_clarification_request
+- If extracted data has null/empty values for critical fields → send_clarification_request
 - If data is complete and valid → send_confirmation_request
 - If customer confirms details → booking_details_confirmed_assign_forwarders
 - If forwarder provides rates → collate_rates_and_send_to_sales
 - If email is confusing/ambiguous → escalate_confusing_email
+
+**CLARIFICATION PRIORITY:**
+- **Missing Origin/Destination** → send_clarification_request (critical for routing)
+- **Missing Container Type** → send_clarification_request (needed for pricing)
+- **Missing Shipment Date** → send_clarification_request (needed for availability)
+- **Missing Commodity** → send_clarification_request (needed for documentation)
+- **Unclear Requirements** → send_clarification_request (clarify specifics)
 
 **CONTEXT-AWARE REASONING:**
 - **PRIORITY 1**: Email classification determines the primary action

@@ -54,13 +54,16 @@ class WorkflowState(TypedDict):
     rate_recommendation: Dict[str, Any]
     forwarder_assignment: Dict[str, Any]
     forwarder_detection: Dict[str, Any]
+    forwarder_responses: List[Dict[str, Any]]  # Auto-generated forwarder response emails
     
     # Control
     current_node: str
     workflow_history: List[str]
+    executed_nodes: List[Dict[str, Any]]  # Track executed nodes with timing
     errors: List[str]
     next_action: str
     decision_result: Dict[str, Any]
+    escalation_reason: str
     
     # Output
     final_response: Dict[str, Any]
@@ -80,6 +83,31 @@ def get_cached_agent(agent_class, agent_name):
         _agent_cache[agent_name] = agent
     return _agent_cache[agent_name]
 
+def track_node_execution(state: WorkflowState, node_name: str, start_time: datetime | None = None):
+    """Track node execution with timing."""
+    if start_time is None:
+        start_time = datetime.now()
+    
+    end_time = datetime.now()
+    duration = (end_time - start_time).total_seconds()
+    
+    executed_node = {
+        "node": node_name,
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+        "duration": duration,
+        "status": "completed"
+    }
+    
+    if "executed_nodes" not in state:
+        state["executed_nodes"] = []
+    
+    state["executed_nodes"].append(executed_node)
+    state["workflow_history"].append(node_name)
+    state["current_node"] = node_name
+    
+    return state
+
 def email_input_node(state: WorkflowState) -> WorkflowState:
     """Initialize workflow state with email input data."""
     print("\n" + "="*60)
@@ -91,6 +119,13 @@ def email_input_node(state: WorkflowState) -> WorkflowState:
     # Initialize workflow state
     state["current_node"] = "EMAIL_INPUT"
     state["workflow_history"] = ["EMAIL_INPUT"]
+    state["executed_nodes"] = [{
+        "node": "EMAIL_INPUT",
+        "start_time": datetime.now().isoformat(),
+        "end_time": datetime.now().isoformat(),
+        "duration": 0.0,
+        "status": "completed"
+    }]
     state["errors"] = []
     state["workflow_complete"] = False
     state["conversation_state"] = "new_request"
@@ -110,12 +145,15 @@ def conversation_state_node(state: WorkflowState) -> WorkflowState:
     print("="*60)
     print(f"📧 CONVERSATION_STATE: Email text length: {len(state.get('email_text', ''))} characters")
     
+    start_time = datetime.now()
+    
     try:
         # Load conversation state agent
         agent = get_cached_agent(ConversationStateAgent, "conversation_state")
         
         result = agent.run({
             "email_text": state["email_text"],
+            "subject": state["subject"],
             "thread_id": state["thread_id"],
             "sender": state["sender"],
             "timestamp": state["timestamp"]
@@ -128,12 +166,18 @@ def conversation_state_node(state: WorkflowState) -> WorkflowState:
         else:
             print(f"⚠️ CONVERSATION_STATE: Unexpected result format - {type(result)}")
         
-        state["workflow_history"].append("CONVERSATION_STATE")
-        state["current_node"] = "CONVERSATION_STATE"
+        # Track execution
+        state = track_node_execution(state, "CONVERSATION_STATE", start_time)
         
     except Exception as e:
-        state["errors"].append(f"Conversation state error: {str(e)}")
+        error_msg = f"Conversation state error: {str(e)}"
+        state["errors"].append(error_msg)
         print(f"❌ CONVERSATION_STATE: Error occurred - {str(e)}")
+        
+        # Track execution with error
+        state = track_node_execution(state, "CONVERSATION_STATE", start_time)
+        state["executed_nodes"][-1]["status"] = "error"
+        state["executed_nodes"][-1]["error"] = error_msg
     
     print("="*60)
     return state
@@ -185,40 +229,84 @@ def forwarder_detection_node(state: WorkflowState) -> WorkflowState:
         return state
 
 def forwarder_response_node(state: WorkflowState) -> WorkflowState:
-    """Generate response for forwarder communications."""
+    """Handle forwarder emails and generate responses."""
     print("\n" + "="*60)
     print("📧 FORWARDER_RESPONSE: Starting forwarder response generation...")
     print("="*60)
     
     try:
-        # Get forwarder response agent
-        agent = get_cached_agent(ForwarderResponseAgent, "forwarder_response_agent")
+        # Check if this is a forwarder email or forwarder assignment response
+        forwarder_detection = state.get("forwarder_detection", {})
+        is_forwarder_email = forwarder_detection.get("is_forwarder", False)
         
-        # Prepare input data
-        input_data = {
-            "email_data": {
-                "sender": state.get("sender", ""),
-                "subject": state.get("subject", ""),
-                "email_text": state.get("email_text", "")
-            },
-            "forwarder_detection": state.get("forwarder_detection", {}),
-            "conversation_state": {
-                "conversation_state": state.get("conversation_state", "")
+        if is_forwarder_email:
+            # Handle forwarder email (extract rates and send to sales team)
+            agent = get_cached_agent(ForwarderResponseAgent, "forwarder_response_agent")
+            
+            # Prepare input data
+            input_data = {
+                "email_data": {
+                    "sender": state.get("sender", ""),
+                    "subject": state.get("subject", ""),
+                    "email_text": state.get("email_text", "")
+                },
+                "forwarder_detection": state.get("forwarder_detection", {}),
+                "conversation_state": {
+                    "conversation_state": state.get("conversation_state", "")
+                }
             }
-        }
+            
+            # Process forwarder response
+            result = agent.process(input_data)
+            
+            # Update state
+            state["final_response"] = result
+            print(f"✅ FORWARDER_RESPONSE: Forwarder email response generated")
+            print(f"   Response Type: {result.get('response_type', 'unknown')}")
+            print(f"   Sales Email: {result.get('sales_person_email', 'N/A')}")
+            
+            # Handle collate email for sales team
+            collate_email = result.get("collate_email")
+            if collate_email:
+                print(f"📧 FORWARDER_RESPONSE: Collate email generated for sales team")
+                print(f"   Subject: {collate_email.get('subject', 'N/A')}")
+                print(f"   Priority: {collate_email.get('priority', 'N/A')}")
+                print(f"   Customer: {collate_email.get('customer_email', 'N/A')}")
+                print(f"   Forwarder: {collate_email.get('forwarder_email', 'N/A')}")
+                
+                # Add collate email to final response
+                state["final_response"]["collate_email"] = collate_email
+            
+        else:
+            # Handle forwarder assignment response (customer acknowledgment)
+            # The response is already generated in forwarder_assignment_node
+            # Just ensure workflow completion
+            if not state.get("final_response"):
+                # Generate a default forwarder assignment response
+                response_agent = ResponseGeneratorAgent()
+                response_agent.load_context()
+                
+                response_data = {
+                    "extraction_data": state["extracted_data"],
+                    "rate_data": state.get("rate_recommendation", {}),
+                    "enriched_data": state.get("enriched_data", {}),
+                    "next_action_data": {"next_action": "forwarder_assignment_complete"},
+                    "validation_data": state.get("validation_results", {}),
+                    "forwarder_data": state.get("forwarder_assignment", {}),
+                    "is_confirmation": True,
+                    "response_type": "forwarder_assignment_response"
+                }
+                
+                customer_response = response_agent.run(response_data)
+                
+                if isinstance(customer_response, dict):
+                    state["final_response"] = customer_response
+            
+            print(f"✅ FORWARDER_RESPONSE: Forwarder assignment response completed")
         
-        # Process forwarder response
-        result = agent.process(input_data)
-        
-        # Update state
-        state["final_response"] = result
         state["current_node"] = "FORWARDER_RESPONSE"
         state["workflow_history"].append("FORWARDER_RESPONSE")
         state["workflow_complete"] = True
-        
-        print(f"✅ FORWARDER_RESPONSE: Response generated")
-        print(f"   Response Type: {result.get('response_type', 'unknown')}")
-        print(f"   Sales Email: {result.get('sales_person_email', 'N/A')}")
         
         print("="*60)
         return state
@@ -260,9 +348,25 @@ def classification_node(state: WorkflowState) -> WorkflowState:
             state["email_type"] = result.get("email_type", "unknown")
             state["intent"] = result.get("intent", "unknown")
             state["email_classification"] = result
-            print(f"✅ CLASSIFICATION: Email type = {state['email_type']}, Intent = {state['intent']}")
+            
+            # Update confidence score from LLM (check both confidence and confidence_score)
+            confidence = result.get("confidence_score", result.get("confidence", 0.5))
+            state["confidence_score"] = confidence
+            
+            print(f"✅ CLASSIFICATION: Email type = {state['email_type']}, Intent = {state['intent']}, Confidence = {confidence:.1%}")
+            
+            # Check confidence threshold
+            if confidence < 0.5:
+                print(f"⚠️ CLASSIFICATION: Low confidence ({confidence:.1%}) - escalating to human")
+                state["next_action"] = "escalate_to_human"
+                state["escalation_reason"] = f"Low classification confidence: {confidence:.1%}"
+                state["workflow_complete"] = True
+                return state
         else:
             print(f"⚠️ CLASSIFICATION: Unexpected result format - {type(result)}")
+            state["confidence_score"] = 0.0
+            state["next_action"] = "escalate_to_human"
+            state["escalation_reason"] = "Classification result format error"
         
         state["workflow_history"].append("CLASSIFICATION")
         state["current_node"] = "CLASSIFICATION"
@@ -296,6 +400,20 @@ def data_extraction_node(state: WorkflowState) -> WorkflowState:
         if isinstance(result, dict):
             state["extracted_data"] = result
             
+            # Update confidence score from LLM (check both confidence and confidence_score)
+            confidence = result.get("confidence_score", result.get("confidence", 0.5))
+            state["confidence_score"] = confidence
+            
+            print(f"✅ DATA_EXTRACTION: Confidence = {confidence:.1%}")
+            
+            # Check confidence threshold
+            if confidence < 0.5:
+                print(f"⚠️ DATA_EXTRACTION: Low confidence ({confidence:.1%}) - escalating to human")
+                state["next_action"] = "escalate_to_human"
+                state["escalation_reason"] = f"Low data extraction confidence: {confidence:.1%}"
+                state["workflow_complete"] = True
+                return state
+            
             # Pretty print extracted data
             import json
             from datetime import datetime
@@ -323,7 +441,7 @@ def data_extraction_node(state: WorkflowState) -> WorkflowState:
                         "quantity": result.get('quantity', 'N/A')
                     }
                 },
-                "CONFIDENCE": result.get('confidence_score', 0.0),
+                "CONFIDENCE": confidence,
                 "EXTRACTION_METHOD": "LLM_FUNCTION_CALL",
                 "TIMESTAMP": datetime.now().isoformat()
             }
@@ -331,6 +449,9 @@ def data_extraction_node(state: WorkflowState) -> WorkflowState:
             print("=" * 60)
         else:
             print(f"⚠️ DATA_EXTRACTION: Unexpected result format - {type(result)}")
+            state["confidence_score"] = 0.0
+            state["next_action"] = "escalate_to_human"
+            state["escalation_reason"] = "Data extraction result format error"
         
         state["workflow_history"].append("DATA_EXTRACTION")
         state["current_node"] = "DATA_EXTRACTION"
@@ -561,13 +682,27 @@ def validation_node(state: WorkflowState) -> WorkflowState:
         if isinstance(result, dict):
             state["validation_results"] = result
             
+            # Update confidence score from LLM (check both confidence and confidence_score)
+            overall_validation = result.get("overall_validation", {})
+            confidence = overall_validation.get("confidence_score", overall_validation.get("confidence", 0.5))
+            state["confidence_score"] = confidence
+            
+            print(f"✅ VALIDATION: Confidence = {confidence:.1%}")
+            
+            # Check confidence threshold
+            if confidence < 0.5:
+                print(f"⚠️ VALIDATION: Low confidence ({confidence:.1%}) - escalating to human")
+                state["next_action"] = "escalate_to_human"
+                state["escalation_reason"] = f"Low validation confidence: {confidence:.1%}"
+                state["workflow_complete"] = True
+                return state
+            
             # Pretty print validation results
             import json
             from datetime import datetime
             print("\n📊 VALIDATION RESULTS:")
             print("=" * 60)
             
-            overall_validation = result.get("overall_validation", {})
             validation_summary = {
                 "NODE": "VALIDATION",
                 "STATUS": "SUCCESS",
@@ -578,8 +713,8 @@ def validation_node(state: WorkflowState) -> WorkflowState:
                         "is_complete": overall_validation.get("is_complete", False)
                     },
                     "confidence": {
-                        "score": overall_validation.get("confidence_score", 0.0),
-                        "percentage": f"{overall_validation.get('confidence_score', 0):.1%}"
+                        "score": confidence,
+                        "percentage": f"{confidence:.1%}"
                     },
                     "issues": {
                         "missing_fields": overall_validation.get("missing_fields", []),
@@ -657,9 +792,26 @@ def rate_recommendation_node(state: WorkflowState) -> WorkflowState:
             
             if isinstance(result, dict):
                 state["rate_recommendation"] = result
+                
+                # Update confidence score from LLM (check both confidence and confidence_score)
+                confidence = result.get("confidence_score", result.get("confidence", 0.5))
+                state["confidence_score"] = confidence
+                
+                print(f"✅ RATE_RECOMMENDATION: Confidence = {confidence:.1%}")
+                
+                # Check confidence threshold
+                if confidence < 0.5:
+                    print(f"⚠️ RATE_RECOMMENDATION: Low confidence ({confidence:.1%}) - escalating to human")
+                    state["next_action"] = "escalate_to_human"
+                    state["escalation_reason"] = f"Low rate recommendation confidence: {confidence:.1%}"
+                    state["workflow_complete"] = True
+                    return state
         else:
             print(f"🔍 RATE_RECOMMENDATION: Validation failed - skipping rate lookup")
             state["rate_recommendation"] = {"indicative_rate": None, "disclaimer": "Validation failed"}
+            state["confidence_score"] = 0.0
+            state["next_action"] = "escalate_to_human"
+            state["escalation_reason"] = "Rate recommendation validation failed"
         
         state["workflow_history"].append("RATE_RECOMMENDATION")
         state["current_node"] = "RATE_RECOMMENDATION"
@@ -691,8 +843,38 @@ def decision_node(state: WorkflowState) -> WorkflowState:
         print(f"🔍 DECISION: Result = {result}")
         
         if isinstance(result, dict):
-            state["next_action"] = result.get("next_action", "escalate_to_human")
+            # Check for customer confirmation and override next_action if needed
+            conversation_state = state.get("conversation_state", "")
+            email_classification = state.get("email_classification", {})
+            email_type = email_classification.get("email_type", "").lower()
+            
+            # CRITICAL: If customer has confirmed details, force forwarder assignment
+            if (conversation_state == "thread_confirmation" or 
+                "confirmation" in conversation_state.lower() or 
+                email_type == "customer_confirmation"):
+                print(f"🔍 DECISION: Customer confirmation detected - forcing forwarder assignment")
+                state["next_action"] = "booking_details_confirmed_assign_forwarders"
+                # Update the result to reflect the correct action
+                result["next_action"] = "booking_details_confirmed_assign_forwarders"
+                result["reasoning"] = "Customer confirmation detected - proceeding to forwarder assignment"
+            else:
+                state["next_action"] = result.get("next_action", "escalate_to_human")
+            
             state["decision_result"] = result  # Store the full decision result
+            
+            # Update confidence score from LLM (check both confidence and confidence_score)
+            confidence = result.get("confidence_score", result.get("confidence", 0.5))
+            state["confidence_score"] = confidence
+            
+            print(f"✅ DECISION: Confidence = {confidence:.1%}")
+            
+            # Check confidence threshold
+            if confidence < 0.5:
+                print(f"⚠️ DECISION: Low confidence ({confidence:.1%}) - escalating to human")
+                state["next_action"] = "escalate_to_human"
+                state["escalation_reason"] = f"Low decision confidence: {confidence:.1%}"
+                state["workflow_complete"] = True
+                return state
             
             # Pretty print decision results
             import json
@@ -708,7 +890,7 @@ def decision_node(state: WorkflowState) -> WorkflowState:
                     "response_type": result.get("response_type", "unknown"),
                     "escalation_needed": result.get("escalation_needed", False),
                     "sales_handoff_needed": result.get("sales_handoff_needed", False),
-                    "confidence_score": result.get("confidence_score", 0.0),
+                    "confidence_score": confidence,
                     "reasoning": result.get("reasoning", "No reasoning provided"),
                     "risk_factors": result.get("risk_factors", [])
                 },
@@ -730,6 +912,73 @@ def decision_node(state: WorkflowState) -> WorkflowState:
         state["errors"].append(f"Decision error: {str(e)}")
         print(f"❌ DECISION: Error = {str(e)}")
         state["next_action"] = "escalate_to_human"
+    
+    return state
+
+def clarification_request_node(state: WorkflowState) -> WorkflowState:
+    """Generate clarification request for missing information."""
+    print("🔍 CLARIFICATION_REQUEST: Starting")
+    
+    try:
+        agent = ResponseGeneratorAgent()
+        agent.load_context()
+        
+        # Get validation results to identify missing fields
+        validation_results = state.get("validation_results", {})
+        overall_validation = validation_results.get("overall_validation", {})
+        missing_fields = overall_validation.get("missing_fields", [])
+        
+        # Get extracted data for context
+        extracted_data = state.get("extracted_data", {})
+        
+        # Create clarification data
+        clarification_data = {
+            "extraction_data": extracted_data,
+            "validation_data": validation_results,
+            "missing_fields": missing_fields,
+            "is_clarification": True
+        }
+        
+        result = agent.run(clarification_data)
+        
+        if isinstance(result, dict) and result.get("status") == "success":
+            state["final_response"] = result
+            print(f"✅ CLARIFICATION_REQUEST: Clarification request generated")
+            print(f"   Missing Fields: {missing_fields}")
+            print(f"   Response Type: {result.get('response_type', 'unknown')}")
+        else:
+            raise Exception(f"Invalid response from ResponseGeneratorAgent: {result}")
+        
+        state["workflow_complete"] = True
+        state["workflow_history"].append("CLARIFICATION_REQUEST")
+        state["current_node"] = "CLARIFICATION_REQUEST"
+        
+    except Exception as e:
+        state["errors"].append(f"Clarification request error: {str(e)}")
+        print(f"❌ CLARIFICATION_REQUEST: Error = {str(e)}")
+        
+        # Fallback response
+        state["final_response"] = {
+            "response_subject": f"Re: {state.get('subject', 'Your Inquiry')}",
+            "response_body": """Dear Customer,
+
+Thank you for your inquiry. We need some additional information to provide you with an accurate quote.
+
+Could you please provide the following details:
+- Origin port/city
+- Destination port/city
+- Container type and quantity
+- Shipment date
+- Commodity description
+
+Once you provide these details, we'll be able to assist you better.
+
+Best regards,
+SeaRates Team""",
+            "response_type": "clarification_request",
+            "agent_name": "response_generator_agent",
+            "status": "fallback"
+        }
     
     return state
 
@@ -879,9 +1128,34 @@ def forwarder_assignment_node(state: WorkflowState) -> WorkflowState:
             # Store forwarder assignment results
             state["forwarder_assignment"] = result
             
+            # Auto-generate forwarder response emails
+            try:
+                # Prepare customer data for email generation
+                customer_data = {
+                    'customer_name': state["extracted_data"].get('customer_name', 'Customer'),
+                    'customer_email': state["extracted_data"].get('customer_email', 'customer@example.com'),
+                    'extracted_data': state["extracted_data"]
+                }
+                
+                # Generate forwarder response emails
+                forwarder_response_agent = ForwarderResponseAgent()
+                forwarder_response_agent.load_context()
+                response_result = forwarder_response_agent.generate_forwarder_assignment_acknowledgment(result, customer_data)
+                
+                if response_result.get('status') == 'success':
+                    state["forwarder_responses"] = response_result.get('acknowledgments', [])
+                    print(f"✅ FORWARDER_ASSIGNMENT: Generated {len(state['forwarder_responses'])} forwarder response emails")
+                else:
+                    print(f"⚠️ FORWARDER_ASSIGNMENT: Failed to generate response emails: {response_result.get('error', 'Unknown error')}")
+                    state["forwarder_responses"] = []
+                    
+            except Exception as e:
+                print(f"⚠️ FORWARDER_ASSIGNMENT: Error generating response emails: {str(e)}")
+                state["forwarder_responses"] = []
+            
             # Generate customer acknowledgment response
-            response_agent = ResponseGeneratorAgent()
-            response_agent.load_context()
+            customer_response_agent = ResponseGeneratorAgent()
+            customer_response_agent.load_context()
             
             # Create response data for customer acknowledgment
             response_data = {
@@ -895,12 +1169,11 @@ def forwarder_assignment_node(state: WorkflowState) -> WorkflowState:
                 "response_type": "confirmation_acknowledgment"
             }
             
-            customer_response = response_agent.run(response_data)
+            customer_response = customer_response_agent.run(response_data)
             
             if isinstance(customer_response, dict):
                 state["final_response"] = customer_response
             
-            state["workflow_complete"] = True
             state["workflow_history"].append("FORWARDER_ASSIGNMENT")
             state["current_node"] = "FORWARDER_ASSIGNMENT"
             
@@ -915,18 +1188,198 @@ def forwarder_assignment_node(state: WorkflowState) -> WorkflowState:
     return state
 
 def escalation_node(state: WorkflowState) -> WorkflowState:
-    """Escalate to human."""
+    """Escalate to human with comprehensive SeaRates information."""
     print("🔍 ESCALATION: Starting")
     
-    state["final_response"] = {
-        "status": "escalation",
-        "reason": "Low confidence or system error",
-        "confidence_score": state["confidence_score"]
-    }
-    
-    state["workflow_complete"] = True
-    state["workflow_history"].append("ESCALATION")
-    state["current_node"] = "ESCALATION"
+    try:
+        # Check if this is a non-logistics email
+        email_classification = state.get("email_classification", {})
+        email_type = email_classification.get("email_type", "")
+        is_non_logistics = email_type == "non_logistics"
+        
+        # Get escalation reason
+        escalation_reason = state.get("escalation_reason", "Low confidence or system error")
+        
+        # Generate appropriate response based on email type
+        if is_non_logistics:
+            # Generate helpful response for non-logistics emails
+            response_agent = ResponseGeneratorAgent()
+            response_agent.load_context()
+            
+            # Create response data for non-logistics escalation
+            response_data = {
+                "extraction_data": state["extracted_data"],
+                "rate_data": {},
+                "enriched_data": {},
+                "next_action_data": {"next_action": "escalate_non_logistics"},
+                "validation_data": {},
+                "is_confirmation": False,
+                "response_type": "non_logistics_response",
+                "email_type": "non_logistics",
+                "subject": state.get("subject", "Your Inquiry"),
+                "from": state.get("sender", "customer@example.com"),
+                "thread_id": state.get("thread_id", "")
+            }
+            
+            customer_response = response_agent.run(response_data)
+            
+            if isinstance(customer_response, dict):
+                state["final_response"] = customer_response
+                state["final_response"]["escalation_reason"] = "Non-logistics inquiry - escalated to human agent"
+                state["final_response"]["escalation_type"] = "non_logistics"
+            else:
+                # Fallback response with comprehensive SeaRates info
+                state["final_response"] = {
+                    "status": "escalation",
+                    "response_type": "non_logistics_response",
+                    "escalation_reason": "Non-logistics inquiry - escalated to human agent",
+                    "escalation_type": "non_logistics",
+                    "response_body": f"""From: SeaRates Support <support@searates.com>
+To: {state.get('sender', 'customer@example.com')}
+Subject: Re: {state.get('subject', 'Your Inquiry')}
+Date: {datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')}
+
+Dear Valued Customer,
+
+Thank you for contacting SeaRates by DP World. We appreciate your inquiry.
+
+SeaRates (SeaRates.com), now part of DP World, is a leading digital freight marketplace and logistics platform, offering a comprehensive suite of tools and services that streamline global shipping.
+
+What SeaRates Offers:
+
+• Freight Rate Calculator & Booking - Compare and book sea, air, and land freight from a network of vetted forwarders with real-time pricing and cargo space booking
+• Live Cargo Tracking - Provides real-time tracking across sea, air, and land routes via an integrated AIS-powered system
+• Suite of Logistics Tools - Includes Route Planner, Distance & Transit Time Calculator, Load Calculator, CO₂ emissions estimator, and Ship Schedules
+• Specialized Shipping Services - Full LCL/FCL shipping, bulk and breakbulk, dangerous goods handling, refrigerated cargo, vehicle shipments, insurance, inspection, customs clearance, warehousing, and project cargo solutions
+• API & Enterprise Integration - ERP systems, white-label web integration, and APIs for freight forwarders, carriers, and e-commerce platforms
+• Global Support & Logistics Finance - 24/7 multi-time-zone support, insurance cover up to $50M, trade financing options, and loyalty discounts
+
+Key Strengths:
+• Comprehensive One‑Stop Platform: From pricing to booking and tracking, everything is integrated
+• Global Network: Connects a worldwide community of independent freight forwarders
+• Advanced Tools: Digital-first solutions for planning, tracking, and transactions
+• Strong Backing: Part of DP World and supported by trade finance partners
+
+If you have any logistics-related questions or need shipping quotes, please don't hesitate to reach out. Our team is here to help with all your transportation needs.
+
+For immediate assistance, you can:
+• Call us: +1-555-0123
+• Email: sales@searates.com
+• Visit: www.searates.com
+
+Best regards,
+SeaRates Support Team
+SeaRates by DP World
+support@searates.com
++1-555-0123"""
+                }
+        else:
+            # Standard escalation for other cases with comprehensive SeaRates info
+            state["final_response"] = {
+                "status": "escalation",
+                "response_type": "escalation_response",
+                "escalation_reason": escalation_reason,
+                "escalation_type": "general",
+                "confidence_score": state["confidence_score"],
+                "response_body": f"""From: SeaRates Support <support@searates.com>
+To: {state.get('sender', 'customer@example.com')}
+Subject: Re: {state.get('subject', 'Your Inquiry')}
+Date: {datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')}
+
+Dear Valued Customer,
+
+Thank you for contacting SeaRates by DP World. We have received your inquiry and our team will review it shortly.
+
+SeaRates (SeaRates.com), now part of DP World, is a leading digital freight marketplace and logistics platform, offering a comprehensive suite of tools and services that streamline global shipping.
+
+What SeaRates Offers:
+
+• Freight Rate Calculator & Booking - Compare and book sea, air, and land freight from a network of vetted forwarders with real-time pricing and cargo space booking
+• Live Cargo Tracking - Provides real-time tracking across sea, air, and land routes via an integrated AIS-powered system
+• Suite of Logistics Tools - Includes Route Planner, Distance & Transit Time Calculator, Load Calculator, CO₂ emissions estimator, and Ship Schedules
+• Specialized Shipping Services - Full LCL/FCL shipping, bulk and breakbulk, dangerous goods handling, refrigerated cargo, vehicle shipments, insurance, inspection, customs clearance, warehousing, and project cargo solutions
+• API & Enterprise Integration - ERP systems, white-label web integration, and APIs for freight forwarders, carriers, and e-commerce platforms
+• Global Support & Logistics Finance - 24/7 multi-time-zone support, insurance cover up to $50M, trade financing options, and loyalty discounts
+
+For immediate assistance with your logistics needs, please contact our sales team:
+
+• Email: sales@searates.com
+• Phone: +1-555-0123
+• WhatsApp: +1-555-0123
+
+Best regards,
+SeaRates Support Team
+SeaRates by DP World
+support@searates.com
++1-555-0123"""
+            }
+        
+        # Send escalation email to sales team
+        escalation_email = f"""Subject: ESCALATION - Manual Review Required - {state.get('subject', 'Customer Inquiry')}
+
+Dear Sales Team,
+
+An email has been escalated for manual review:
+
+Customer Details:
+- From: {state.get('sender', 'customer@example.com')}
+- Subject: {state.get('subject', 'Customer Inquiry')}
+- Thread ID: {state.get('thread_id', 'N/A')}
+- Escalation Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Escalation Reason:
+{escalation_reason}
+
+Confidence Score: {state.get('confidence_score', 0):.1%}
+
+Original Email Content:
+{state.get('email_text', '')[:500]}{'...' if len(state.get('email_text', '')) > 500 else ''}
+
+Required Action:
+Please review this email and respond appropriately to the customer.
+
+Best regards,
+AI Logistics System"""
+
+        print(f"📧 ESCALATION: Sending escalation email to sales team")
+        print(f"📧 ESCALATION: Escalation reason: {escalation_reason}")
+        
+        state["workflow_complete"] = True
+        state["workflow_history"].append("ESCALATION")
+        state["current_node"] = "ESCALATION"
+        
+        print(f"✅ ESCALATION: Generated {state['final_response'].get('response_type', 'escalation')} response")
+        
+    except Exception as e:
+        state["errors"].append(f"Escalation error: {str(e)}")
+        print(f"❌ ESCALATION: Error = {str(e)}")
+        
+        # Fallback response
+        state["final_response"] = {
+            "status": "escalation",
+            "response_type": "escalation_response",
+            "escalation_reason": "System error during processing",
+            "escalation_type": "error",
+            "response_body": f"""From: SeaRates Support <support@searates.com>
+To: {state.get('sender', 'customer@example.com')}
+Subject: Re: {state.get('subject', 'Your Inquiry')}
+Date: {datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')}
+
+Dear Valued Customer,
+
+Thank you for contacting SeaRates by DP World. We have received your inquiry and our team will review it shortly.
+
+SeaRates (SeaRates.com), now part of DP World, is a leading digital freight marketplace and logistics platform, offering a comprehensive suite of tools and services that streamline global shipping.
+
+For immediate assistance, please contact our sales team:
+• Email: sales@searates.com
+• Phone: +1-555-0123
+
+Best regards,
+SeaRates Support Team
+SeaRates by DP World
+support@searates.com"""
+        }
     
     return state
 
@@ -939,8 +1392,30 @@ def route_decision(state: WorkflowState) -> str:
     next_action = state.get("next_action", "escalate_to_human")
     print(f"🔍 ROUTING: Next action = {next_action}")
     
+    # Check for customer confirmation regardless of next_action
+    conversation_state = state.get("conversation_state", "")
+    email_classification = state.get("email_classification", {})
+    email_type = email_classification.get("email_type", "").lower()
+    
+    # CRITICAL: If customer has confirmed details, route to forwarder assignment
+    if (conversation_state == "thread_confirmation" or 
+        "confirmation" in conversation_state.lower() or 
+        email_type == "customer_confirmation"):
+        print(f"🔍 ROUTING: Customer confirmation detected - routing to FORWARDER_ASSIGNMENT")
+        print(f"   Conversation State: {conversation_state}")
+        print(f"   Email Type: {email_type}")
+        return "FORWARDER_ASSIGNMENT"
+    
+    # Route to ESCALATION for low confidence or escalation requests
+    if next_action in ["escalate_to_human", "escalate_non_logistics"]:
+        return "ESCALATION"
+    
+    # Route to CLARIFICATION_REQUEST for missing information
+    elif next_action in ["send_clarification_request"]:
+        return "CLARIFICATION_REQUEST"
+    
     # Route to CONFIRMATION_REQUEST for customer-facing responses
-    if next_action in ["send_confirmation_request", "send_clarification_request"]:
+    elif next_action in ["send_confirmation_request"]:
         return "CONFIRMATION_REQUEST"
     
     # Route to FORWARDER_ASSIGNMENT for booking confirmations
@@ -951,7 +1426,7 @@ def route_decision(state: WorkflowState) -> str:
     elif next_action in ["send_confirmation_acknowledgment"]:
         return "CONFIRMATION_ACKNOWLEDGMENT"
     
-    # Route to CONFIRMATION_REQUEST for forwarder-related actions (since FORWARDER_ASSIGNMENT node doesn't exist yet)
+    # Route to CONFIRMATION_REQUEST for forwarder-related actions
     elif next_action in ["collate_rates_and_send_to_sales", "send_forwarder_acknowledgment", "assign_forwarder_and_send_rate_request"]:
         return "CONFIRMATION_REQUEST"
     

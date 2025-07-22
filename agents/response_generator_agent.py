@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import random
+from datetime import datetime
 from typing import Dict, Any
 from .base_agent import BaseAgent
 
@@ -150,6 +151,9 @@ class ResponseGeneratorAgent(BaseAgent):
         clarification_details = clarification_data.get("clarification_details", [])
         missing_fields = clarification_data.get("missing_fields", [])
         
+        # Check if this is a clarification request
+        is_clarification = input_data.get("is_clarification", False)
+        
         # Get validation results for intelligent response generation
         validation_data = input_data.get("validation_data", {})
         validation_results = validation_data.get("validation_results", {})
@@ -194,7 +198,7 @@ class ResponseGeneratorAgent(BaseAgent):
         response_type_decision = next_action_data.get("response_type", "")
         
         # Determine response type based on next action decision (priority) and fallback to existing logic
-        if next_action == "send_clarification_request":
+        if is_clarification or next_action == "send_clarification_request":
             response_type = "clarification_request"
         elif next_action == "send_confirmation_request":
             response_type = "confirmation_response"
@@ -202,6 +206,8 @@ class ResponseGeneratorAgent(BaseAgent):
             response_type = "confirmation_acknowledgment"  # Send acknowledgment to customer
         elif next_action == "escalate_confusing_email":
             response_type = "escalation_response"
+        elif next_action == "escalate_non_logistics":
+            response_type = "non_logistics_response"
         elif next_action == "send_forwarder_acknowledgment":
             response_type = "forwarder_acknowledgment"
         elif next_action == "collate_rates_and_send_to_sales":
@@ -253,18 +259,77 @@ class ResponseGeneratorAgent(BaseAgent):
         container_standardization = enriched_data.get("container_standardization", {})
         standardized_container_type = container_standardization.get("standard_type", formatted_data.get("container_type", ""))
 
-        # Enhanced prompt with better business logic
-        prompt = f"""
-Generate a customer-friendly logistics response email.
+        # Enhanced prompt for professional email formatting
+        if response_type == "non_logistics_response":
+            prompt = f"""
+Generate a professional, helpful response for a non-logistics inquiry with proper email formatting.
 
-SALES PERSON: {assigned_sales_person['name']} ({assigned_sales_person['email']}, {assigned_sales_person['phone']})
+SALES PERSON: {assigned_sales_person['name']} ({assigned_sales_person['email']})
 
 CUSTOMER: {customer_name or 'Valued Customer'} from {customer_company or 'your company'}
 
 RESPONSE TYPE: {response_type}
-RESPONSE TEMPLATE: {response_template}
 
-EXTRACTED DATA:
+ORIGINAL SUBJECT: {input_data.get('subject', 'Your Inquiry')}
+
+REQUIREMENTS:
+1. Professional, friendly, and warm tone
+2. Acknowledge their inquiry politely
+3. Include comprehensive SeaRates information
+4. Provide contact information for assistance
+5. NO technical logistics details
+6. Format as a professional email with proper structure
+
+SEARATES INFORMATION TO INCLUDE:
+SeaRates (SeaRates.com), now part of DP World, is a leading digital freight marketplace and logistics platform, offering a comprehensive suite of tools and services that streamline global shipping.
+
+What SeaRates Offers:
+• Freight Rate Calculator & Booking - Compare and book sea, air, and land freight from a network of vetted forwarders with real-time pricing and cargo space booking
+• Live Cargo Tracking - Provides real-time tracking across sea, air, and land routes via an integrated AIS-powered system
+• Suite of Logistics Tools - Includes Route Planner, Distance & Transit Time Calculator, Load Calculator, CO₂ emissions estimator, and Ship Schedules
+• Specialized Shipping Services - Full LCL/FCL shipping, bulk and breakbulk, dangerous goods handling, refrigerated cargo, vehicle shipments, insurance, inspection, customs clearance, warehousing, and project cargo solutions
+• API & Enterprise Integration - ERP systems, white-label web integration, and APIs for freight forwarders, carriers, and e-commerce platforms
+• Global Support & Logistics Finance - 24/7 multi-time-zone support, insurance cover up to $50M, trade financing options, and loyalty discounts
+
+Key Strengths:
+• Comprehensive One‑Stop Platform: From pricing to booking and tracking, everything is integrated
+• Global Network: Connects a worldwide community of independent freight forwarders
+• Advanced Tools: Digital-first solutions for planning, tracking, and transactions
+• Strong Backing: Part of DP World and supported by trade finance partners
+
+RESPONSE FORMAT:
+From: {assigned_sales_person['name']} <{assigned_sales_person['email']}>
+To: {customer_name or 'Valued Customer'} <{input_data.get('from', 'customer@example.com')}>
+Subject: Re: {input_data.get('subject', 'Your Inquiry')}
+Date: {datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')}
+
+Dear {customer_name or 'Valued Customer'},
+
+[Professional acknowledgment of their inquiry]
+
+[Include comprehensive SeaRates information as provided above]
+
+[Provide contact information for assistance]
+
+Best regards,
+{assigned_sales_person['name']}
+{assigned_sales_person['company']}
+{assigned_sales_person['email']}
+{assigned_sales_person.get('phone', '')}
+
+Generate the complete email with headers and body:
+"""
+        else:
+            prompt = f"""
+Generate a professional, customer-friendly logistics response email with proper email formatting.
+
+SALES PERSON: {assigned_sales_person['name']} ({assigned_sales_person['email']})
+
+CUSTOMER: {customer_name or 'Valued Customer'} from {customer_company or 'your company'}
+
+RESPONSE TYPE: {response_type}
+
+SHIPMENT DETAILS:
 - Origin: {origin_port_name}
 - Destination: {destination_port_name}
 - Shipment Type: {formatted_data.get('shipment_type')}
@@ -283,46 +348,25 @@ MISSING FIELDS: {missing_fields if missing_fields else 'None'}
 
 RATE: {rate_data.get('indicative_rate', 'Not available')}
 
-RESPONSE STRATEGY:
-1. **FCL Shipments**: Ask for container type if missing, NEVER ask for volume
-2. **LCL Shipments**: Ask for both weight AND volume if missing
-3. **Port Information**: If only country provided, ask for specific ports
-4. **Be Specific**: Mention exactly what information is needed
-5. **Professional Sales Tone**: Warm, friendly, and professional like a real sales person
-6. **Natural Flow**: Sound human, not robotic
-7. **Rate Information**: Include if available, mention if not available
+REQUIREMENTS:
+1. Professional, friendly, and warm tone
+2. Present shipment details in structured bullet points
+3. Keep acknowledgment text concise (1-2 sentences)
+4. NO "next steps" sections
+5. NO unnecessary information
+6. Format as a professional email with proper structure
 
-RESPONSE FORMATTING:
-- Use structured format with bullet points for shipment details
-- Keep paragraphs natural and conversational
-- Avoid robotic phrases like "Next steps:" or "Please respond to this email"
-- Make it sound like a real sales person writing to a client
+RESPONSE FORMAT:
+From: {assigned_sales_person['name']} <{assigned_sales_person['email']}>
+To: {customer_name or 'Valued Customer'} <{input_data.get('from', 'customer@example.com')}>
+Subject: Re: {input_data.get('subject', 'Your Inquiry')}
+Date: {datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')}
 
-CONFIRMATION LOGIC:
-- **CONFIRMATION_REQUEST**: Present details naturally and ask for confirmation
-- **CONFIRMATION_ACKNOWLEDGMENT**: Thank customer warmly and proceed
-- Ask for confirmation in a friendly, professional way
+Dear {customer_name or 'Valued Customer'},
 
-SPECIFIC INSTRUCTIONS:
-- Write like a professional sales person, not a bot
-- Use warm, friendly tone while maintaining professionalism
-- Avoid robotic phrases like "We hope this email finds you well" or "Please respond to this email"
-- Be conversational and natural
-- If asking for container type (FCL), suggest common types: 20GP, 40GP, 40HC
-- If asking for ports, request SPECIFIC port names (e.g., "Shanghai", "Los Angeles", "New York") not just countries
-- If asking for weight/volume (LCL), specify units (tons, CBM)
-- Keep response concise and to the point
-- Be very specific about what information is needed
-- For ports, ask for the exact port/city name, not just "port name"
-- Use bullet points for shipment details but keep the rest conversational
+[Professional acknowledgment - 1-2 sentences]
 
-**RESPONSE EXAMPLES:**
-
-**CONFIRMATION_REQUEST (Natural Sales Style):**
-"Hi [Customer Name],
-
-Thanks for reaching out about your shipment from [Origin] to [Destination]. I've reviewed your details and wanted to confirm everything before we proceed:
-
+[Structured shipment details in bullet points]
 * Origin: [Origin]
 * Destination: [Destination]
 * Shipment Type: [Type]
@@ -332,59 +376,20 @@ Thanks for reaching out about your shipment from [Origin] to [Destination]. I've
 * Shipment Date: [Date]
 * Quantity: [Quantity]
 
-**Special Requirements:**
-* Special Instructions: [Special Instructions]
+[Special requirements if any]
+* Special Instructions: [Instructions]
 * Dangerous Goods: [Yes/No]
 * Insurance: [Required/Not specified]
 
-Could you please confirm these details are correct? Once you give me the green light, I'll get started on securing the best rates for you.
-
-Feel free to reach out if you need any adjustments or have questions.
+[Brief closing - 1 sentence]
 
 Best regards,
-[Sales Person Name]"
+{assigned_sales_person['name']}
+{assigned_sales_person['company']}
+{assigned_sales_person['email']}
+{assigned_sales_person.get('phone', '')}
 
-**CLARIFICATION_REQUEST (Natural Sales Style):**
-"Hi [Customer Name],
-
-Thanks for your inquiry about shipping from [Origin] to [Destination]. I just need a couple of details to get you the best rates:
-
-* [Missing field 1]: [Specific request]
-* [Missing field 2]: [Specific request]
-
-Once you provide these details, I'll be able to give you a comprehensive quote right away.
-
-Looking forward to hearing from you!
-
-Best regards,
-[Sales Person Name]"
-
-**CONFIRMATION_ACKNOWLEDGMENT (Natural Sales Style):**
-"Hi [Customer Name],
-
-Perfect! Thanks for confirming the details. I've got everything I need to proceed with your shipment from [Origin] to [Destination].
-
-* Origin: [Origin]
-* Destination: [Destination]
-* Shipment Type: [Type]
-* Container: [Container Type]
-* Weight: [Weight]
-* Commodity: [Commodity]
-* Shipment Date: [Date]
-* Quantity: [Quantity]
-
-**Special Requirements Confirmed:**
-* Special Instructions: [Special Instructions]
-* Dangerous Goods: [Yes/No]
-* Insurance: [Required/Not specified]
-
-I'm now working on securing the best rates and arrangements for your shipment, including all your special requirements. I'll be in touch with a comprehensive quote and next steps shortly.
-
-Thanks for choosing us for your logistics needs!
-
-Best regards,
-[Sales Person Name]"
-
+Generate the complete email with headers and body:
 """
 
         # Ensure model is always a string
@@ -523,6 +528,10 @@ Best regards,
     def _get_response_template(self, extracted_data: dict, missing_fields: list, response_type: str) -> str:
         """Get appropriate response template based on data completeness and type."""
         shipment_type = extracted_data.get("shipment_type", "")
+        
+        # Handle non-logistics responses first
+        if response_type == "non_logistics_response":
+            return "NON_LOGISTICS_RESPONSE"
         
         if missing_fields:
             if "container_type" in missing_fields and shipment_type == "FCL":
