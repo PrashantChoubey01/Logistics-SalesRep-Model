@@ -208,9 +208,17 @@ class PortLookupAgent(BaseAgent):
         port_code = port_name.upper()
         
         if port_code in self.port_data:
+            port_name = self.port_data[port_code]
+            # Try to get country information from embeddings
+            country = "Unknown"
+            if self.embeddings and port_code in self.embeddings:
+                country = self.embeddings[port_code].get("country", "Unknown")
+            
             return {
                 "port_code": port_code,
-                "port_name": self.port_data[port_code],
+                "port_name": port_name,
+                "country": country,
+                "full_name": f"{port_name} ({port_code}) - {country}",
                 "confidence": 1.0,
                 "method": "exact_code_match"
             }
@@ -218,6 +226,8 @@ class PortLookupAgent(BaseAgent):
         return {
             "port_code": None,
             "port_name": None,
+            "country": None,
+            "full_name": None,
             "confidence": 0.0,
             "method": "exact_code_match"
         }
