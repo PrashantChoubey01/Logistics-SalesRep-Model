@@ -50,6 +50,7 @@ class LangGraphOrchestrator:
                 "enriched_data": {},
                 "validation_results": {},
                 "rate_recommendation": {},
+                "forwarder_assignment": {},
                 "current_node": "",
                 "workflow_history": [],
                 "errors": [],

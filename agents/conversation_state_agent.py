@@ -25,18 +25,20 @@ class ConversationStateAgent(BaseAgent):
     def __init__(self):
         super().__init__("conversation_state_agent")
         
-        # Conversation states
+        # Conversation states - Focus on THREAD PROGRESSION
         self.conversation_states = [
-            "new_request",              # Initial logistics request
-            "clarification_response",   # Customer provided missing info
-            "confirmation_reply",       # Customer confirmed booking details
-            "forwarder_response",       # Forwarder sent rates
-            "rate_inquiry",            # Customer asking about rates
-            "booking_request",         # Customer wants to proceed with booking
-            "follow_up",               # Customer follow-up or reminder
-            "escalation_trigger",       # Complex case or frustration
-            "sales_notification",      # Bot notifying sales team
-            "non_logistics"            # Not related to logistics
+            "new_thread",                    # First email in conversation
+            "thread_continuation",           # Ongoing conversation
+            "thread_clarification",          # Customer responding to bot questions
+            "thread_confirmation",           # Customer confirming bot's extracted data
+            "thread_forwarder_interaction",  # Forwarder participating in conversation
+            "thread_rate_inquiry",           # Customer asking about rates in thread
+            "thread_booking_request",        # Customer wants to proceed with booking
+            "thread_followup",               # Customer following up in thread
+            "thread_escalation",             # Complex thread needing human
+            "thread_completion",             # Conversation reaching conclusion
+            "thread_sales_notification",     # Bot notifying sales in thread
+            "thread_non_logistics"           # Non-logistics thread
         ]
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -139,43 +141,49 @@ class ConversationStateAgent(BaseAgent):
 You are an expert conversation analyst for logistics operations. Analyze this email thread and determine the conversation state and next actions.
 
 CONVERSATION STATES:
-1. new_request: Initial logistics request from customer
+1. new_thread: First email in conversation thread
    - Keywords: "need quote", "quotation", "shipping", "fcl", "lcl", "container", "freight", "cargo"
    - First contact in thread
 
-2. clarification_response: Customer responding to bot's clarification request
+2. thread_clarification: Customer responding to bot's clarification request
    - Keywords: "origin is", "destination is", "weight is", "date is", "commodity is"
-   - Providing requested information
+   - Providing requested information in thread context
 
-3. confirmation_reply: Customer confirming booking details
+3. thread_confirmation: Customer confirming booking details in thread
    - Keywords: "yes, confirmed", "i confirm", "details are correct", "proceed with"
-   - Confirming extracted information
+   - Confirming extracted information in thread context
 
-4. forwarder_response: Forwarder providing rates or quotes
+4. thread_forwarder_interaction: Forwarder participating in conversation thread
    - Keywords: "our rate", "quote is", "price is", "usd", "valid until", "freight rate"
-   - From forwarder email addresses
+   - From forwarder email addresses in thread
 
-5. rate_inquiry: Customer asking about rates or booking status
+5. thread_rate_inquiry: Customer asking about rates in ongoing thread
    - Keywords: "when will i get rates", "what about the rates", "status of my quote"
-   - Customer following up on rates
+   - Customer following up on rates in thread
 
-6. booking_request: Customer wants to proceed with booking
+6. thread_booking_request: Customer wants to proceed with booking in thread
    - Keywords: "i want to book", "proceed with booking", "ready to book", "confirm booking"
-   - Customer ready to finalize
+   - Customer ready to finalize in thread context
 
-7. follow_up: Customer sending follow-up or reminder
+7. thread_followup: Customer sending follow-up in thread
    - Keywords: "following up", "reminder", "update", "status"
-   - General follow-up messages
+   - General follow-up messages in thread
 
-8. escalation_trigger: Complex case or customer frustration
+8. thread_escalation: Complex thread or customer frustration
    - Keywords: "urgent", "asap", "immediately", "frustrated", "not getting response"
-   - High urgency or frustration indicators
+   - High urgency or frustration indicators in thread
 
-9. sales_notification: Bot notifying sales team
-   - Internal communication to sales team
+9. thread_sales_notification: Bot notifying sales team in thread
+   - Internal communication to sales team in thread context
 
-10. non_logistics: Not related to logistics
-    - General business, personal, or marketing emails
+10. thread_non_logistics: Not related to logistics in thread
+    - General business, personal, or marketing emails in thread
+
+11. thread_continuation: Ongoing conversation without specific action
+    - General continuation of thread conversation
+
+12. thread_completion: Conversation reaching conclusion
+    - Thread ending or completing successfully
 
 NEXT ACTIONS:
 - send_clarification_request: Ask customer for missing information
