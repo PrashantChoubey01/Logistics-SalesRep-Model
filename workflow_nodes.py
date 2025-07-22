@@ -26,6 +26,8 @@ from agents.rate_recommendation_agent import RateRecommendationAgent
 from agents.next_action_agent import NextActionAgent
 from agents.response_generator_agent import ResponseGeneratorAgent
 from agents.forwarder_assignment_agent import ForwarderAssignmentAgent
+from agents.forwarder_detection_agent import ForwarderDetectionAgent
+from agents.forwarder_response_agent import ForwarderResponseAgent
 
 # =====================================================
 #                 🏗️ STATE DEFINITION
@@ -51,6 +53,7 @@ class WorkflowState(TypedDict):
     validation_results: Dict[str, Any]
     rate_recommendation: Dict[str, Any]
     forwarder_assignment: Dict[str, Any]
+    forwarder_detection: Dict[str, Any]
     
     # Control
     current_node: str
@@ -134,6 +137,106 @@ def conversation_state_node(state: WorkflowState) -> WorkflowState:
     
     print("="*60)
     return state
+
+def forwarder_detection_node(state: WorkflowState) -> WorkflowState:
+    """Detect if email is from a forwarder."""
+    print("\n" + "="*60)
+    print("🔍 FORWARDER_DETECTION: Starting forwarder detection...")
+    print("="*60)
+    
+    try:
+        # Get forwarder detection agent
+        agent = get_cached_agent(ForwarderDetectionAgent, "forwarder_detection_agent")
+        
+        # Prepare input data
+        input_data = {
+            "email_data": {
+                "sender": state.get("sender", ""),
+                "subject": state.get("subject", ""),
+                "email_text": state.get("email_text", "")
+            }
+        }
+        
+        # Process forwarder detection
+        result = agent.process(input_data)
+        
+        # Update state
+        state["forwarder_detection"] = result
+        state["current_node"] = "FORWARDER_DETECTION"
+        state["workflow_history"].append("FORWARDER_DETECTION")
+        
+        print(f"✅ FORWARDER_DETECTION: Detection complete")
+        print(f"   Is Forwarder: {result.get('is_forwarder', False)}")
+        if result.get('forwarder_details'):
+            print(f"   Forwarder: {result['forwarder_details'].get('name', 'Unknown')}")
+        
+        print("="*60)
+        return state
+        
+    except Exception as e:
+        error_msg = f"Forwarder detection failed: {str(e)}"
+        print(f"❌ FORWARDER_DETECTION: {error_msg}")
+        state["errors"].append(error_msg)
+        state["forwarder_detection"] = {
+            "is_forwarder": False,
+            "error": error_msg
+        }
+        print("="*60)
+        return state
+
+def forwarder_response_node(state: WorkflowState) -> WorkflowState:
+    """Generate response for forwarder communications."""
+    print("\n" + "="*60)
+    print("📧 FORWARDER_RESPONSE: Starting forwarder response generation...")
+    print("="*60)
+    
+    try:
+        # Get forwarder response agent
+        agent = get_cached_agent(ForwarderResponseAgent, "forwarder_response_agent")
+        
+        # Prepare input data
+        input_data = {
+            "email_data": {
+                "sender": state.get("sender", ""),
+                "subject": state.get("subject", ""),
+                "email_text": state.get("email_text", "")
+            },
+            "forwarder_detection": state.get("forwarder_detection", {}),
+            "conversation_state": {
+                "conversation_state": state.get("conversation_state", "")
+            }
+        }
+        
+        # Process forwarder response
+        result = agent.process(input_data)
+        
+        # Update state
+        state["final_response"] = result
+        state["current_node"] = "FORWARDER_RESPONSE"
+        state["workflow_history"].append("FORWARDER_RESPONSE")
+        state["workflow_complete"] = True
+        
+        print(f"✅ FORWARDER_RESPONSE: Response generated")
+        print(f"   Response Type: {result.get('response_type', 'unknown')}")
+        print(f"   Sales Email: {result.get('sales_person_email', 'N/A')}")
+        
+        print("="*60)
+        return state
+        
+    except Exception as e:
+        error_msg = f"Forwarder response generation failed: {str(e)}"
+        print(f"❌ FORWARDER_RESPONSE: {error_msg}")
+        state["errors"].append(error_msg)
+        state["final_response"] = {
+            "response_subject": "Re: Your Message",
+            "response_body": "Thank you for your message. We will get back to you shortly.",
+            "response_type": "generic_response",
+            "sales_person_email": "sales@searates.com",
+            "error": error_msg
+        }
+        state["workflow_complete"] = True
+        print("="*60)
+        return state
 
 def classification_node(state: WorkflowState) -> WorkflowState:
     """Classify email type and intent (customer request, confirmation, forwarder email, etc.)."""
