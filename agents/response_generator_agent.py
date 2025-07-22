@@ -224,6 +224,12 @@ class ResponseGeneratorAgent(BaseAgent):
         # Get special instructions from extraction
         special_instructions = extraction_data.get("special_instructions", "")
         special_requirements = extraction_data.get("special_requirements", "")
+        dangerous_goods = extraction_data.get("dangerous_goods", False)
+        insurance = extraction_data.get("insurance", False)
+        packaging = extraction_data.get("packaging", "")
+        customs_clearance = extraction_data.get("customs_clearance", False)
+        delivery_address = extraction_data.get("delivery_address", "")
+        pickup_address = extraction_data.get("pickup_address", "")
         
         # Get customer information for personalized salutation
         customer_name = extraction_data.get("customer_name", "")
@@ -268,6 +274,14 @@ EXTRACTED DATA:
 - Commodity: {formatted_data.get('commodity')}
 - Shipment Date: {formatted_data.get('shipment_date')}
 - Quantity: {formatted_data.get('quantity')}
+- Special Instructions: {special_instructions if special_instructions else 'None'}
+- Special Requirements: {special_requirements if special_requirements else 'None'}
+- Dangerous Goods: {'Yes' if dangerous_goods else 'No'}
+- Insurance: {'Required' if insurance else 'Not specified'}
+- Packaging: {packaging if packaging else 'Standard'}
+- Customs Clearance: {'Required' if customs_clearance else 'Not specified'}
+- Delivery Address: {delivery_address if delivery_address else 'Standard delivery'}
+- Pickup Address: {pickup_address if pickup_address else 'Standard pickup'}
 
 MISSING FIELDS: {missing_fields if missing_fields else 'None'}
 
@@ -322,6 +336,15 @@ Thanks for reaching out about your shipment from [Origin] to [Destination]. I've
 * Shipment Date: [Date]
 * Quantity: [Quantity]
 
+**Special Requirements:**
+* Special Instructions: [Special Instructions]
+* Dangerous Goods: [Yes/No]
+* Insurance: [Required/Not specified]
+* Packaging: [Packaging details]
+* Customs Clearance: [Required/Not specified]
+* Delivery Address: [Address details]
+* Pickup Address: [Address details]
+
 Could you please confirm these details are correct? Once you give me the green light, I'll get started on securing the best rates for you.
 
 Feel free to reach out if you need any adjustments or have questions.
@@ -358,9 +381,16 @@ Perfect! Thanks for confirming the details. I've got everything I need to procee
 * Shipment Date: [Date]
 * Quantity: [Quantity]
 
-I'm now working on securing the best rates and arrangements for your shipment. I'll be in touch with a comprehensive quote and next steps shortly.
+**Special Requirements Confirmed:**
+* Special Instructions: [Special Instructions]
+* Dangerous Goods: [Yes/No]
+* Insurance: [Required/Not specified]
+* Packaging: [Packaging details]
+* Customs Clearance: [Required/Not specified]
+* Delivery Address: [Address details]
+* Pickup Address: [Address details]
 
-Regarding your question about insurance coverage for the electronics - yes, we can definitely arrange that. I'll include insurance options in the quote I send you.
+I'm now working on securing the best rates and arrangements for your shipment, including all your special requirements. I'll be in touch with a comprehensive quote and next steps shortly.
 
 Thanks for choosing us for your logistics needs!
 
