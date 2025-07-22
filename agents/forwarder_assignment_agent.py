@@ -8,6 +8,8 @@ Assigns forwarders based on POL/POD countries and generates rate requests.
 
 import json
 import logging
+import pandas as pd
+import os
 from typing import Dict, Any, List
 from agents.base_agent import BaseAgent
 
@@ -18,59 +20,8 @@ class ForwarderAssignmentAgent(BaseAgent):
         super().__init__("forwarder_assignment_agent")
         self.logger = logging.getLogger(__name__)
         
-        # Forwarder database by country
-        self.forwarders_by_country = {
-            "China": [
-                {
-                    "name": "China Logistics Solutions",
-                    "email": "rates@chinalogistics.com",
-                    "phone": "+86-21-1234-5678",
-                    "specialties": ["FCL", "LCL", "Electronics"],
-                    "rating": 4.8
-                },
-                {
-                    "name": "Shanghai Freight Forwarders",
-                    "email": "quotes@shanghaifreight.com", 
-                    "phone": "+86-21-8765-4321",
-                    "specialties": ["FCL", "Heavy Cargo"],
-                    "rating": 4.6
-                }
-            ],
-            "USA": [
-                {
-                    "name": "American Cargo Solutions",
-                    "email": "rates@americancargo.com",
-                    "phone": "+1-310-555-0123",
-                    "specialties": ["FCL", "LCL", "Electronics"],
-                    "rating": 4.7
-                },
-                {
-                    "name": "LA Port Logistics",
-                    "email": "quotes@laportlogistics.com",
-                    "phone": "+1-310-555-0456",
-                    "specialties": ["FCL", "Import/Export"],
-                    "rating": 4.5
-                }
-            ],
-            "Germany": [
-                {
-                    "name": "German Freight Solutions",
-                    "email": "rates@germanfreight.de",
-                    "phone": "+49-40-1234-5678",
-                    "specialties": ["FCL", "LCL", "Automotive"],
-                    "rating": 4.9
-                }
-            ],
-            "India": [
-                {
-                    "name": "India Cargo Express",
-                    "email": "rates@indiacargo.in",
-                    "phone": "+91-22-1234-5678",
-                    "specialties": ["FCL", "LCL", "Textiles"],
-                    "rating": 4.4
-                }
-            ]
-        }
+        # Load forwarders from CSV file
+        self.forwarders_by_country = self._load_forwarders_from_csv()
         
         # Default forwarders for unknown countries
         self.default_forwarders = [
@@ -79,9 +30,51 @@ class ForwarderAssignmentAgent(BaseAgent):
                 "email": "rates@globallogistics.com",
                 "phone": "+1-800-555-0123",
                 "specialties": ["FCL", "LCL", "General Cargo"],
-                "rating": 4.3
+                "rating": 4.3,
+                "operator": "Multiple Operators"
             }
         ]
+
+    def _load_forwarders_from_csv(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Load forwarders from CSV file."""
+        try:
+            # Get the path to the CSV file
+            csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                   "Forwarders_with_Operators_and_Emails.csv")
+            
+            if not os.path.exists(csv_path):
+                self.logger.warning(f"Forwarder CSV file not found at {csv_path}")
+                return {}
+            
+            # Read CSV file
+            df = pd.read_csv(csv_path)
+            self.logger.info(f"Loaded {len(df)} forwarder records from CSV")
+            
+            # Group by country
+            forwarders_by_country = {}
+            
+            for _, row in df.iterrows():
+                country = row['country']
+                forwarder = {
+                    "name": row['forwarder_name'],
+                    "email": row['email'],
+                    "phone": "+1-800-555-0000",  # Default phone since not in CSV
+                    "specialties": ["FCL", "LCL", "General Cargo"],  # Default specialties
+                    "operator": row['operator']
+                    # Note: rating removed since not available in CSV
+                }
+                
+                if country not in forwarders_by_country:
+                    forwarders_by_country[country] = []
+                
+                forwarders_by_country[country].append(forwarder)
+            
+            self.logger.info(f"Organized forwarders by {len(forwarders_by_country)} countries")
+            return forwarders_by_country
+            
+        except Exception as e:
+            self.logger.error(f"Error loading forwarders from CSV: {str(e)}")
+            return {}
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process forwarder assignment and rate request generation."""
@@ -178,6 +171,16 @@ class ForwarderAssignmentAgent(BaseAgent):
         shipment_date = extracted_data.get("shipment_date", "")
         quantity = extracted_data.get("quantity", 1)
         
+        # Get special instructions and requirements
+        special_instructions = extracted_data.get("special_instructions", "")
+        special_requirements = extracted_data.get("special_requirements", "")
+        dangerous_goods = extracted_data.get("dangerous_goods", False)
+        insurance = extracted_data.get("insurance", False)
+        packaging = extracted_data.get("packaging", "")
+        customs_clearance = extracted_data.get("customs_clearance", False)
+        delivery_address = extracted_data.get("delivery_address", "")
+        pickup_address = extracted_data.get("pickup_address", "")
+        
         # Get port codes from enriched data
         rate_data = enriched_data.get("rate_data", {})
         origin_code = rate_data.get("origin_code", "")
@@ -185,6 +188,9 @@ class ForwarderAssignmentAgent(BaseAgent):
         
         # Create email subject and body
         subject = f"Rate Request: {origin_name} to {destination_name} - {shipment_type}"
+        
+        # Get operator information
+        operator = forwarder.get("operator", "Multiple Operators")
         
         body = f"""Dear {forwarder['name']} Team,
 
@@ -199,6 +205,39 @@ We are seeking competitive rates for the following shipment:
 * Commodity: {commodity}
 * Shipment Date: {shipment_date}
 * Quantity: {quantity}
+* Preferred Operator: {operator}"""
+
+        # Add special instructions section if any special requirements exist
+        special_sections = []
+        
+        if special_instructions:
+            special_sections.append(f"* Special Instructions: {special_instructions}")
+        
+        if special_requirements:
+            special_sections.append(f"* Special Requirements: {special_requirements}")
+        
+        if dangerous_goods:
+            special_sections.append("* Dangerous Goods: YES - Please include DG handling charges and required documentation")
+        
+        if insurance:
+            special_sections.append("* Insurance: Required - Please include insurance coverage options")
+        
+        if packaging:
+            special_sections.append(f"* Packaging: {packaging}")
+        
+        if customs_clearance:
+            special_sections.append("* Customs Clearance: Required - Please include customs clearance services")
+        
+        if delivery_address:
+            special_sections.append(f"* Delivery Address: {delivery_address}")
+        
+        if pickup_address:
+            special_sections.append(f"* Pickup Address: {pickup_address}")
+        
+        if special_sections:
+            body += "\n\n**Special Requirements:**\n" + "\n".join(special_sections)
+        
+        body += f"""
 
 **Request:**
 Please provide your best rates for this shipment, including:
@@ -206,6 +245,26 @@ Please provide your best rates for this shipment, including:
 - Additional charges (THC, documentation, etc.)
 - Transit time
 - Available sailing dates
+- Operator-specific rates if applicable"""
+
+        # Add specific requests based on special requirements
+        if dangerous_goods:
+            body += """
+- DG handling charges and documentation requirements
+- IMDG compliance confirmation
+- Required safety measures"""
+        
+        if insurance:
+            body += """
+- Insurance coverage options and costs
+- Coverage limits and terms"""
+        
+        if customs_clearance:
+            body += """
+- Customs clearance services and costs
+- Documentation requirements"""
+        
+        body += f"""
 
 **Response Required:**
 Please respond within 24 hours with your competitive quote.
@@ -233,7 +292,16 @@ rates@dpworld.com
                 "weight": weight,
                 "commodity": commodity,
                 "shipment_date": shipment_date,
-                "quantity": quantity
+                "quantity": quantity,
+                "operator": operator,
+                "special_instructions": special_instructions,
+                "special_requirements": special_requirements,
+                "dangerous_goods": dangerous_goods,
+                "insurance": insurance,
+                "packaging": packaging,
+                "customs_clearance": customs_clearance,
+                "delivery_address": delivery_address,
+                "pickup_address": pickup_address
             }
         }
 

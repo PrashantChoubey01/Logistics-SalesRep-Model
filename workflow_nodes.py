@@ -198,22 +198,37 @@ def data_extraction_node(state: WorkflowState) -> WorkflowState:
             
             # Pretty print extracted data
             import json
+            from datetime import datetime
             print("\n📊 EXTRACTED DATA:")
-            print("-" * 40)
+            print("=" * 60)
             extracted_summary = {
-                "origin_name": result.get('origin_name', 'BLANK'),
-                "origin_country": result.get('origin_country', 'BLANK'),
-                "destination_name": result.get('destination_name', 'BLANK'),
-                "destination_country": result.get('destination_country', 'BLANK'),
-                "container_type": result.get('container_type', 'BLANK'),
-                "weight": result.get('weight', 'BLANK'),
-                "volume": result.get('volume', 'BLANK'),
-                "commodity": result.get('commodity', 'BLANK'),
-                "shipment_date": result.get('shipment_date', 'BLANK'),
-                "quantity": result.get('quantity', 'BLANK')
+                "NODE": "DATA_EXTRACTION",
+                "STATUS": "SUCCESS",
+                "EXTRACTED_FIELDS": {
+                    "origin": {
+                        "name": result.get('origin_name', 'N/A'),
+                        "country": result.get('origin_country', 'N/A')
+                    },
+                    "destination": {
+                        "name": result.get('destination_name', 'N/A'),
+                        "country": result.get('destination_country', 'N/A')
+                    },
+                    "shipment_details": {
+                        "type": result.get('shipment_type', 'N/A'),
+                        "container": result.get('container_type', 'N/A'),
+                        "weight": result.get('weight', 'N/A'),
+                        "volume": result.get('volume', 'N/A'),
+                        "commodity": result.get('commodity', 'N/A'),
+                        "date": result.get('shipment_date', 'N/A'),
+                        "quantity": result.get('quantity', 'N/A')
+                    }
+                },
+                "CONFIDENCE": result.get('confidence_score', 0.0),
+                "EXTRACTION_METHOD": "LLM_FUNCTION_CALL",
+                "TIMESTAMP": datetime.now().isoformat()
             }
             print(json.dumps(extracted_summary, indent=2))
-            print("-" * 40)
+            print("=" * 60)
         else:
             print(f"⚠️ DATA_EXTRACTION: Unexpected result format - {type(result)}")
         
@@ -334,22 +349,53 @@ def data_enrichment_node(state: WorkflowState) -> WorkflowState:
         
         # Pretty print enriched data
         import json
+        from datetime import datetime
         print("\n📊 ENRICHED DATA:")
-        print("-" * 40)
+        print("=" * 60)
+        
+        # Helper function to safely get nested values
+        def safe_get(data, key, default="N/A"):
+            if isinstance(data, dict):
+                return data.get(key, default)
+            return default
+        
+        # Helper function to safely get list values
+        def safe_get_list(data, key, default=None):
+            if isinstance(data, dict):
+                return data.get(key, default if default is not None else [])
+            return default if default is not None else []
+        
+        rate_data = enriched_data.get("rate_data", {})
+        container_std = enriched_data.get("container_standardization", {})
+        
         enriched_summary = {
-            "port_lookup": {
-                "status": port_result.get("status", "unknown"),
-                "results_count": len(port_result.get("results", [])),
-                "error": port_result.get("error", "none")
+            "NODE": "DATA_ENRICHMENT",
+            "STATUS": "SUCCESS",
+            "ENRICHMENT_RESULTS": {
+                "port_lookup": {
+                    "status": safe_get(port_result, "status", "unknown"),
+                    "results_count": len(safe_get_list(port_result, "results")),
+                    "error": safe_get(port_result, "error", "none"),
+                    "ports_found": [p.get("port_name", "") for p in safe_get_list(port_result, "results") if isinstance(p, dict)]
+                },
+                "rate_data": {
+                    "origin_code": safe_get(rate_data, "origin_code"),
+                    "destination_code": safe_get(rate_data, "destination_code"),
+                    "origin_name": safe_get(rate_data, "origin_name"),
+                    "destination_name": safe_get(rate_data, "destination_name"),
+                    "container_type": safe_get(rate_data, "container_type")
+                },
+                "container_standardization": {
+                    "input_type": state["extracted_data"].get("container_type", "N/A"),
+                    "standardized_type": safe_get(container_std, "standard_type"),
+                    "status": safe_get(container_std, "status")
+                }
             },
-            "rate_data": enriched_data.get("rate_data", "BLANK"),
-            "container_standardization": {
-                "status": enriched_data.get("container_standardization", {}).get("status", "BLANK"),
-                "standard_type": enriched_data.get("container_standardization", {}).get("standard_type", "BLANK")
-            }
+            "ENRICHMENT_METHOD": "PORT_LOOKUP_AND_CONTAINER_STANDARDIZATION",
+            "TIMESTAMP": datetime.now().isoformat()
         }
         print(json.dumps(enriched_summary, indent=2))
-        print("-" * 40)
+        print("=" * 60)
         
         state["workflow_history"].append("DATA_ENRICHMENT")
         state["current_node"] = "DATA_ENRICHMENT"
@@ -418,17 +464,36 @@ def validation_node(state: WorkflowState) -> WorkflowState:
             
             # Pretty print validation results
             import json
+            from datetime import datetime
             print("\n📊 VALIDATION RESULTS:")
-            print("-" * 40)
+            print("=" * 60)
+            
+            overall_validation = result.get("overall_validation", {})
             validation_summary = {
-                "overall_validation": result.get("overall_validation", {}),
-                "missing_fields": result.get("overall_validation", {}).get("missing_fields", []),
-                "critical_issues": result.get("overall_validation", {}).get("critical_issues", []),
-                "completeness_score": f"{result.get('overall_validation', {}).get('completeness_score', 0):.1%}",
-                "confidence_score": f"{result.get('overall_validation', {}).get('confidence_score', 0):.1%}"
+                "NODE": "VALIDATION",
+                "STATUS": "SUCCESS",
+                "VALIDATION_RESULTS": {
+                    "completeness": {
+                        "score": overall_validation.get("completeness_score", 0.0),
+                        "percentage": f"{overall_validation.get('completeness_score', 0):.1%}",
+                        "is_complete": overall_validation.get("is_complete", False)
+                    },
+                    "confidence": {
+                        "score": overall_validation.get("confidence_score", 0.0),
+                        "percentage": f"{overall_validation.get('confidence_score', 0):.1%}"
+                    },
+                    "issues": {
+                        "missing_fields": overall_validation.get("missing_fields", []),
+                        "critical_issues": overall_validation.get("critical_issues", []),
+                        "warnings": overall_validation.get("warnings", [])
+                    },
+                    "business_logic": overall_validation.get("business_logic_validation", {})
+                },
+                "VALIDATION_METHOD": "ENHANCED_VALIDATION_AGENT",
+                "TIMESTAMP": datetime.now().isoformat()
             }
             print(json.dumps(validation_summary, indent=2))
-            print("-" * 40)
+            print("=" * 60)
             
             # Extract enriched data from validation result if available
             if "enriched_data" in result and result["enriched_data"]:
@@ -529,6 +594,35 @@ def decision_node(state: WorkflowState) -> WorkflowState:
         if isinstance(result, dict):
             state["next_action"] = result.get("next_action", "escalate_to_human")
             state["decision_result"] = result  # Store the full decision result
+            
+            # Pretty print decision results
+            import json
+            from datetime import datetime
+            print("\n📊 DECISION RESULTS:")
+            print("=" * 60)
+            decision_summary = {
+                "NODE": "DECISION",
+                "STATUS": "SUCCESS",
+                "DECISION_RESULTS": {
+                    "next_action": result.get("next_action", "unknown"),
+                    "action_priority": result.get("action_priority", "unknown"),
+                    "response_type": result.get("response_type", "unknown"),
+                    "escalation_needed": result.get("escalation_needed", False),
+                    "sales_handoff_needed": result.get("sales_handoff_needed", False),
+                    "confidence_score": result.get("confidence_score", 0.0),
+                    "reasoning": result.get("reasoning", "No reasoning provided"),
+                    "risk_factors": result.get("risk_factors", [])
+                },
+                "INPUT_CONTEXT": {
+                    "conversation_state": state["conversation_state"],
+                    "email_type": state.get("email_classification", {}).get("email_type", "unknown"),
+                    "validation_completeness": state.get("validation_results", {}).get("overall_validation", {}).get("completeness_score", 0.0)
+                },
+                "DECISION_METHOD": "NEXT_ACTION_AGENT",
+                "TIMESTAMP": datetime.now().isoformat()
+            }
+            print(json.dumps(decision_summary, indent=2))
+            print("=" * 60)
         
         state["workflow_history"].append("DECISION")
         state["current_node"] = "DECISION"
@@ -644,6 +738,45 @@ def forwarder_assignment_node(state: WorkflowState) -> WorkflowState:
         print(f"🔧 FORWARDER_ASSIGNMENT: Result = {result}")
         
         if isinstance(result, dict) and result.get("status") == "success":
+            # Pretty print forwarder assignment results
+            import json
+            from datetime import datetime
+            print("\n📊 FORWARDER ASSIGNMENT RESULTS:")
+            print("=" * 60)
+            forwarder_summary = {
+                "NODE": "FORWARDER_ASSIGNMENT",
+                "STATUS": "SUCCESS",
+                "ASSIGNMENT_RESULTS": {
+                    "total_forwarders": result.get("total_forwarders", 0),
+                    "origin_country": result.get("origin_country", "N/A"),
+                    "destination_country": result.get("destination_country", "N/A"),
+                    "assignment_method": result.get("assignment_method", "unknown"),
+                    "forwarders_assigned": [
+                        {
+                            "name": f.get("name", "N/A"),
+                            "email": f.get("email", "N/A"),
+                            "phone": f.get("phone", "N/A"),
+                            "specialties": f.get("specialties", []),
+                            "rating": f.get("rating", 0.0)
+                        }
+                        for f in result.get("assigned_forwarders", [])
+                    ],
+                    "rate_requests_generated": len(result.get("rate_requests", []))
+                },
+                "RATE_REQUESTS": [
+                    {
+                        "forwarder_name": req.get("forwarder_name", "N/A"),
+                        "forwarder_email": req.get("forwarder_email", "N/A"),
+                        "subject": req.get("subject", "N/A"),
+                        "shipment_details": req.get("shipment_details", {})
+                    }
+                    for req in result.get("rate_requests", [])
+                ],
+                "ASSIGNMENT_METHOD": "COUNTRY_BASED_FORWARDER_ASSIGNMENT",
+                "TIMESTAMP": datetime.now().isoformat()
+            }
+            print(json.dumps(forwarder_summary, indent=2))
+            print("=" * 60)
             # Store forwarder assignment results
             state["forwarder_assignment"] = result
             
