@@ -12,7 +12,10 @@ from datetime import datetime
 # =====================================================
 DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN", "dapi81b45be7f09611a410fc3e5104a8cadf-3")
 DATABRICKS_BASE_URL = os.getenv("DATABRICKS_BASE_URL", "https://adb-1825279086009288.8.azuredatabricks.net/serving-endpoints")
-MODEL_ENDPOINT_ID = os.getenv("MODEL_ENDPOINT_ID", "databricks-meta-llama-3-3-70b-instruct")
+# MODEL_ENDPOINT_ID = os.getenv("MODEL_ENDPOINT_ID", "databricks-meta-llama-3-3-70b-instruct")
+MODEL_ENDPOINT_ID = os.getenv("MODEL_ENDPOINT_ID", "databricks-claude-sonnet-4")
+
+
 
 class BaseAgent(ABC):
     """
