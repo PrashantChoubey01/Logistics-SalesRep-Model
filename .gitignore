@@ -76,6 +76,6 @@ secrets.*
 *.pem
 *.csv
 
-# Allow configuration JSON files
-!config/*.json
-!*.json
+# Configuration files - exclude sensitive ones
+config/sales_team.json
+config/forwarders.json
