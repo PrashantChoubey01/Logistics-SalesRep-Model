@@ -1,0 +1,120 @@
+{
+  "forwarders": [
+    {
+      "id": "FWD001",
+      "name": "DHL Global Forwarding",
+      "email": "dhl.global.forwarding@logistics.com",
+      "country": "Germany",
+      "operator": "DHL",
+      "company": "DHL Global Forwarding",
+      "specialization": "Global Logistics",
+      "contact_person": "John Smith",
+      "phone": "+49-30-12345678"
+    },
+    {
+      "id": "FWD002",
+      "name": "Kuehne + Nagel",
+      "email": "kn.logistics@kuehne-nagel.com",
+      "country": "Switzerland",
+      "operator": "Kuehne + Nagel",
+      "company": "Kuehne + Nagel International AG",
+      "specialization": "Sea Freight",
+      "contact_person": "Maria Garcia",
+      "phone": "+41-44-12345678"
+    },
+    {
+      "id": "FWD003",
+      "name": "DB Schenker",
+      "email": "schenker.operations@dbschenker.com",
+      "country": "Germany",
+      "operator": "DB Schenker",
+      "company": "DB Schenker Logistics",
+      "specialization": "Air Freight",
+      "contact_person": "Hans Mueller",
+      "phone": "+49-69-12345678"
+    },
+    {
+      "id": "FWD004",
+      "name": "Expeditors",
+      "email": "expeditors.shipping@expeditors.com",
+      "country": "USA",
+      "operator": "Expeditors",
+      "company": "Expeditors International",
+      "specialization": "Customs Clearance",
+      "contact_person": "Sarah Johnson",
+      "phone": "+1-206-12345678"
+    },
+    {
+      "id": "FWD005",
+      "name": "Panalpina",
+      "email": "panalpina.freight@panalpina.com",
+      "country": "Switzerland",
+      "operator": "Panalpina",
+      "company": "Panalpina World Transport",
+      "specialization": "Project Cargo",
+      "contact_person": "Carlos Rodriguez",
+      "phone": "+41-61-12345678"
+    },
+    {
+      "id": "FWD006",
+      "name": "CEVA Logistics",
+      "email": "ceva.operations@cevalogistics.com",
+      "country": "Netherlands",
+      "operator": "CEVA",
+      "company": "CEVA Logistics",
+      "specialization": "Contract Logistics",
+      "contact_person": "Anna Kowalski",
+      "phone": "+31-20-12345678"
+    },
+    {
+      "id": "FWD007",
+      "name": "Bolloré Logistics",
+      "email": "bollore.shipping@bollore-logistics.com",
+      "country": "France",
+      "operator": "Bolloré",
+      "company": "Bolloré Logistics",
+      "specialization": "Africa Routes",
+      "contact_person": "Pierre Dubois",
+      "phone": "+33-1-12345678"
+    },
+    {
+      "id": "FWD008",
+      "name": "Agility",
+      "email": "agility.freight@agility.com",
+      "country": "Kuwait",
+      "operator": "Agility",
+      "company": "Agility Logistics",
+      "specialization": "Middle East Routes",
+      "contact_person": "Ahmed Hassan",
+      "phone": "+965-1-12345678"
+    },
+    {
+      "id": "FWD009",
+      "name": "Nippon Express",
+      "email": "nippon.express@nipponexpress.com",
+      "country": "Japan",
+      "operator": "Nippon Express",
+      "company": "Nippon Express Co., Ltd.",
+      "specialization": "Asia-Pacific Routes",
+      "contact_person": "Yuki Tanaka",
+      "phone": "+81-3-12345678"
+    },
+    {
+      "id": "FWD010",
+      "name": "Sinotrans",
+      "email": "sinotrans.logistics@sinotrans.com",
+      "country": "China",
+      "operator": "Sinotrans",
+      "company": "Sinotrans Limited",
+      "specialization": "China Routes",
+      "contact_person": "Li Wei",
+      "phone": "+86-10-12345678"
+    }
+  ],
+  "metadata": {
+    "total_forwarders": 10,
+    "last_updated": "2025-01-27",
+    "version": "1.0",
+    "description": "Forwarder database for logistics AI response system"
+  }
+} 
