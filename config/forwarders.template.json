@@ -1,0 +1,21 @@
+{
+  "forwarders": [
+    {
+      "id": "FWD001",
+      "name": "Your Forwarder Name",
+      "email": "your.forwarder@company.com",
+      "country": "Your Country",
+      "operator": "Your Operator",
+      "company": "Your Company Name",
+      "specialization": "Your Specialization",
+      "contact_person": "Contact Person Name",
+      "phone": "+1-555-12345678"
+    }
+  ],
+  "metadata": {
+    "total_forwarders": 1,
+    "last_updated": "2025-01-27",
+    "version": "1.0",
+    "description": "Forwarder database for logistics AI response system"
+  }
+} 
