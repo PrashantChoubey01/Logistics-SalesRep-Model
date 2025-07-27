@@ -12,8 +12,8 @@ from datetime import datetime
 # =====================================================
 DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN", "dapi81b45be7f09611a410fc3e5104a8cadf-3")
 DATABRICKS_BASE_URL = os.getenv("DATABRICKS_BASE_URL", "https://adb-1825279086009288.8.azuredatabricks.net/serving-endpoints")
-# MODEL_ENDPOINT_ID = os.getenv("MODEL_ENDPOINT_ID", "databricks-meta-llama-3-3-70b-instruct")
-MODEL_ENDPOINT_ID = os.getenv("MODEL_ENDPOINT_ID", "databricks-claude-sonnet-4")
+MODEL_ENDPOINT_ID = os.getenv("MODEL_ENDPOINT_ID", "databricks-meta-llama-3-3-70b-instruct")
+# MODEL_ENDPOINT_ID = os.getenv("MODEL_ENDPOINT_ID", "databricks-claude-sonnet-4")
 
 
 
@@ -87,6 +87,55 @@ class BaseAgent(ABC):
             print(f"✗ {self.agent_name} context loading failed: {e}")
             return False
 
+    def _make_llm_call(self, prompt: str, function_schema: Dict, model_name: str = None, 
+                      temperature: float = 0.1, max_tokens: int = 800) -> Dict[str, Any]:
+        """
+        Make LLM call with proper Databricks format.
+        
+        Args:
+            prompt: The prompt to send to the LLM
+            function_schema: The function schema to use
+            model_name: Model to use (defaults to config model)
+            temperature: Temperature for generation
+            max_tokens: Maximum tokens to generate
+            
+        Returns:
+            Dictionary containing the LLM response or error
+        """
+        if not self.client:
+            return {"error": "LLM client not available"}
+        
+        try:
+            # Convert function schema to tools format for Databricks
+            tools = [{
+                "type": "function",
+                "function": function_schema
+            }]
+            
+            tool_choice = {
+                "type": "function",
+                "function": {"name": function_schema["name"]}
+            }
+            
+            response = self.client.chat.completions.create(
+                model=model_name or self.config.get("model_name"),
+                messages=[{"role": "user", "content": prompt}],
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            
+            tool_calls = response.choices[0].message.tool_calls
+            if tool_calls:
+                import json
+                return json.loads(tool_calls[0].function.arguments)
+            else:
+                return {"error": "No tool calls in response"}
+                
+        except Exception as e:
+            return {"error": f"LLM call failed: {str(e)}"}
+
     @abstractmethod
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -97,139 +146,112 @@ class BaseAgent(ABC):
             
         Returns:
             Dictionary containing processing results
-            
-        Reason: Abstract method ensures all agents implement core logic
-        while allowing flexibility in implementation approach.
         """
         pass
 
     def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute the agent with input data and handle errors consistently.
+        Run the agent with input data and return results.
         
         Args:
             input_data: Dictionary containing input parameters
             
         Returns:
-            Dictionary containing results with metadata
-            
-        Reason: Provides consistent error handling and metadata injection
-        across all agents without requiring each agent to implement it.
+            Dictionary containing processing results with status
         """
-        start_time = datetime.utcnow()
-        
         try:
-            # Validate input
-            if not isinstance(input_data, dict):
-                raise ValueError("Input data must be a dictionary")
+            # Load context if not already loaded
+            if not self.client:
+                self.load_context()
             
-            # Execute core processing
+            # Process the input data
             result = self.process(input_data)
             
-            # Ensure result is a dictionary
-            if not isinstance(result, dict):
-                raise ValueError("Agent process() must return a dictionary")
-            
-            # Add metadata only if not already present
-            if "agent_name" not in result:
-                result["agent_name"] = self.agent_name
-            if "agent_id" not in result:
-                result["agent_id"] = self.agent_id
-            if "processed_at" not in result:
-                result["processed_at"] = datetime.utcnow().isoformat()
-            
-            # Set status to success only if not already set
-            if "status" not in result:
-                result["status"] = "success"
-            
-            # Log successful processing
-            processing_time = (datetime.utcnow() - start_time).total_seconds()
-            self.logger.info(f"Processing completed successfully in {processing_time:.2f}s")
-            
-            return result
-            
+            # Add status information
+            if "error" in result:
+                return {
+                    "status": "error",
+                    "error": result["error"],
+                    "agent": self.agent_name,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            else:
+                return {
+                    "status": "success",
+                    "result": result,
+                    "agent": self.agent_name,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                
         except Exception as e:
-            # Log the error
-            processing_time = (datetime.utcnow() - start_time).total_seconds()
-            self.logger.error(f"Processing failed after {processing_time:.2f}s: {e}")
-            
-            # Return consistent error format
+            self.logger.error(f"Agent {self.agent_name} failed: {e}")
             return {
                 "status": "error",
                 "error": str(e),
-                "agent_name": self.agent_name,
-                "agent_id": self.agent_id,
-                "processed_at": datetime.utcnow().isoformat(),
-                "processing_time": processing_time
+                "agent": self.agent_name,
+                "timestamp": datetime.utcnow().isoformat()
             }
 
     def get_status(self) -> Dict[str, Any]:
         """
-        Get current agent status and configuration.
+        Get agent status information.
         
         Returns:
-            Dictionary containing agent status information
-            
-        Reason: Useful for debugging and monitoring agent health.
+            Dictionary containing agent status
         """
         return {
             "agent_name": self.agent_name,
             "agent_id": self.agent_id,
-            "has_llm_client": bool(self.client),
+            "llm_connected": self.client is not None,
             "model_name": self.config.get("model_name"),
-            "status": "ready" if self.client else "no_llm"
+            "base_url": self.config.get("base_url")
         }
 
+
 # =====================================================
-#                 🔁 Test Connection
+#                 🔧 Test Functions
 # =====================================================
+
 def test_databricks_connection():
-    """Test Databricks LLM connection with minimal overhead"""
-    print("=== Testing Databricks LLM Connection ===")
-    print(f"Token: {DATABRICKS_TOKEN[:20]}...")
-    print(f"Base URL: {DATABRICKS_BASE_URL}")
-    print(f"Model: {MODEL_ENDPOINT_ID}")
+    """Test Databricks LLM connection"""
+    print("🧪 Testing Databricks LLM Connection")
+    print("=" * 50)
     
     class TestAgent(BaseAgent):
         def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-            return {
-                "test_result": "success",
-                "has_llm_client": bool(self.client),
-                "model_name": self.config.get("model_name"),
-                "input_received": bool(input_data)
-            }
-
-    agent = TestAgent("test_agent")
+            return {"test": "success"}
     
-    # Test context loading
+    agent = TestAgent("TestAgent")
+    
     if agent.load_context():
-        result = agent.run({"test_input": "hello"})
+        print("✅ Databricks connection successful")
         
-        print(f"✓ Agent Status: {result.get('status')}")
-        print(f"✓ Has LLM: {result.get('has_llm_client')}")
-        print(f"✓ Model: {result.get('model_name')}")
+        # Test LLM call
+        test_schema = {
+            "name": "test_function",
+            "description": "A test function",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "result": {"type": "string"}
+                },
+                "required": ["result"]
+            }
+        }
         
-        # Test actual LLM call if available
-        if agent.client:
-            print("\n--- Testing LLM Call ---")
-            try:
-                response = agent.client.chat.completions.create(
-                    model=MODEL_ENDPOINT_ID,
-                    messages=[{"role": "user", "content": "Say 'Hello from Databricks!'"}],
-                    max_tokens=10,
-                    temperature=0.0
-                )
-                print(f"✓ LLM Response: {response.choices[0].message.content}")
-                return True
-            except Exception as e:
-                print(f"✗ LLM call failed: {e}")
-                return False
+        result = agent._make_llm_call(
+            "Respond with 'test successful'",
+            test_schema
+        )
+        
+        if "error" not in result:
+            print("✅ LLM function call successful")
+            print(f"   Result: {result}")
         else:
-            print("⚠️ No LLM client available")
-            return True
+            print(f"❌ LLM function call failed: {result['error']}")
     else:
-        print("✗ Context loading failed")
-        return False
+        print("❌ Databricks connection failed")
+
 
 if __name__ == "__main__":
     test_databricks_connection()

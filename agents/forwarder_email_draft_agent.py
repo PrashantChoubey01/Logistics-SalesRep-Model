@@ -1,4 +1,4 @@
-"""Forwarder Email Draft Agent: Generates rate request emails to forwarders without customer details."""
+"""Forwarder Email Draft Agent: Generates rate request emails to forwarders with sales manager signatures."""
 
 import json
 import sys
@@ -19,11 +19,17 @@ except ImportError:
         sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from agents.base_agent import BaseAgent
 
+try:
+    from utils.sales_team_manager import SalesTeamManager
+except ImportError:
+    SalesTeamManager = None
+
 class ForwarderEmailDraftAgent(BaseAgent):
-    """Agent for drafting professional rate request emails to forwarders."""
+    """Agent for drafting professional rate request emails to forwarders with sales manager signatures."""
 
     def __init__(self):
         super().__init__("forwarder_email_draft_agent")
+        self.sales_team_manager = SalesTeamManager() if SalesTeamManager else None
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -35,12 +41,16 @@ class ForwarderEmailDraftAgent(BaseAgent):
         - origin_country: Origin country code
         - destination_country: Destination country code
         - thread_id: Thread identifier
+        - sales_manager_id: Sales manager ID for signature
+        - customer_email_content: Customer email content for additional details extraction
         """
         assigned_forwarders = input_data.get("assigned_forwarders", [])
         shipment_details = input_data.get("shipment_details", {})
         origin_country = input_data.get("origin_country", "")
         destination_country = input_data.get("destination_country", "")
         thread_id = input_data.get("thread_id", "")
+        sales_manager_id = input_data.get("sales_manager_id", "")
+        customer_email_content = input_data.get("customer_email_content", "")
 
         if not assigned_forwarders:
             return {"error": "No forwarders assigned"}
@@ -48,14 +58,114 @@ class ForwarderEmailDraftAgent(BaseAgent):
         if not self.client:
             return {"error": "LLM client not initialized"}
 
-        return self._generate_email_drafts(assigned_forwarders, shipment_details, origin_country, destination_country, thread_id)
+        # Extract additional details from customer email
+        additional_details = self._extract_additional_details(customer_email_content)
+        
+        return self._generate_email_drafts(
+            assigned_forwarders, 
+            shipment_details, 
+            origin_country, 
+            destination_country, 
+            thread_id, 
+            sales_manager_id,
+            additional_details
+        )
 
-    def _generate_email_drafts(self, assigned_forwarders: List[Dict[str, Any]], shipment_details: Dict[str, Any], origin_country: str, destination_country: str, thread_id: str) -> Dict[str, Any]:
-        """Generate email drafts using LLM function calling."""
+    def _extract_additional_details(self, customer_email_content: str) -> Dict[str, Any]:
+        """Extract additional logistics-related details from customer email using LLM."""
+        if not customer_email_content or not self.client:
+            return {}
+        
         try:
             function_schema = {
+                "name": "extract_logistics_details",
+                "description": "Extract logistics-related additional details from customer email",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "transit_time_requested": {
+                            "type": "boolean",
+                            "description": "Whether customer requested transit time information"
+                        },
+                        "urgency_level": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high", "urgent"],
+                            "description": "Urgency level mentioned by customer"
+                        },
+                        "special_requirements": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Special requirements or requests from customer"
+                        },
+                        "rate_preferences": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Rate preferences or requirements mentioned"
+                        },
+                        "additional_notes": {
+                            "type": "string",
+                            "description": "Any other logistics-related notes from customer"
+                        },
+                        "confirmation_status": {
+                            "type": "string",
+                            "enum": ["pending", "confirmed", "not_mentioned"],
+                            "description": "Whether customer confirmed details"
+                        }
+                    }
+                }
+            }
+
+            prompt = f"""
+Extract logistics-related additional details from this customer email:
+
+Email Content:
+{customer_email_content}
+
+Extract only logistics-related information such as:
+- Transit time requests
+- Urgency levels
+- Special requirements
+- Rate preferences
+- Confirmations of details
+- Additional logistics notes
+
+Ignore personal information, greetings, or non-logistics content.
+"""
+
+            response = self.client.chat.completions.create(
+                model=self.config.get("model_name"),
+                messages=[{"role": "user", "content": prompt}],
+                tools=[{
+                    "type": "function",
+                    "function": function_schema
+                }],
+                tool_choice={"type": "function", "function": {"name": function_schema["name"]}},
+                temperature=0.1,
+                max_tokens=400
+            )
+
+            tool_calls = getattr(response.choices[0].message, "tool_calls", None)
+            if tool_calls:
+                tool_args = tool_calls[0].function.arguments
+                if isinstance(tool_args, str):
+                    tool_args = json.loads(tool_args)
+                return dict(tool_args)
+            
+            return {}
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting additional details: {e}")
+            return {}
+
+    def _generate_email_drafts(self, assigned_forwarders: List[Dict[str, Any]], shipment_details: Dict[str, Any], origin_country: str, destination_country: str, thread_id: str, sales_manager_id: str, additional_details: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate email drafts using LLM function calling with sales manager signatures."""
+        try:
+            # Get sales manager signature
+            sales_manager_signature = self._get_sales_manager_signature(sales_manager_id)
+            
+            function_schema = {
                 "name": "generate_forwarder_emails",
-                "description": "Generate professional rate request emails for forwarders",
+                "description": "Generate professional rate request emails for forwarders with sales manager signatures",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -100,19 +210,32 @@ class ForwarderEmailDraftAgent(BaseAgent):
                 "shipment_type": shipment_details.get("shipment_type", "FCL")
             }
 
+            # Format additional details for email
+            additional_info = self._format_additional_details(additional_details)
+
             prompt = f"""
 Generate professional rate request emails for forwarders.
 
 Forwarders: {json.dumps(assigned_forwarders, indent=2)}
 
-Shipment: {json.dumps(shipment_info, indent=2)}
+Shipment Details:
+{self._format_shipment_details(shipment_info)}
+
+Additional Requirements:
+{additional_info}
+
+Sales Manager Signature:
+{sales_manager_signature}
 
 Rules:
-- Professional tone
-- Clear shipment details
-- Request competitive rates
-- NO customer information
+- Professional and courteous tone
+- Clear, organized shipment details
+- Request competitive rates and transit times
+- Include all additional requirements from customer
+- NO customer information or personal details
 - Request all-inclusive rates
+- Use the provided sales manager signature
+- Format details in a clear, structured manner
 
 Generate one email per forwarder with subject, body, priority, urgency, and response time.
 """
@@ -126,7 +249,7 @@ Generate one email per forwarder with subject, body, priority, urgency, and resp
                 }],
                 tool_choice={"type": "function", "function": {"name": function_schema["name"]}},
                 temperature=0.1,
-                max_tokens=800
+                max_tokens=1000
             )
 
             tool_calls = getattr(response.choices[0].message, "tool_calls", None)
@@ -142,6 +265,8 @@ Generate one email per forwarder with subject, body, priority, urgency, and resp
             result["thread_id"] = thread_id
             result["origin_country"] = origin_country
             result["destination_country"] = destination_country
+            result["sales_manager_id"] = sales_manager_id
+            result["additional_details"] = additional_details
             
             # Validate and correct result if needed
             if not result.get("email_drafts"):
@@ -160,6 +285,89 @@ Generate one email per forwarder with subject, body, priority, urgency, and resp
         except Exception as e:
             self.logger.error(f"Email draft generation failed: {e}")
             return {"error": f"Email draft generation failed: {str(e)}"}
+
+    def _get_sales_manager_signature(self, sales_manager_id: str) -> str:
+        """Get sales manager signature by ID."""
+        if not self.sales_team_manager or not sales_manager_id:
+            return self._get_default_signature()
+        
+        try:
+            sales_person = self.sales_team_manager.get_sales_person_by_id(sales_manager_id)
+            if sales_person:
+                return sales_person.get("signature", self._get_default_signature())
+        except Exception as e:
+            self.logger.error(f"Error getting sales manager signature: {e}")
+        
+        return self._get_default_signature()
+
+    def _get_default_signature(self) -> str:
+        """Get default signature if sales manager not found."""
+        return """Best regards,
+
+Digital Sales Specialist
+Searates By DP World
+📧 sales@searates.com
+📞 +1-555-0123
+🌐 www.searates.com"""
+
+    def _format_shipment_details(self, shipment_info: Dict[str, Any]) -> str:
+        """Format shipment details in a clear, structured manner."""
+        details = []
+        
+        if shipment_info.get("origin_country") and shipment_info.get("destination_country"):
+            details.append(f"Route: {shipment_info['origin_country']} → {shipment_info['destination_country']}")
+        
+        if shipment_info.get("commodity"):
+            details.append(f"Commodity: {shipment_info['commodity']}")
+        
+        if shipment_info.get("container_type"):
+            details.append(f"Container Type: {shipment_info['container_type']}")
+        
+        if shipment_info.get("weight"):
+            details.append(f"Weight: {shipment_info['weight']}")
+        
+        if shipment_info.get("volume"):
+            details.append(f"Volume: {shipment_info['volume']}")
+        
+        if shipment_info.get("quantity"):
+            details.append(f"Quantity: {shipment_info['quantity']}")
+        
+        if shipment_info.get("shipment_date"):
+            details.append(f"Shipment Date: {shipment_info['shipment_date']}")
+        
+        if shipment_info.get("shipment_type"):
+            details.append(f"Shipment Type: {shipment_info['shipment_type']}")
+        
+        return "\n".join([f"- {detail}" for detail in details])
+
+    def _format_additional_details(self, additional_details: Dict[str, Any]) -> str:
+        """Format additional details for email inclusion."""
+        if not additional_details:
+            return "No additional requirements specified."
+        
+        details = []
+        
+        if additional_details.get("transit_time_requested"):
+            details.append("- Transit time information requested")
+        
+        if additional_details.get("urgency_level"):
+            details.append(f"- Urgency Level: {additional_details['urgency_level'].title()}")
+        
+        if additional_details.get("special_requirements"):
+            for req in additional_details["special_requirements"]:
+                details.append(f"- Special Requirement: {req}")
+        
+        if additional_details.get("rate_preferences"):
+            for pref in additional_details["rate_preferences"]:
+                details.append(f"- Rate Preference: {pref}")
+        
+        if additional_details.get("additional_notes"):
+            details.append(f"- Additional Notes: {additional_details['additional_notes']}")
+        
+        if additional_details.get("confirmation_status") == "confirmed":
+            details.append("- Customer has confirmed all details")
+        
+        return "\n".join(details) if details else "No additional requirements specified."
 
 # =====================================================
 #                 🔁 Test Harness
@@ -206,7 +414,9 @@ def test_forwarder_email_draft_agent():
         },
         "origin_country": "AE",
         "destination_country": "IN",
-        "thread_id": "test-thread-1"
+        "thread_id": "test-thread-1",
+        "sales_manager_id": "SM001", # Added sales_manager_id
+        "customer_email_content": "Dear Logistics Solutions Inc., I am interested in a rate for a shipment from Dubai to Mumbai. The shipment consists of 2 units of electronics weighing 25,000 kg and occupying 35 CBM. Could you please provide a competitive rate for this route? I would appreciate a response within 24 hours. Thank you!" # Added customer_email_content
     }
     
     print(f"\n--- Testing Email Draft Generation ---")

@@ -160,27 +160,11 @@ Consider common variations:
 - TEU = 20ft, FEU = 40ft
 """
 
-            response = self.client.chat.completions.create(
-                model=self.config.get("model_name"),
-                messages=[{"role": "user", "content": prompt}],
-                tools=[{
-                    "type": "function",
-                    "function": function_schema
-                }],
-                tool_choice={"type": "function", "function": {"name": function_schema["name"]}},
-                temperature=0.1,
-                max_tokens=300
-            )
-
-            tool_calls = getattr(response.choices[0].message, "tool_calls", None)
-            if not tool_calls:
-                raise Exception("No tool_calls in LLM response")
-
-            tool_args = tool_calls[0].function.arguments
-            if isinstance(tool_args, str):
-                tool_args = json.loads(tool_args)
-
-            result = dict(tool_args)
+            # Use the base agent's _make_llm_call method
+            result = self._make_llm_call(prompt, function_schema, temperature=0.1, max_tokens=300)
+            
+            if "error" in result:
+                raise Exception(f"LLM call failed: {result['error']}")
             
             # Add metadata
             result["original_input"] = description
@@ -188,8 +172,11 @@ Consider common variations:
             result["success"] = True
             result["fallback_used"] = False
             
-            # Add rate fallback
+            # Ensure we have the correct field names
             standard_type = result.get("standard_type")
+            result["standardized_type"] = standard_type  # Add the expected field name
+            
+            # Add rate fallback
             result["rate_fallback_type"] = self.rate_fallback_mapping.get(standard_type, standard_type)
             
             return result
@@ -224,6 +211,7 @@ Consider common variations:
         
         # Return standardized result
         return {
+            "standardized_type": score_data["best_match"] if confidence_data["success"] else self.default_container,
             "standard_type": score_data["best_match"] if confidence_data["success"] else self.default_container,
             "confidence": confidence_data["confidence"],
             "matched_terms": score_data["matched_terms"][score_data["best_match"]],
@@ -249,6 +237,7 @@ Consider common variations:
     def _create_fallback_result(self, original_input: str, error_msg: str) -> Dict[str, Any]:
         """Create fallback result when input is invalid"""
         return {
+            "standardized_type": self.default_container,
             "standard_type": self.default_container,
             "confidence": 30.0,
             "success": False,
