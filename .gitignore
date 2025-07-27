@@ -75,4 +75,7 @@ secrets.*
 *.key
 *.pem
 *.csv
-*.json
+
+# Allow configuration JSON files
+!config/*.json
+!*.json

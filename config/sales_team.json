@@ -1,0 +1,125 @@
+{
+  "sales_team": [
+    {
+      "id": "SP001",
+      "name": "Sarah Johnson",
+      "title": "Digital Sales Specialist",
+      "email": "sarah.johnson@searates.com",
+      "phone": "+1-555-0101",
+      "whatsapp": "+1-555-0101",
+      "specialization": "Asia-Pacific Routes",
+      "signature": "Best regards,\n\nSarah Johnson\nDigital Sales Specialist\nSearates By DP World\n📧 sarah.johnson@searates.com\n📞 +1-555-0101\n🌐 www.searates.com"
+    },
+    {
+      "id": "SP002",
+      "name": "Michael Chen",
+      "title": "Digital Sales Specialist",
+      "email": "michael.chen@searates.com",
+      "phone": "+1-555-0202",
+      "whatsapp": "+1-555-0202",
+      "specialization": "Europe-Middle East Routes",
+      "signature": "Best regards,\n\nMichael Chen\nDigital Sales Specialist\nSearates By DP World\n📧 michael.chen@searates.com\n📞 +1-555-0202\n🌐 www.searates.com"
+    },
+    {
+      "id": "SP003",
+      "name": "Emily Rodriguez",
+      "title": "Digital Sales Specialist",
+      "email": "emily.rodriguez@searates.com",
+      "phone": "+1-555-0303",
+      "whatsapp": "+1-555-0303",
+      "specialization": "Americas Routes",
+      "signature": "Best regards,\n\nEmily Rodriguez\nDigital Sales Specialist\nSearates By DP World\n📧 emily.rodriguez@searates.com\n📞 +1-555-0303\n🌐 www.searates.com"
+    },
+    {
+      "id": "SP004",
+      "name": "David Kim",
+      "title": "Digital Sales Specialist",
+      "email": "david.kim@searates.com",
+      "phone": "+1-555-0404",
+      "whatsapp": "+1-555-0404",
+      "specialization": "Africa Routes",
+      "signature": "Best regards,\n\nDavid Kim\nDigital Sales Specialist\nSearates By DP World\n📧 david.kim@searates.com\n📞 +1-555-0404\n🌐 www.searates.com"
+    },
+    {
+      "id": "SP005",
+      "name": "Lisa Thompson",
+      "title": "Digital Sales Specialist",
+      "email": "lisa.thompson@searates.com",
+      "phone": "+1-555-0505",
+      "whatsapp": "+1-555-0505",
+      "specialization": "Ocean Freight",
+      "signature": "Best regards,\n\nLisa Thompson\nDigital Sales Specialist\nSearates By DP World\n📧 lisa.thompson@searates.com\n📞 +1-555-0505\n🌐 www.searates.com"
+    },
+    {
+      "id": "SP006",
+      "name": "Alex Martinez",
+      "title": "Digital Sales Specialist",
+      "email": "alex.martinez@searates.com",
+      "phone": "+1-555-0606",
+      "whatsapp": "+1-555-0606",
+      "specialization": "Air Freight",
+      "signature": "Best regards,\n\nAlex Martinez\nDigital Sales Specialist\nSearates By DP World\n📧 alex.martinez@searates.com\n📞 +1-555-0606\n🌐 www.searates.com"
+    },
+    {
+      "id": "SP007",
+      "name": "Rachel Green",
+      "title": "Digital Sales Specialist",
+      "email": "rachel.green@searates.com",
+      "phone": "+1-555-0707",
+      "whatsapp": "+1-555-0707",
+      "specialization": "Express Shipping",
+      "signature": "Best regards,\n\nRachel Green\nDigital Sales Specialist\nSearates By DP World\n📧 rachel.green@searates.com\n📞 +1-555-0707\n🌐 www.searates.com"
+    },
+    {
+      "id": "SP008",
+      "name": "James Wilson",
+      "title": "Digital Sales Specialist",
+      "email": "james.wilson@searates.com",
+      "phone": "+1-555-0808",
+      "whatsapp": "+1-555-0808",
+      "specialization": "Project Cargo",
+      "signature": "Best regards,\n\nJames Wilson\nDigital Sales Specialist\nSearates By DP World\n📧 james.wilson@searates.com\n📞 +1-555-0808\n🌐 www.searates.com"
+    }
+  ],
+  "default_sales_person": {
+    "id": "SP001",
+    "name": "Sarah Johnson",
+    "title": "Digital Sales Specialist",
+    "email": "sarah.johnson@searates.com",
+    "phone": "+1-555-0101",
+    "whatsapp": "+1-555-0101",
+    "specialization": "Asia-Pacific Routes"
+  },
+  "assignment_rules": {
+    "route_types": {
+      "asia_pacific": ["SP001", "SP005"],
+      "trans_pacific": ["SP002", "SP005"],
+      "europe_asia": ["SP003"],
+      "americas": ["SP004", "SP007"],
+      "global": ["SP006"]
+    },
+    "commodity_types": {
+      "general_cargo": ["SP001", "SP002", "SP003", "SP004"],
+      "hazardous": ["SP005", "SP006"],
+      "perishable": ["SP007", "SP008"],
+      "project_cargo": ["SP008"]
+    },
+    "container_types": {
+      "20ft": ["SP001", "SP002", "SP003", "SP004"],
+      "40ft": ["SP001", "SP002", "SP003", "SP004"],
+      "40hc": ["SP001", "SP002", "SP003", "SP004"],
+      "reefer": ["SP007", "SP008"],
+      "open_top": ["SP008"]
+    }
+  },
+  "response_templates": {
+    "acknowledgment": {
+      "subject": "Re: {original_subject}",
+      "body": "Dear {sender_name},\n\nThank you for your email regarding the shipment inquiry.\n\nWe have received your message and our team is working on providing you with the requested information. You can expect our response within 24 hours.\n\nIf you have any specific requirements or urgent requests, please let us know.\n\nBest regards,\n{sales_person_name}\n{sales_person_title}\nSearates By DP World\n📧 {sales_person_email}\n📞 {sales_person_phone}"
+    },
+    "forwarder_acknowledgment": {
+      "subject": "Re: {original_subject}",
+      "body": "Dear {forwarder_name},\n\nThank you for your rate request for the shipment from {origin} to {destination}.\n\nWe have received your inquiry and our team is working on providing you with competitive rates. You can expect our response within 24 hours.\n\nIf you have any specific requirements or urgent requests, please let us know.\n\nBest regards,\n{sales_person_name}\n{sales_person_title}\nSearates By DP World\n📧 {sales_person_email}\n📞 {sales_person_phone}"
+    }
+  }
+} 
