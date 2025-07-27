@@ -168,6 +168,12 @@ ENRICHED DATA:
 EXTRACTED DATA SUMMARY:
 {data_summary}
 
+MISSING FIELDS: {missing_fields}
+
+**CRITICAL DECISION RULE - READ THIS FIRST:**
+If missing_fields list is empty ([]), you MUST choose send_confirmation_request regardless of any validation issues.
+Do NOT choose send_clarification_request if missing_fields is empty.
+
 AVAILABLE ACTIONS:
 1. send_clarification_request: Ask customer for missing information
 2. send_confirmation_request: Present extracted data for customer confirmation
@@ -183,6 +189,10 @@ AVAILABLE ACTIONS:
 12. escalate_confusing_email: Escalate confusing/ambiguous email to human
 
 INTELLIGENT ANALYSIS INSTRUCTIONS:
+
+**PRIORITY DECISION RULE:**
+- **FIRST**: Check the missing_fields list - if it's empty, choose send_confirmation_request regardless of validation issues
+- **SECOND**: Only if missing_fields has items, then analyze validation results for clarification needs
 
 **DATA QUALITY ANALYSIS:**
 - Analyze the validation results to understand data completeness and quality
@@ -204,6 +214,7 @@ INTELLIGENT ANALYSIS INSTRUCTIONS:
 - **Complete Data + No Customer Confirmation** → send_confirmation_request (ask customer to confirm)
 - **Complete Data + Customer Confirmed** → booking_details_confirmed_assign_forwarders (proceed to forwarder assignment)
 - **Customer Confirmation Received** → booking_details_confirmed_assign_forwarders (assign forwarder)
+- **No Missing Required Fields** → send_confirmation_request (present data for confirmation)
 
 **FCL SHIPMENT LOGIC:**
 - **Mandatory Fields**: Port names, shipment type, container type, shipment date
@@ -236,6 +247,10 @@ INTELLIGENT ANALYSIS INSTRUCTIONS:
 - **Container Type Logic**: If container type is provided (20GP, 40GP, 40HC, etc.) → automatically set shipment_type to FCL
 - **Port Information**: If specific port names are provided (Shanghai, Los Angeles, etc.) → do NOT ask for port clarification
 - **Data Completeness**: Only ask for missing critical fields, not for information already provided
+- **CRITICAL**: If missing_fields list is empty → send_confirmation_request (data is complete)
+- **CRITICAL**: Do NOT ask customers for rate information or transit time - these are what customers request, not provide
+- **CRITICAL**: Missing fields list takes priority over validation results - if missing_fields is empty, choose confirmation
+- **CRITICAL**: Date format issues in validation should NOT trigger clarification if the date is present
 - If validation shows invalid port codes but country names are provided → send_clarification_request for specific ports
 - If validation shows missing critical fields (ports, date, etc.) → send_clarification_request
 - If extracted data has null/empty values for critical fields → send_clarification_request

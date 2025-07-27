@@ -7,7 +7,7 @@ Detects if an email is from a forwarder by checking against the forwarder databa
 """
 
 import logging
-import pandas as pd
+import json
 import os
 from typing import Dict, Any, List
 from agents.base_agent import BaseAgent
@@ -19,32 +19,35 @@ class ForwarderDetectionAgent(BaseAgent):
         super().__init__("forwarder_detection_agent")
         self.logger = logging.getLogger(__name__)
         
-        # Load forwarders from CSV file
-        self.forwarder_emails = self._load_forwarder_emails_from_csv()
+        # Load forwarders from JSON file
+        self.forwarder_emails = self._load_forwarder_emails_from_json()
 
-    def _load_forwarder_emails_from_csv(self) -> List[str]:
-        """Load forwarder emails from CSV file."""
+    def _load_forwarder_emails_from_json(self) -> List[str]:
+        """Load forwarder emails from JSON file."""
         try:
-            # Get the path to the CSV file
-            csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
-                                   "Forwarders_with_Operators_and_Emails.csv")
+            # Get the path to the JSON file
+            json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                   "config", "forwarders.json")
             
-            if not os.path.exists(csv_path):
-                self.logger.warning(f"Forwarder CSV file not found at {csv_path}")
+            if not os.path.exists(json_path):
+                self.logger.warning(f"Forwarder JSON file not found at {json_path}")
                 return []
             
-            # Read CSV file
-            df = pd.read_csv(csv_path)
-            self.logger.info(f"Loaded {len(df)} forwarder records from CSV")
+            # Read JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            
+            forwarders = data.get('forwarders', [])
+            self.logger.info(f"Loaded {len(forwarders)} forwarder records from JSON")
             
             # Extract unique email addresses
-            forwarder_emails = df['email'].dropna().unique().tolist()
+            forwarder_emails = list(set(f['email'] for f in forwarders if f.get('email')))
             
             self.logger.info(f"Found {len(forwarder_emails)} unique forwarder email addresses")
             return forwarder_emails
             
         except Exception as e:
-            self.logger.error(f"Error loading forwarder emails from CSV: {str(e)}")
+            self.logger.error(f"Error loading forwarder emails from JSON: {str(e)}")
             return []
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -68,7 +71,7 @@ class ForwarderDetectionAgent(BaseAgent):
                 "is_forwarder": is_forwarder,
                 "sender_email": sender_email,
                 "forwarder_details": forwarder_details,
-                "detection_method": "csv_database_check",
+                "detection_method": "json_database_check",
                 "total_forwarders_in_db": len(self.forwarder_emails),
                 "agent_name": self.agent_name,
                 "agent_id": self.agent_id,
@@ -96,27 +99,32 @@ class ForwarderDetectionAgent(BaseAgent):
             }
 
     def _get_forwarder_details(self, sender_email: str) -> Dict[str, Any] | None:
-        """Get forwarder details from CSV database."""
+        """Get forwarder details from JSON database."""
         try:
-            csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
-                                   "Forwarders_with_Operators_and_Emails.csv")
+            # Get the path to the JSON file
+            json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                   "config", "forwarders.json")
             
-            if not os.path.exists(csv_path):
+            if not os.path.exists(json_path):
                 return None
             
-            df = pd.read_csv(csv_path)
+            # Read JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
             
-            # Find forwarder by email
-            forwarder_row = df[df['email'].str.lower().str.strip() == sender_email.lower().strip()]
+            forwarders = data.get('forwarders', [])
             
-            if not forwarder_row.empty:
-                row = forwarder_row.iloc[0]
-                return {
-                    "name": row.get('forwarder_name', 'Unknown'),
-                    "email": row.get('email', ''),
-                    "country": row.get('country', 'Unknown'),
-                    "operator": row.get('operator', 'Unknown')
-                }
+            # Find matching forwarder
+            sender_email = sender_email.lower().strip()
+            for forwarder in forwarders:
+                if forwarder.get('email', '').lower().strip() == sender_email:
+                    return {
+                        'name': forwarder['name'],
+                        'country': forwarder['country'],
+                        'operator': forwarder['operator'],
+                        'email': forwarder['email'],
+                        'company': forwarder.get('company', forwarder['name'])
+                    }
             
             return None
             

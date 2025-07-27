@@ -8,7 +8,6 @@ Assigns forwarders based on POL/POD countries and generates rate requests.
 
 import json
 import logging
-import pandas as pd
 import os
 from typing import Dict, Any, List
 from agents.base_agent import BaseAgent
@@ -20,8 +19,8 @@ class ForwarderAssignmentAgent(BaseAgent):
         super().__init__("forwarder_assignment_agent")
         self.logger = logging.getLogger(__name__)
         
-        # Load forwarders from CSV file
-        self.forwarders_by_country = self._load_forwarders_from_csv()
+        # Load forwarders from JSON file
+        self.forwarders_by_country = self._load_forwarders_from_json()
         
         # Default forwarders for unknown countries
         self.default_forwarders = [
@@ -35,45 +34,49 @@ class ForwarderAssignmentAgent(BaseAgent):
             }
         ]
 
-    def _load_forwarders_from_csv(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Load forwarders from CSV file."""
+    def _load_forwarders_from_json(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Load forwarders from JSON file."""
         try:
-            # Get the path to the CSV file
-            csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
-                                   "Forwarders_with_Operators_and_Emails.csv")
+            # Get the path to the JSON file
+            json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                   "config", "forwarders.json")
             
-            if not os.path.exists(csv_path):
-                self.logger.warning(f"Forwarder CSV file not found at {csv_path}")
+            if not os.path.exists(json_path):
+                self.logger.warning(f"Forwarder JSON file not found at {json_path}")
                 return {}
             
-            # Read CSV file
-            df = pd.read_csv(csv_path)
-            self.logger.info(f"Loaded {len(df)} forwarder records from CSV")
+            # Read JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            
+            forwarders = data.get('forwarders', [])
+            self.logger.info(f"Loaded {len(forwarders)} forwarder records from JSON")
             
             # Group by country
             forwarders_by_country = {}
             
-            for _, row in df.iterrows():
-                country = row['country']
-                forwarder = {
-                    "name": row['forwarder_name'],
-                    "email": row['email'],
-                    "phone": "+1-800-555-0000",  # Default phone since not in CSV
+            for forwarder in forwarders:
+                country = forwarder['country']
+                forwarder_info = {
+                    "name": forwarder['name'],
+                    "email": forwarder['email'],
+                    "phone": "+1-800-555-0000",  # Default phone since not in JSON
                     "specialties": ["FCL", "LCL", "General Cargo"],  # Default specialties
-                    "operator": row['operator']
-                    # Note: rating removed since not available in CSV
+                    "operator": forwarder['operator'],
+                    "company": forwarder.get('company', forwarder['name'])
+                    # Note: rating removed since not available in JSON
                 }
                 
                 if country not in forwarders_by_country:
                     forwarders_by_country[country] = []
                 
-                forwarders_by_country[country].append(forwarder)
+                forwarders_by_country[country].append(forwarder_info)
             
             self.logger.info(f"Organized forwarders by {len(forwarders_by_country)} countries")
             return forwarders_by_country
             
         except Exception as e:
-            self.logger.error(f"Error loading forwarders from CSV: {str(e)}")
+            self.logger.error(f"Error loading forwarders from JSON: {str(e)}")
             return {}
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:

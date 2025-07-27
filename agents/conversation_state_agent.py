@@ -73,10 +73,10 @@ class ConversationStateAgent(BaseAgent):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "conversation_state": {
+                        "conversation_stage": {
                             "type": "string",
                             "enum": self.conversation_states,
-                            "description": "Current conversation state based on thread analysis"
+                            "description": "Current conversation stage based on thread analysis"
                         },
                         "thread_context": {
                             "type": "object",
@@ -133,98 +133,110 @@ class ConversationStateAgent(BaseAgent):
                             "description": "Detailed reasoning for the analysis"
                         }
                     },
-                    "required": ["conversation_state", "latest_sender", "next_action", "sales_handoff_needed", "confidence_score", "conversation_progression", "key_indicators", "reasoning"]
+                    "required": ["conversation_stage", "latest_sender", "next_action", "sales_handoff_needed", "confidence_score", "conversation_progression", "key_indicators", "reasoning"]
                 }
             }
 
             prompt = f"""
-You are an expert conversation analyst for logistics operations. Analyze this email thread and determine the conversation state and next actions.
-
-CONVERSATION STATES:
-1. new_thread: First email in conversation thread
-   - Keywords: "need quote", "quotation", "shipping", "fcl", "lcl", "container", "freight", "cargo"
-   - First contact in thread
-
-2. thread_clarification: Customer responding to bot's clarification request
-   - Keywords: "origin is", "destination is", "weight is", "date is", "commodity is"
-   - Providing requested information in thread context
-
-3. thread_confirmation: Customer confirming booking details in thread
-   - Keywords: "yes, confirmed", "i confirm", "details are correct", "proceed with"
-   - Confirming extracted information in thread context
-
-4. thread_forwarder_interaction: Forwarder participating in conversation thread
-   - Keywords: "our rate", "quote is", "price is", "usd", "valid until", "freight rate"
-   - From forwarder email addresses in thread
-
-5. thread_rate_inquiry: Customer asking about rates in ongoing thread
-   - Keywords: "when will i get rates", "what about the rates", "status of my quote"
-   - Customer following up on rates in thread
-
-6. thread_booking_request: Customer wants to proceed with booking in thread
-   - Keywords: "i want to book", "proceed with booking", "ready to book", "confirm booking"
-   - Customer ready to finalize in thread context
-
-7. thread_followup: Customer sending follow-up in thread
-   - Keywords: "following up", "reminder", "update", "status"
-   - General follow-up messages in thread
-
-8. thread_escalation: Complex thread or customer frustration
-   - Keywords: "urgent", "asap", "immediately", "frustrated", "not getting response"
-   - High urgency or frustration indicators in thread
-
-9. thread_sales_notification: Bot notifying sales team in thread
-   - Internal communication to sales team in thread context
-
-10. thread_non_logistics: Not related to logistics in thread
-    - General business, personal, or marketing emails in thread
-
-11. thread_continuation: Ongoing conversation without specific action
-    - General continuation of thread conversation
-
-12. thread_completion: Conversation reaching conclusion
-    - Thread ending or completing successfully
-
-NEXT ACTIONS:
-- send_clarification_request: Ask customer for missing information
-- send_confirmation_request: Present extracted data for customer confirmation
-- assign_forwarder_and_send_rate_request: Assign forwarder and request rates
-- analyze_rates_and_notify_sales: Analyze forwarder rates and notify sales team
-- notify_sales_team: Send case to sales team for handling
-- send_status_update: Provide status update to customer
-- escalate_to_human: Escalate complex case to human agent
-- route_to_appropriate_department: Route non-logistics emails
-
-SALES HANDOFF RULES:
-- Always handoff when forwarder rates are received
-- Handoff when customer asks about rates or booking
-- Handoff for complex cases or escalations
-- Handoff when customer wants to proceed with booking
-
-EMAIL THREAD ANALYSIS INSTRUCTIONS:
-1. **Thread Detection**: Look for email separators (---, "Previous Conversation:", "From:", timestamps)
-2. **Conversation Flow**: Analyze how the conversation has progressed
-3. **Context Extraction**: Identify what information has been exchanged
-4. **Missing Information**: Determine what details are still needed
-5. **Bot Interaction**: Check if bot has already responded and what was said
-6. **Customer Intent**: Understand what the customer wants to achieve
-
-ANALYSIS FACTORS:
-- Email thread content and progression
-- Sender identification (customer/forwarder/sales)
-- Keywords and phrases used
-- Urgency indicators
-- Conversation flow patterns
-- Response patterns (Re:, answering questions)
-- Thread length and complexity
+You are an expert conversation analyst for logistics operations. Analyze this email thread and determine the conversation state and next actions with high precision.
 
 EMAIL TO ANALYZE:
 Subject: {subject}
-Thread Content: {email_text}
+Content: {email_text}
+Thread ID: {thread_id}
+Thread Length: {len(message_thread)} previous emails
 
-IMPORTANT: Analyze the ENTIRE email thread, not just the latest email. Consider the conversation history and progression to make intelligent decisions about the current state and next action.
+CONVERSATION STATES (Choose the most specific one):
 
-Analyze this email thread and determine the conversation state, next action, and whether sales handoff is needed.
+1. new_thread: First email in conversation thread
+   - Indicators: First contact, no previous emails, initial inquiry
+   - Keywords: "need quote", "quotation", "shipping", "fcl", "lcl", "container", "freight", "cargo", "rate", "price"
+   - Context: Customer making first contact for logistics services
+
+2. thread_clarification: Customer responding to bot's clarification request
+   - Indicators: Customer providing requested information, responding to questions, providing missing details
+   - Keywords: "here are the missing details", "origin is", "destination is", "weight is", "date is", "commodity is", "container type is", "quantity is", "please provide the rates now"
+   - Context: Customer filling in missing information previously requested by bot
+
+3. thread_confirmation: Customer confirming booking details in thread
+   - Indicators: Customer agreeing to proceed, confirming extracted data
+   - Keywords: "yes, confirmed", "i confirm", "details are correct", "proceed with", "that's right", "correct"
+   - Context: Customer validating extracted information and ready to proceed
+
+4. thread_forwarder_interaction: Forwarder participating in conversation thread
+   - Indicators: Forwarder providing rates, quotes, or responses
+   - Keywords: "our rate", "quote is", "price is", "usd", "valid until", "freight rate", "transit time", "sailing schedule"
+   - Context: Forwarder responding with rate information or service details
+
+5. thread_rate_inquiry: Customer asking about rates in ongoing thread
+   - Indicators: Customer following up on rate requests, asking for status
+   - Keywords: "when will i get rates", "what about the rates", "status of my quote", "any update", "rates please"
+   - Context: Customer seeking rate information or status update
+
+6. thread_booking_request: Customer wants to proceed with booking in thread
+   - Indicators: Customer ready to finalize, requesting booking process
+   - Keywords: "i want to book", "proceed with booking", "ready to book", "confirm booking", "let's book", "go ahead"
+   - Context: Customer ready to finalize the shipment booking
+
+7. thread_followup: Customer sending follow-up in thread
+   - Indicators: General follow-up without specific action needed
+   - Keywords: "following up", "reminder", "update", "status", "checking in"
+   - Context: Customer checking status or following up on previous communication
+
+8. thread_escalation: Complex thread or customer frustration
+   - Indicators: High urgency, frustration, or complex requirements
+   - Keywords: "urgent", "asap", "immediately", "frustrated", "not getting response", "emergency", "critical"
+   - Context: High-priority or complex cases requiring immediate attention
+
+9. thread_sales_notification: Bot notifying sales team in thread
+   - Indicators: Internal communication to sales team
+   - Context: Bot escalating or notifying sales team about the case
+
+10. thread_non_logistics: Not related to logistics in thread
+    - Indicators: General business, personal, or marketing content
+    - Context: Non-logistics related communication
+
+11. thread_continuation: Ongoing conversation without specific action
+    - Indicators: General continuation without clear next step
+    - Context: Ongoing conversation that needs further analysis
+
+12. thread_completion: Conversation reaching conclusion
+    - Indicators: Thread ending, successful completion
+    - Context: Conversation successfully concluded
+
+NEXT ACTIONS (Choose the most appropriate):
+
+- send_clarification_request: Ask customer for missing required information (origin, destination, container type, commodity, quantity for FCL; weight/volume for LCL)
+- send_confirmation_request: Present extracted data for customer confirmation when all required fields are present
+- assign_forwarder_and_send_rate_request: Assign forwarder and request rates when customer data is complete
+- analyze_rates_and_notify_sales: Analyze forwarder rates and notify sales team when rates are received
+- notify_sales_team: Send case to sales team for handling complex cases or rate inquiries
+- send_status_update: Provide status update to customer about their request
+- escalate_to_human: Escalate complex case to human agent when automation cannot handle
+- route_to_appropriate_department: Route non-logistics emails to appropriate department
+
+SALES HANDOFF RULES:
+- Handoff when forwarder rates are received and need analysis
+- Handoff when customer asks about rates or booking
+- Handoff when customer expresses frustration or urgency
+- Handoff when complex requirements cannot be handled by bot
+- Handoff when customer requests human assistance
+
+ANALYSIS GUIDELINES:
+1. Consider the full context of the email thread
+2. Look for specific keywords and phrases that indicate intent
+3. Analyze the progression of the conversation
+4. Consider the sender type (customer vs forwarder)
+5. Evaluate the completeness of information provided
+6. Assess urgency and complexity of the request
+7. Determine if human intervention is needed
+
+**SPECIAL ATTENTION TO CLARIFICATION RESPONSES:**
+- If customer says "here are the missing details" or "please provide the rates now" → thread_clarification
+- If customer provides specific information like "Destination: Los Angeles, USA" → thread_clarification
+- If customer asks for rates after providing information → thread_clarification
+
+Provide detailed reasoning for your analysis and identify key indicators that influenced your decision.
 """
 
             response = self.client.chat.completions.create(
@@ -252,9 +264,9 @@ Analyze this email thread and determine the conversation state, next action, and
             result["thread_id"] = thread_id
             
             # Validate and correct result if needed
-            if result.get("conversation_state") not in self.conversation_states:
-                self.logger.warning(f"Invalid conversation_state: {result.get('conversation_state')}, defaulting to new_request")
-                result["conversation_state"] = "new_request"
+            if result.get("conversation_stage") not in self.conversation_states:
+                self.logger.warning(f"Invalid conversation_stage: {result.get('conversation_stage')}, defaulting to new_thread")
+                result["conversation_stage"] = "new_thread"
                 result["confidence_score"] = 0.5
 
             # Ensure confidence is within bounds
@@ -262,7 +274,7 @@ Analyze this email thread and determine the conversation state, next action, and
             if not (0.0 <= confidence <= 1.0):
                 result["confidence_score"] = max(0.0, min(1.0, confidence))
 
-            self.logger.info(f"Conversation state analysis successful: {result['conversation_state']} (confidence: {result['confidence_score']:.2f})")
+            self.logger.info(f"Conversation state analysis successful: {result['conversation_stage']} (confidence: {result['confidence_score']:.2f})")
             
             return result
 
@@ -288,25 +300,25 @@ def test_conversation_state_agent():
             "name": "New Logistics Request",
             "subject": "Need quote for FCL shipment",
             "email_text": "Hi, I need to ship 2x40ft containers from Shanghai to Long Beach. Ready date is February 15th. Please provide rates.",
-            "expected_state": "new_request"
+            "expected_state": "new_thread"
         },
         {
             "name": "Clarification Response",
             "subject": "Re: Clarification needed",
             "email_text": "Origin is Shanghai, destination is Long Beach. Weight is 25 tons. Commodity is electronics.",
-            "expected_state": "clarification_response"
+            "expected_state": "thread_clarification"
         },
         {
             "name": "Forwarder Response",
             "subject": "Re: Rate Request - Shanghai to Long Beach",
             "email_text": "Our rate is USD 2,500 per container. Valid until January 15th. Transit time 25 days.",
-            "expected_state": "forwarder_response"
+            "expected_state": "thread_forwarder_interaction"
         },
         {
             "name": "Rate Inquiry",
             "subject": "Re: When will I get the rates?",
             "email_text": "Hi, I confirmed the details yesterday. When can I expect the rates?",
-            "expected_state": "rate_inquiry"
+            "expected_state": "thread_rate_inquiry"
         }
     ]
     
@@ -319,7 +331,7 @@ def test_conversation_state_agent():
         })
         
         if result.get("status") == "success":
-            actual_state = result.get("conversation_state")
+            actual_state = result.get("conversation_stage")
             expected_state = test_case["expected_state"]
             confidence = result.get("confidence_score", 0.0)
             next_action = result.get("next_action")
