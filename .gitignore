@@ -75,3 +75,4 @@ secrets.*
 *.key
 *.pem
 *.csv
+*.json

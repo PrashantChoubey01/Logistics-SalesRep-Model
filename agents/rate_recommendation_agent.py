@@ -65,21 +65,59 @@ class RateRecommendationAgent(BaseAgent):
                 self.rates_df[col] = pd.to_numeric(self.rates_df[col], errors='coerce')
 
     def _extract_origin(self, input_data: Dict[str, Any]) -> Optional[str]:
+        # First check if port_codes dictionary is provided
+        if 'port_codes' in input_data and input_data['port_codes']:
+            port_codes = input_data['port_codes']
+            if 'origin' in port_codes and port_codes['origin']:
+                return str(port_codes['origin']).strip().upper()
+        
+        # Then check direct keys
         for key in ['origin_code', 'Origin_Code', 'from_port', 'from', 'origin']:
             if key in input_data and input_data[key]:
                 return str(input_data[key]).strip().upper()
         return None
 
     def _extract_destination(self, input_data: Dict[str, Any]) -> Optional[str]:
+        # First check if port_codes dictionary is provided
+        if 'port_codes' in input_data and input_data['port_codes']:
+            port_codes = input_data['port_codes']
+            if 'destination' in port_codes and port_codes['destination']:
+                return str(port_codes['destination']).strip().upper()
+        
+        # Then check direct keys
         for key in ['destination_code', 'Destination_Code', 'to_port', 'to', 'destination']:
             if key in input_data and input_data[key]:
                 return str(input_data[key]).strip().upper()
         return None
 
     def _extract_container_type(self, input_data: Dict[str, Any]) -> Optional[str]:
+        # Check if shipment_details is provided
+        if 'shipment_details' in input_data and input_data['shipment_details']:
+            shipment_details = input_data['shipment_details']
+            if 'container_type' in shipment_details:
+                container_type = shipment_details['container_type']
+                # Handle both string and dict formats
+                if isinstance(container_type, dict):
+                    # If it's a standardized container type dict, get the standard_type
+                    if 'standard_type' in container_type:
+                        return str(container_type['standard_type']).strip().upper()
+                    elif 'standardized_type' in container_type:
+                        return str(container_type['standardized_type']).strip().upper()
+                else:
+                    return str(container_type).strip().upper()
+        
+        # Then check direct keys
         for key in ['Container_Type', 'container_type', 'container', 'type']:
             if key in input_data and input_data[key]:
-                return str(input_data[key]).strip().upper()
+                container_type = input_data[key]
+                # Handle both string and dict formats
+                if isinstance(container_type, dict):
+                    if 'standard_type' in container_type:
+                        return str(container_type['standard_type']).strip().upper()
+                    elif 'standardized_type' in container_type:
+                        return str(container_type['standardized_type']).strip().upper()
+                else:
+                    return str(container_type).strip().upper()
         return None
 
     def _normalize_container_type(self, container_type: str) -> str:
@@ -115,17 +153,17 @@ class RateRecommendationAgent(BaseAgent):
         print(f"🔍 Extracted - Origin: '{origin}', Destination: '{destination}', Container: '{container_type}'")
 
         if not origin:
-            return {"error": "Origin code not provided"}
+            return {"status": "no_data", "message": "Origin code not provided", "origin_code": None, "destination_code": None, "container_type": None}
         if not destination:
-            return {"error": "Destination code not provided"}
+            return {"status": "no_data", "message": "Destination code not provided", "origin_code": origin, "destination_code": None, "container_type": container_type}
         if not container_type:
-            return {"error": "Container type not provided"}
+            return {"status": "no_data", "message": "Container type not provided", "origin_code": origin, "destination_code": destination, "container_type": None}
 
         container_type = self._normalize_container_type(container_type)
         
         # Check if rates_df is loaded
         if self.rates_df is None:
-            return {"error": "Rate data not loaded"}
+            return {"status": "error", "message": "Rate data not loaded", "origin_code": origin, "destination_code": destination, "container_type": container_type}
             
         matches_df = self.rates_df[
             (self.rates_df['Origin_Code'] == origin) &
@@ -167,34 +205,91 @@ class RateRecommendationAgent(BaseAgent):
             total_found = 0
             rate_range = None
 
-        # Get the raw price range recommendation from CSV
+        # Get the raw price range recommendation and market data from CSV
         price_range_recommendation = None
-        if not matches_df.empty and 'price_range_recommendation' in matches_df.columns:
-            price_range_series = matches_df['price_range_recommendation'].dropna()
-            if len(price_range_series) > 0:
-                price_range_recommendation = str(price_range_series.iloc[0])
-        elif not fallback_df.empty and 'price_range_recommendation' in fallback_df.columns:
-            price_range_series = fallback_df['price_range_recommendation'].dropna()
+        market_average = None
+        market_low = None
+        market_high = None
+        market_midlow = None
+        market_midhigh = None
+        rate_quality = None
+        contract_length = None
+        day = None
+        
+        # Get data from exact match first, then fallback
+        source_df = matches_df if not matches_df.empty else fallback_df
+        
+        if not source_df.empty:
+            # Get price range recommendation
+            if 'price_range_recommendation' in source_df.columns:
+                price_range_series = source_df['price_range_recommendation'].dropna()
             if len(price_range_series) > 0:
                 price_range_recommendation = str(price_range_series.iloc[0])
 
-        rate_results = {
-            "match_type": match_type,
-            "total_rates_found": total_found,
-            "rate_range": rate_range,
-            "price_range_recommendation": price_range_recommendation,
-            "formatted_rate_range": rate_range
-        }
+            # Get market data
+            if 'Market_Average' in source_df.columns:
+                market_avg_series = source_df['Market_Average'].dropna()
+                if len(market_avg_series) > 0:
+                    market_average = str(market_avg_series.iloc[0])
+            
+            if 'Market_Low' in source_df.columns:
+                market_low_series = source_df['Market_Low'].dropna()
+                if len(market_low_series) > 0:
+                    market_low = str(market_low_series.iloc[0])
+            
+            if 'Market_High' in source_df.columns:
+                market_high_series = source_df['Market_High'].dropna()
+                if len(market_high_series) > 0:
+                    market_high = str(market_high_series.iloc[0])
+            
+            if 'Market_Midlow' in source_df.columns:
+                market_midlow_series = source_df['Market_Midlow'].dropna()
+                if len(market_midlow_series) > 0:
+                    market_midlow = str(market_midlow_series.iloc[0])
+            
+            if 'Market_Midhigh' in source_df.columns:
+                market_midhigh_series = source_df['Market_Midhigh'].dropna()
+                if len(market_midhigh_series) > 0:
+                    market_midhigh = str(market_midhigh_series.iloc[0])
+            
+            if 'Rate_Quality' in source_df.columns:
+                rate_quality_series = source_df['Rate_Quality'].dropna()
+                if len(rate_quality_series) > 0:
+                    rate_quality = str(rate_quality_series.iloc[0])
+            
+            if 'Contract_Length' in source_df.columns:
+                contract_length_series = source_df['Contract_Length'].dropna()
+                if len(contract_length_series) > 0:
+                    contract_length = str(contract_length_series.iloc[0])
+            
+            if 'Day' in source_df.columns:
+                day_series = source_df['Day'].dropna()
+                if len(day_series) > 0:
+                    day = str(day_series.iloc[0])
 
         return {
-            "query": {
-                "Origin_Code": origin,
-                "Destination_Code": destination,
-                "Container_Type": container_type
-            },
-            "rate_recommendation": rate_results,
-            "indicative_rate": indicative_rate,
+            # Status and query information
+            "status": "success" if indicative_rate else "no_data",
+            "message": "Rate data found" if indicative_rate else "No rate data available for this route",
+            "origin_code": origin,
+            "destination_code": destination,
+            "container_type": container_type,
+            
+            # Market data (expected by workflow)
+            "market_average": market_average,
+            "market_low": market_low,
+            "market_high": market_high,
+            "market_midlow": market_midlow,
+            "market_midhigh": market_midhigh,
             "price_range_recommendation": price_range_recommendation,
+            "rate_quality": rate_quality,
+            "contract_length": contract_length,
+            "day": day,
+            
+            # Additional data
+            "match_type": match_type,
+            "total_rates_found": total_found,
+            "indicative_rate": indicative_rate,
             "formatted_rate_range": rate_range,
             "data_source": self.data_file_path,
             "total_records_searched": len(self.rates_df) if self.rates_df is not None else 0

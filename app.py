@@ -1,1993 +1,1346 @@
 #!/usr/bin/env python3
 """
-LangGraph Orchestrator Streamlit App
-====================================
+Improved Streamlit App with Enhanced Thread Management
+=====================================================
 
-A comprehensive Streamlit application that showcases the LangGraph orchestrator
-for the logistic AI response system with beautiful UI and detailed workflow monitoring.
+Provides a user-friendly interface with clear thread management buttons
+and comprehensive coalesced data display.
 """
 
 import streamlit as st
+import asyncio
 import json
-import time
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
 from datetime import datetime
-import sys
+from typing import Dict, Any
 import os
+import glob
 
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Import the main orchestrator
+from langgraph_workflow_orchestrator import LangGraphWorkflowOrchestrator
+from utils.thread_manager import ThreadManager
+from utils.forwarder_manager import ForwarderManager
 
-# Import the LangGraph orchestrator
-try:
-    from langgraph_orchestrator import LangGraphOrchestrator
-except ImportError as e:
-    st.error(f"❌ Failed to import LangGraph orchestrator: {e}")
-    st.stop()
-
-# Import forwarder acknowledgment API
-try:
-    from api.forwarder_acknowledgment_api import generate_forwarder_acknowledgment, get_forwarder_mail_trail
-except ImportError as e:
-    st.error(f"❌ Failed to import forwarder acknowledgment API: {e}")
-    st.stop()
-
-# =====================================================
-#                 🎨 PAGE CONFIGURATION
-# =====================================================
-
+# Page configuration
 st.set_page_config(
-    page_title="LangGraph Logistic AI Orchestrator",
-    page_icon="🚀",
+    page_title="Logistics AI Response System - Enhanced",
+    page_icon="🚢",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# =====================================================
-#                 🎨 CUSTOM CSS
-# =====================================================
-
+# Enhanced CSS for better styling
 st.markdown("""
 <style>
-    /* Theme-aware color variables */
-    :root {
-        --primary-color: #667eea;
-        --secondary-color: #764ba2;
-        --success-color: #28a745;
-        --warning-color: #ffc107;
-        --error-color: #dc3545;
-        --info-color: #17a2b8;
-        
-        /* Light mode colors */
-        --bg-primary: #ffffff;
-        --bg-secondary: #f8f9fa;
-        --bg-tertiary: #e9ecef;
-        --text-primary: #212529;
-        --text-secondary: #6c757d;
-        --text-muted: #adb5bd;
-        --border-color: #dee2e6;
-        --shadow-color: rgba(0,0,0,0.1);
-        --card-bg: #ffffff;
-        --email-bg: #f8f9fa;
-        --email-border: #dee2e6;
-    }
-    
-    /* Dark mode colors */
-    @media (prefers-color-scheme: dark) {
-        :root {
-            --bg-primary: #0e1117;
-            --bg-secondary: #262730;
-            --bg-tertiary: #1e1e1e;
-            --text-primary: #fafafa;
-            --text-secondary: #b0b0b0;
-            --text-muted: #808080;
-            --border-color: #404040;
-            --shadow-color: rgba(255,255,255,0.1);
-            --card-bg: #262730;
-            --email-bg: #1e1e1e;
-            --email-border: #404040;
-        }
-    }
-    
-    /* Streamlit dark mode detection */
-    .stApp[data-testid="stAppViewContainer"] {
-        background-color: var(--bg-primary) !important;
-    }
-    
     .main-header {
-        background: linear-gradient(90deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-        padding: 2rem;
-        border-radius: 10px;
-        color: white;
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #1f77b4;
         text-align: center;
         margin-bottom: 2rem;
-        box-shadow: 0 4px 6px var(--shadow-color);
     }
-    
-    .workflow-node {
-        background: var(--bg-secondary);
-        border: 2px solid var(--border-color);
-        border-radius: 8px;
+    .section-header {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #2c3e50;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+    }
+    .info-box {
+        background-color: #f8f9fa;
         padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #1f77b4;
+        margin: 1rem 0;
+    }
+    .success-box {
+        background-color: #d4edda;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #28a745;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        background-color: #fff3cd;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #ffc107;
+        margin: 1rem 0;
+    }
+    .error-box {
+        background-color: #f8d7da;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #dc3545;
+        margin: 1rem 0;
+    }
+    .thread-button {
         margin: 0.5rem 0;
-        transition: all 0.3s ease;
-        color: var(--text-primary);
+        width: 100%;
     }
-    
-    .workflow-node.completed {
-        background: rgba(40, 167, 69, 0.1);
-        border-color: var(--success-color);
-        color: var(--text-primary);
+    .coalesced-data {
+        background-color: #e8f4fd;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid #bee5eb;
+        margin: 1rem 0;
     }
-    
-    .workflow-node.error {
-        background: rgba(220, 53, 69, 0.1);
-        border-color: var(--error-color);
-        color: var(--text-primary);
+    .data-category {
+        background-color: #f8f9fa;
+        padding: 0.5rem;
+        border-radius: 0.25rem;
+        margin: 0.5rem 0;
+        border-left: 3px solid #007bff;
     }
-    
-    .workflow-node.current {
-        background: rgba(255, 193, 7, 0.1);
-        border-color: var(--warning-color);
-        box-shadow: 0 0 10px rgba(255, 193, 7, 0.3);
-        color: var(--text-primary);
-    }
-    
     .metric-card {
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 1.5rem;
+        background-color: #ffffff;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid #dee2e6;
         text-align: center;
-        box-shadow: 0 2px 4px var(--shadow-color);
-        color: var(--text-primary);
+        margin: 0.5rem 0;
     }
-    
     .metric-value {
         font-size: 2rem;
         font-weight: bold;
-        color: var(--primary-color);
+        color: #007bff;
     }
-    
     .metric-label {
-        color: var(--text-secondary);
         font-size: 0.9rem;
+        color: #6c757d;
         margin-top: 0.5rem;
-    }
-    
-    /* Email display styling */
-    .email-display {
-        background: var(--email-bg);
-        border: 1px solid var(--email-border);
-        border-radius: 8px;
-        padding: 20px;
-        margin: 10px 0;
-        color: var(--text-primary);
-    }
-    
-    .email-header {
-        border-bottom: 2px solid var(--primary-color);
-        padding-bottom: 10px;
-        margin-bottom: 15px;
-        color: var(--text-primary);
-    }
-    
-    .email-body {
-        color: var(--text-primary);
-        line-height: 1.6;
-    }
-    
-    /* Section headers */
-    .section-header {
-        color: var(--text-primary);
-        border-bottom: 2px solid var(--primary-color);
-        padding-bottom: 0.5rem;
-        margin-bottom: 1rem;
-    }
-    
-    /* Status indicators */
-    .status-success {
-        color: var(--success-color);
-        background: rgba(40, 167, 69, 0.1);
-        padding: 0.25rem 0.5rem;
-        border-radius: 4px;
-        border: 1px solid var(--success-color);
-    }
-    
-    .status-warning {
-        color: var(--warning-color);
-        background: rgba(255, 193, 7, 0.1);
-        padding: 0.25rem 0.5rem;
-        border-radius: 4px;
-        border: 1px solid var(--warning-color);
-    }
-    
-    .status-error {
-        color: var(--error-color);
-        background: rgba(220, 53, 69, 0.1);
-        padding: 0.25rem 0.5rem;
-        border-radius: 4px;
-        border: 1px solid var(--error-color);
-    }
-    
-    .status-info {
-        color: var(--info-color);
-        background: rgba(23, 162, 184, 0.1);
-        padding: 0.25rem 0.5rem;
-        border-radius: 4px;
-        border: 1px solid var(--info-color);
-    }
-    
-    /* Card styling */
-    .info-card {
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        box-shadow: 0 2px 4px var(--shadow-color);
-        color: var(--text-primary);
-    }
-    
-    /* Text colors */
-    .text-primary {
-        color: var(--text-primary) !important;
-    }
-    
-    .text-secondary {
-        color: var(--text-secondary) !important;
-    }
-    
-    .text-muted {
-        color: var(--text-muted) !important;
-    }
-    
-    /* Background colors */
-    .bg-primary {
-        background-color: var(--bg-primary) !important;
-    }
-    
-    .bg-secondary {
-        background-color: var(--bg-secondary) !important;
-    }
-    
-    .bg-tertiary {
-        background-color: var(--bg-tertiary) !important;
-    }
-    
-    /* Responsive design */
-    @media (max-width: 768px) {
-        .main-header {
-            padding: 1rem;
-            font-size: 0.9rem;
-        }
-        
-        .metric-card {
-            padding: 1rem;
-        }
-        
-        .email-display {
-            padding: 15px;
-        }
-    }
-    
-    /* Hover effects */
-    .workflow-node:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px var(--shadow-color);
-    }
-    
-    .metric-card:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px var(--shadow-color);
-    }
-    
-    /* Animation for status changes */
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-        .fade-in {
-        animation: fadeIn 0.3s ease-in-out;
-    }
-    
-    /* Additional utility classes for dark/light mode compatibility */
-    .workflow-graph {
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-        color: var(--text-primary);
-    }
-    
-    .email-preview {
-        background: var(--email-bg);
-        border: 1px solid var(--email-border);
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-        font-family: 'Courier New', monospace;
-        font-size: 0.9rem;
-        color: var(--text-primary);
-    }
-    
-    .email-display {
-        background-color: var(--email-bg);
-        border: 1px solid var(--email-border);
-        border-radius: 8px;
-        margin: 1rem 0;
-        overflow: hidden;
-        box-shadow: 0 2px 4px var(--shadow-color);
-    }
-    
-    .email-header {
-        background-color: var(--bg-tertiary);
-        padding: 1rem;
-        border-bottom: 1px solid var(--email-border);
-        font-size: 0.9rem;
-        color: var(--text-secondary);
-    }
-    
-    .email-body {
-        padding: 1.5rem;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        font-size: 1rem;
-        line-height: 1.6;
-        color: var(--text-primary);
-        white-space: pre-wrap;
-    }
-    
-    .sidebar-section {
-        background: var(--bg-secondary);
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-        color: var(--text-primary);
     }
 </style>
 """, unsafe_allow_html=True)
 
-# =====================================================
-#                 🏗️ HELPER FUNCTIONS
-# =====================================================
-
-def create_workflow_visualization(workflow_history, current_node=None, errors=None):
-    """Create a visual representation of the workflow"""
+class ImprovedStreamlitApp:
+    """Enhanced Streamlit application with improved thread management"""
     
-    # Define node positions for the graph
-    node_positions = {
-        'EMAIL_INPUT': (0, 0),
-        'CONVERSATION_STATE_ANALYSIS': (1, 0),
-        'CLASSIFICATION': (2, 0),
-        'DATA_EXTRACTION': (3, 0),
-        'DATA_ENRICHMENT': (4, 0),
-        'VALIDATION': (5, 0),
-        'RATE_RECOMMENDATION': (6, 0),
-        'DECISION_NODE': (7, 0),
-        'CLARIFICATION_REQUEST': (8, -1),
-        'CONFIRMATION_REQUEST': (8, 0),
-        'FORWARDER_ASSIGNMENT': (8, 1),
-        'FORWARDER_EMAIL_GENERATION': (9, 1),
-        'RATE_COLLATION': (9, 0),
-        'ESCALATION': (9, -1)
-    }
+    def __init__(self):
+        self.orchestrator = None
+        self.thread_manager = None
+        self.forwarder_manager = None
+        self.initialize_components()
     
-    # Create the graph
-    fig = go.Figure()
+    def initialize_components(self):
+        """Initialize system components"""
+        try:
+            with st.spinner("Initializing system components..."):
+                self.orchestrator = LangGraphWorkflowOrchestrator()
+                self.thread_manager = ThreadManager()
+                self.forwarder_manager = ForwarderManager()
+            st.success("✅ System components initialized successfully!")
+        except Exception as e:
+            st.error(f"❌ Failed to initialize system: {e}")
+            st.stop()
     
-    # Add nodes
-    for node, (x, y) in node_positions.items():
-        # Determine node color based on status
-        if node in workflow_history:
-            if errors and any(error for error in errors if node in str(error)):
-                color = '#dc3545'  # Red for errors
-            elif node == current_node:
-                color = '#ffc107'  # Yellow for current
-            else:
-                color = '#28a745'  # Green for completed
+    def get_existing_threads(self):
+        """Get list of existing thread IDs"""
+        try:
+            thread_files = glob.glob("data/threads/*.json")
+            thread_ids = []
+            
+            for file_path in thread_files:
+                thread_id = os.path.basename(file_path).replace('.json', '')
+                thread_ids.append(thread_id)
+            
+            return sorted(thread_ids)
+        except Exception as e:
+            st.error(f"Error getting existing threads: {e}")
+            return []
+    
+    def display_coalesced_data(self, thread_data):
+        """Display coalesced data in a comprehensive format"""
+        if not thread_data or not thread_data.cumulative_extraction:
+            st.warning("⚠️ No coalesced data available for this thread")
+            return
+        
+        cumulative = thread_data.cumulative_extraction
+        
+        st.markdown('<div class="coalesced-data">', unsafe_allow_html=True)
+        st.markdown("### 📊 Coalesced Data (Merged from All Emails)")
+        
+        # Shipment Details
+        shipment = cumulative.get('shipment_details', {})
+        if shipment:
+            st.markdown('<div class="data-category">', unsafe_allow_html=True)
+            st.markdown("**🚢 Shipment Details:**")
+            cols = st.columns(3)
+            for i, (key, value) in enumerate(shipment.items()):
+                if value:
+                    col_idx = i % 3
+                    with cols[col_idx]:
+                        st.write(f"• **{key.replace('_', ' ').title()}:** {value}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Contact Information
+        contact = cumulative.get('contact_information', {})
+        if contact:
+            st.markdown('<div class="data-category">', unsafe_allow_html=True)
+            st.markdown("**👤 Contact Information:**")
+            cols = st.columns(2)
+            for i, (key, value) in enumerate(contact.items()):
+                if value:
+                    col_idx = i % 2
+                    with cols[col_idx]:
+                        st.write(f"• **{key.replace('_', ' ').title()}:** {value}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Timeline Information
+        timeline = cumulative.get('timeline_information', {})
+        if timeline:
+            st.markdown('<div class="data-category">', unsafe_allow_html=True)
+            st.markdown("**📅 Timeline Information:**")
+            cols = st.columns(2)
+            for i, (key, value) in enumerate(timeline.items()):
+                if value:
+                    col_idx = i % 2
+                    with cols[col_idx]:
+                        st.write(f"• **{key.replace('_', ' ').title()}:** {value}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Special Requirements
+        special_req = cumulative.get('special_requirements', [])
+        if special_req:
+            st.markdown('<div class="data-category">', unsafe_allow_html=True)
+            st.markdown("**📝 Special Requirements:**")
+            for req in special_req:
+                st.write(f"• {req}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Additional Notes
+        notes = cumulative.get('additional_notes', '')
+        if notes:
+            st.markdown('<div class="data-category">', unsafe_allow_html=True)
+            st.markdown("**📄 Additional Notes:**")
+            st.write(notes)
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Thread Statistics
+        st.markdown("### 📈 Thread Statistics")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-value">{thread_data.total_emails}</div>', unsafe_allow_html=True)
+            st.markdown('<div class="metric-label">Total Emails</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-value">{len(cumulative)}</div>', unsafe_allow_html=True)
+            st.markdown('<div class="metric-label">Categories</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col3:
+            total_fields = sum(len(data) if isinstance(data, dict) else 1 
+                              for data in cumulative.values())
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-value">{total_fields}</div>', unsafe_allow_html=True)
+            st.markdown('<div class="metric-label">Total Fields</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col4:
+            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-value">{thread_data.conversation_state.replace("_", " ").title()}</div>', unsafe_allow_html=True)
+            st.markdown('<div class="metric-label">Conversation State</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    def run(self):
+        """Run the improved Streamlit application"""
+        # Header
+        st.markdown('<h1 class="main-header">🚢 Logistics AI Response System - Enhanced</h1>', unsafe_allow_html=True)
+        
+        # Sidebar with thread management
+        self.setup_sidebar()
+        
+        # Main content
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📧 Email Processing", 
+            "🧵 Thread Management", 
+            "📊 Coalesced Data View",
+            "⚙️ Configuration"
+        ])
+        
+        with tab1:
+            self.email_processing_tab()
+        
+        with tab2:
+            self.thread_management_tab()
+        
+        with tab3:
+            self.coalesced_data_tab()
+        
+        with tab4:
+            self.configuration_tab()
+    
+    def setup_sidebar(self):
+        """Setup sidebar with system status and quick actions"""
+        st.sidebar.markdown("## 🧵 Thread Management")
+        
+        # Quick actions
+        st.sidebar.markdown("### Quick Actions")
+        
+        if st.button("🗑️ Clear All Threads", key="clear_all_threads"):
+            try:
+                thread_files = glob.glob("data/threads/*.json")
+                for file_path in thread_files:
+                    os.remove(file_path)
+                st.sidebar.success("✅ All threads cleared!")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"❌ Error: {e}")
+        
+        # Thread statistics
+        existing_threads = self.get_existing_threads()
+        if existing_threads:
+            st.sidebar.markdown("### Thread Statistics")
+            st.sidebar.info(f"📧 **{len(existing_threads)} threads** available")
+            
+            # Show recent threads
+            st.sidebar.markdown("**Recent Threads:**")
+            for thread_id in existing_threads[-3:]:  # Show last 3 threads
+                thread_data = self.thread_manager.load_thread(thread_id)
+                if thread_data:
+                    st.sidebar.write(f"• {thread_id[:20]}... ({thread_data.total_emails} emails)")
         else:
-            color = '#6c757d'  # Gray for not started
+            st.sidebar.info("📧 No threads available")
         
-        fig.add_trace(go.Scatter(
-            x=[x], y=[y],
-            mode='markers+text',
-            marker=dict(size=30, color=color, line=dict(width=2, color='white')),
-            text=[node.replace('_', '\n')],
-            textposition="middle center",
-            textfont=dict(size=8, color='white'),
-            name=node,
-            showlegend=False
-        ))
-    
-    # Add edges (workflow connections)
-    edges = [
-        ('EMAIL_INPUT', 'CONVERSATION_STATE_ANALYSIS'),
-        ('CONVERSATION_STATE_ANALYSIS', 'CLASSIFICATION'),
-        ('CLASSIFICATION', 'DATA_EXTRACTION'),
-        ('DATA_EXTRACTION', 'DATA_ENRICHMENT'),
-        ('DATA_ENRICHMENT', 'VALIDATION'),
-        ('VALIDATION', 'RATE_RECOMMENDATION'),
-        ('RATE_RECOMMENDATION', 'DECISION_NODE'),
-        ('DECISION_NODE', 'CLARIFICATION_REQUEST'),
-        ('DECISION_NODE', 'CONFIRMATION_REQUEST'),
-        ('DECISION_NODE', 'FORWARDER_ASSIGNMENT'),
-        ('DECISION_NODE', 'RATE_COLLATION'),
-        ('DECISION_NODE', 'ESCALATION'),
-        ('FORWARDER_ASSIGNMENT', 'FORWARDER_EMAIL_GENERATION')
-    ]
-    
-    for start_node, end_node in edges:
-        if start_node in node_positions and end_node in node_positions:
-            x1, y1 = node_positions[start_node]
-            x2, y2 = node_positions[end_node]
+        # System status
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("## System Status")
+        
+        if self.orchestrator:
+            st.sidebar.success("✅ Workflow Orchestrator: Active")
+        else:
+            st.sidebar.error("❌ Workflow Orchestrator: Inactive")
+        
+        if self.thread_manager:
+            st.sidebar.success("✅ Thread Manager: Active")
+        else:
+            st.sidebar.error("❌ Thread Manager: Inactive")
+        
+    def email_processing_tab(self):
+        """Enhanced email processing tab"""
+        st.markdown('<h2 class="section-header">📧 Email Processing</h2>', unsafe_allow_html=True)
+        
+        # Thread selection section
+        st.markdown("### 🧵 Thread Selection")
+        
+        # Get existing threads
+        existing_threads = self.get_existing_threads()
+        
+        # Thread selection options
+        thread_option = st.radio(
+            "Choose thread option:",
+            ["🆕 Create New Thread", "📧 Add to Existing Thread"],
+            horizontal=True,
+            key="thread_option"
+        )
+        
+        thread_id = None
+        
+        if thread_option == "🆕 Create New Thread":
+            # Create new thread
+            thread_id = f"thread_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            st.info(f"🆕 **New Thread ID:** {thread_id}")
             
-            # Determine edge color
-            if start_node in workflow_history and end_node in workflow_history:
-                edge_color = '#28a745'
+        else:
+            # Add to existing thread
+            if existing_threads:
+                selected_thread = st.selectbox(
+                    "Select existing thread:",
+                    existing_threads,
+                    key="existing_thread_selector",
+                    help="Choose an existing thread to add this email to"
+                )
+                thread_id = selected_thread
+                
+                # Show thread info
+                thread_data = self.thread_manager.load_thread(thread_id)
+                if thread_data and thread_data.email_chain:
+                    st.success(f"📧 **{len(thread_data.email_chain)} emails** in selected thread")
+                    
+                    # Show thread summary
+                    with st.expander("📋 Thread Summary"):
+                        st.write(f"**Thread ID:** {thread_id}")
+                        st.write(f"**Total Emails:** {len(thread_data.email_chain)}")
+                        st.write(f"**Last Updated:** {thread_data.last_updated}")
+        
+                        # Show last few emails
+                        st.write("**Recent Emails:**")
+                        for i, email in enumerate(thread_data.email_chain[-3:]):
+                            st.write(f"  • {email.subject[:50]}... ({email.timestamp[:10]})")
+                else:
+                    st.warning("⚠️ Selected thread not found or empty")
+                    thread_id = f"thread_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             else:
-                edge_color = '#dee2e6'
-            
-            fig.add_trace(go.Scatter(
-                x=[x1, x2], y=[y1, y2],
-                mode='lines',
-                line=dict(color=edge_color, width=2),
-                showlegend=False
-            ))
-    
-    # Update layout
-    fig.update_layout(
-        title="LangGraph Workflow Visualization",
-        xaxis=dict(showgrid=False, showticklabels=False, range=[-0.5, 9.5]),
-        yaxis=dict(showgrid=False, showticklabels=False, range=[-1.5, 1.5]),
-        height=400,
-        margin=dict(l=0, r=0, t=50, b=0),
-        plot_bgcolor='white'
-    )
-    
-    return fig
-
-def format_email_preview(email_data):
-    """Format email data for preview"""
-    preview = f"""
-From: {email_data.get('sender', 'Unknown')}
-Subject: {email_data.get('subject', 'No Subject')}
-Thread ID: {email_data.get('thread_id', 'No Thread ID')}
-Timestamp: {email_data.get('timestamp', 'Unknown')}
-
-Content:
-{email_data.get('email_text', 'No content')}
-"""
-    return preview
-
-def create_metrics_dashboard(result):
-    """Create a metrics dashboard"""
-    summary = result.get('final_state', {})
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="metric-value">{}</div>
-            <div class="metric-label">Total Nodes</div>
-        </div>
-        """.format(len(summary.get('workflow_history', []))), unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="metric-value">{}</div>
-            <div class="metric-label">Errors</div>
-        </div>
-        """.format(len(summary.get('errors', []))), unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="metric-value">{}</div>
-            <div class="metric-label">Confidence</div>
-        </div>
-        """.format(f"{summary.get('confidence_score', 0):.1%}"), unsafe_allow_html=True)
-    
-    with col4:
-        status = "✅ Complete" if result.get('workflow_complete', False) else "⏳ In Progress"
-        status_class = "status-success" if result.get('workflow_complete', False) else "status-warning"
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{status}</div>
-            <div class="metric-label">Status</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-# =====================================================
-#                 🎯 MAIN APPLICATION
-# =====================================================
-
-def main():
-    # Header
-    st.markdown("""
-    <div class="main-header">
-        <h1>🚀 LangGraph Logistic AI Orchestrator</h1>
-        <p>Intelligent workflow orchestration for logistic AI response system</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Sidebar
-    with st.sidebar:
-        st.markdown("## ⚙️ Configuration")
+                st.warning("⚠️ No existing threads found. Creating new thread.")
+                thread_id = f"thread_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        # Email input section
-        st.markdown("### 📧 Email Input")
-        email_text = st.text_area(
-            "Email Content",
-            value="""Dear SeaRates Team,
+        # Email input form
+        with st.form("email_form"):
+            st.markdown("### Email Details")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                sender_email = st.text_input("Sender Email", "john.smith@company.com")
+                sender_name = st.text_input("Sender Name", "John Smith")
+                
+                # Thread info display
+                st.markdown("### Thread Information")
+                st.info(f"**Thread ID:** {thread_id}")
+                
+                # Show thread history if available
+                thread_data = self.thread_manager.load_thread(thread_id)
+                if thread_data and thread_data.email_chain:
+                    st.success(f"📧 {len(thread_data.email_chain)} emails in this thread")
+                else:
+                    st.info("🆕 New thread will be created")
+            
+            with col2:
+                email_type = st.selectbox(
+                    "Email Type",
+                    ["customer", "forwarder", "non_logistics"],
+                    help="Select the type of email for testing"
+                )
+                
+                # Pre-fill content based on type
+                if email_type == "customer":
+                    default_content = """Hi there,
 
-I hope this email finds you well. I am reaching out regarding a shipping requirement for our company, TechCorp Solutions.
+I need a shipping quote for the following:
+- Origin: Shanghai, China
+- Destination: Los Angeles, USA
+- Container: 40HC
+- Weight: 15,000 kg
+- Volume: 68 CBM
+- Commodity: Electronics
 
-We need to ship a significant volume of electronics from Jebel Ali, UAE to Mundra, India. Here are the details:
-
-**Shipment Details:**
-- Origin: Jebel Ali, UAE
-- Destination: Mundra, India
-- Container Type: 20GP
-- Quantity: 5 containers
-- Commodity: Electronics (Smartphones, Tablets, Laptops)
-- Weight: Approximately 25,000 kg per container
-- Volume: 67.2 CBM per container
-
-**Special Requirements:**
-- Temperature controlled environment (15-25°C)
-- Insurance coverage for full value
-- Door-to-door service preferred
-- Real-time tracking capability
-- Fastest transit time available
-- Flexible sailing dates between March 15-30, 2024
-
-**Additional Information:**
-- This is a regular monthly shipment
-- We have specific delivery requirements at destination
-- Need documentation assistance for customs clearance
-- Prefer a reliable forwarder with good track record
-
-Could you please provide:
-1. Competitive rates for this route
-2. Transit time options
-3. Available sailing dates
-4. Forwarder recommendations
-5. Insurance options and costs
-6. Door-to-door service availability
-
-We are looking to finalize this booking within the next 3-5 days, so a quick response would be greatly appreciated.
-
-Please feel free to contact me if you need any additional information.
+Please provide rates and transit time.
 
 Best regards,
-Sarah Johnson
-Logistics Manager
-TechCorp Solutions
-Email: sarah.johnson@techcorp.com
-Phone: +1-555-0123
-Website: www.techcorp.com
+John Smith"""
+                elif email_type == "forwarder":
+                    default_content = """Dear Logistics Team,
 
-P.S. We have been working with SeaRates for the past 2 years and are very satisfied with your services.""",
-            height=200,
-            placeholder="Enter the email content here...",
-            help="Paste the email content that needs to be processed"
-        )
-        
-        # Email Thread History
-        st.markdown("### 📧 Email Thread History")
-        
-        # Initialize thread history if not exists
-        if 'email_thread_history' not in st.session_state:
-            st.session_state.email_thread_history = []
-        
-        # Initialize forwarder acknowledgments if not exists
-        if 'forwarder_acknowledgments' not in st.session_state:
-            st.session_state.forwarder_acknowledgments = []
-        
-        # Initialize show_mail_trails flag if not exists
-        if 'show_mail_trails' not in st.session_state:
-            st.session_state.show_mail_trails = False
-        
-        # Display current thread as structured JSON
-        if st.session_state.email_thread_history:
-            with st.expander("📚 Current Email Thread (JSON)", expanded=False):
-                st.json(st.session_state.email_thread_history)
-        
-        # Show formatted thread for reference
-        email_thread = st.text_area(
-            "Formatted Email Thread (Most Recent First)",
-            value=st.session_state.get('email_thread', ''),
-            height=200,
-            placeholder="Email thread will be built here automatically...",
-            help="Complete email conversation history (most recent emails at top)"
-        )
-        
-        # Email metadata
-        st.markdown("### 📋 Email Metadata")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            subject = st.text_input("Subject", value="Urgent: Jebel Ali to Mundra Electronics Shipment - 5x40HC - March 2024")
-            sender = st.text_input("Sender", value="customer@example.com")
-        
-        with col2:
-            thread_id = st.text_input("Thread ID", value=f"thread-{int(time.time())}")
-            timestamp = st.text_input("Timestamp", value=datetime.now().isoformat())
-        
-        # Processing options
-        st.markdown("### 🔧 Processing Options")
-        enable_debug = st.checkbox("Enable Debug Mode", value=True)
-        show_workflow_viz = st.checkbox("Show Workflow Visualization", value=True)
-        
-        # Process button
-        st.markdown("---")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            process_button = st.button("🚀 Process Email", type="primary", use_container_width=True)
-        
-        with col2:
-            clear_thread_button = st.button("🗑️ Clear Thread", use_container_width=True)
+Please find our rate quote for the Shanghai to Los Angeles route:
+
+Route: Shanghai (CNSHA) to Los Angeles (USLAX)
+Container: 40HC
+Rate: $2,850 USD
+Transit Time: 18 days
+Valid Until: August 31, 2025
+
+Please confirm if you would like to proceed with this rate.
+
+Best regards,
+DHL Global Forwarding"""
+                else:
+                    default_content = """Dear Hiring Manager,
+
+I am writing to express my interest in the Sales Position at your company.
+I have 5 years of experience in logistics and sales.
+
+Please find my resume attached.
+
+Best regards,
+Jane Doe"""
             
-        # Clear thread if button clicked
-        if clear_thread_button:
-            st.session_state.email_thread = ""
-            st.session_state.email_thread_history = []
-            st.rerun()
+            subject = st.text_input("Subject", "Shipping Quote Request - Shanghai to Los Angeles")
+            content = st.text_area("Email Content", default_content, height=200)
+            
+            submitted = st.form_submit_button("🚀 Process Email")
+        
+        if submitted:
+            self.process_email(sender_email, sender_name, subject, content, thread_id, email_type)
+        
+    def thread_management_tab(self):
+        """Enhanced thread management tab"""
+        st.markdown('<h2 class="section-header">🧵 Thread Management</h2>', unsafe_allow_html=True)
+        
+        # Thread operations
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### View Thread")
+            thread_id = st.text_input("Thread ID", "test_thread_001")
+            
+            if st.button("📋 Load Thread", key="load_thread"):
+                thread_data = self.thread_manager.load_thread(thread_id)
+                if thread_data:
+                    st.success(f"✅ Thread loaded: {thread_data.total_emails} emails")
+                    
+                    # Display thread summary
+                    st.markdown("**Thread Summary:**")
+                    st.json({
+                        "thread_id": thread_data.thread_id,
+                        "total_emails": thread_data.total_emails,
+                        "conversation_state": thread_data.conversation_state,
+                        "last_updated": thread_data.last_updated
+                    })
+                    
+                    # Display coalesced data
+                    self.display_coalesced_data(thread_data)
+                    
+                    # Display email chain
+                    st.markdown("**Email Chain:**")
+                    for i, email in enumerate(thread_data.email_chain):
+                        with st.expander(f"Email {i+1}: {email.subject}"):
+                            st.write(f"**From:** {email.sender}")
+                            st.write(f"**Date:** {email.timestamp}")
+                            st.write(f"**Direction:** {email.direction}")
+                            st.write(f"**Content:** {email.content[:200]}...")
+                else:
+                    st.warning("⚠️ Thread not found")
+        
+        with col2:
+            st.markdown("### Thread Statistics")
+            
+            # Get mixed conversation summary
+            if st.button("📊 Get Conversation Summary", key="get_summary"):
+                summary = self.thread_manager.get_mixed_conversation_summary(thread_id)
+                if summary and 'error' not in summary:
+                    st.markdown("**Conversation Summary:**")
+                    st.json(summary)
+                else:
+                    st.warning("⚠️ No conversation data available")
+            
+            # Thread management actions
+            st.markdown("### Thread Actions")
+            
+            if st.button("🗑️ Clear All Threads", key="clear_all"):
+                try:
+                    thread_files = glob.glob("data/threads/*.json")
+                    for file_path in thread_files:
+                        os.remove(file_path)
+                    st.success("✅ All threads cleared!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error clearing threads: {e}")
+            
+            if st.button("🔄 Refresh Thread List", key="refresh"):
+                st.rerun()
     
-    # Main content area
-    if process_button and email_text:
-        # Initialize orchestrator
-        with st.spinner("🔄 Initializing LangGraph orchestrator..."):
-            try:
-                orchestrator = LangGraphOrchestrator()
-                st.success("✅ LangGraph orchestrator initialized successfully!")
-            except Exception as e:
-                st.error(f"❌ Failed to initialize orchestrator: {e}")
-                return
+    def coalesced_data_tab(self):
+        """Dedicated tab for viewing coalesced data"""
+        st.markdown('<h2 class="section-header">📊 Coalesced Data View</h2>', unsafe_allow_html=True)
         
-        # Combine new email with existing thread
-        if st.session_state.email_thread_history:
-            # Build full email content from structured history
-            full_email_content = f"""
-{email_text}
-
----
-Previous Conversation:
-"""
-            # Add previous emails in reverse chronological order (most recent first, excluding current email)
-            # Skip the first entry (current email) and show the rest in reverse order
-            previous_emails = st.session_state.email_thread_history[1:]  # Exclude current email
-            for email in previous_emails:
-                full_email_content += f"""
-From: {email['sender']}
-Subject: {email['subject']}
-Date: {email['timestamp']}
-
-{email['content']}
-
-"""
+        # Select thread to view coalesced data
+        existing_threads = self.get_existing_threads()
+        
+        if existing_threads:
+            selected_thread = st.selectbox(
+                "Select a thread to view coalesced data:",
+                existing_threads,
+                key="coalesced_thread_selector"
+            )
+            
+            if selected_thread:
+                thread_data = self.thread_manager.load_thread(selected_thread)
+                if thread_data:
+                    st.success(f"✅ Thread loaded: {thread_data.total_emails} emails")
+                    
+                    # Display comprehensive coalesced data
+                    self.display_coalesced_data(thread_data)
+                    
+                    # Raw data view
+                    with st.expander("🔍 Raw Coalesced Data (JSON)"):
+                        st.json(thread_data.cumulative_extraction)
+                    
+                    # Email chain analysis
+                    st.markdown("### 📧 Email Chain Analysis")
+                    
+                    customer_emails = [e for e in thread_data.email_chain if e.direction == "inbound"]
+                    bot_emails = [e for e in thread_data.email_chain if e.direction == "outbound"]
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Total Emails", len(thread_data.email_chain))
+                    
+                    with col2:
+                        st.metric("Customer Emails", len(customer_emails))
+                    
+                    with col3:
+                        st.metric("Bot Responses", len(bot_emails))
+                    
+                    # Email timeline
+                    st.markdown("### 📅 Email Timeline")
+                    for i, email in enumerate(thread_data.email_chain):
+                        with st.expander(f"Email {i+1}: {email.timestamp[:10]} - {email.subject}"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.write(f"**From:** {email.sender}")
+                                st.write(f"**Direction:** {email.direction}")
+                            with col2:
+                                st.write(f"**Date:** {email.timestamp}")
+                                if email.extracted_data:
+                                    st.write(f"**Extracted Data:** {len(email.extracted_data)} categories")
+                            
+                            st.write(f"**Content:** {email.content[:300]}...")
+                            
+                            if email.extracted_data:
+                                st.write("**Extracted Data:**")
+                                st.json(email.extracted_data)
+                else:
+                    st.warning("⚠️ Thread not found")
         else:
-            full_email_content = email_text
+            st.info("ℹ️ No threads available. Process some emails first!")
+    
+    def configuration_tab(self):
+        """Configuration tab"""
+        st.markdown('<h2 class="section-header">⚙️ Configuration</h2>', unsafe_allow_html=True)
         
-        # Create structured email entry for customer email
-        customer_email_entry = {
-            "timestamp": timestamp,
-            "sender": sender,
+        st.markdown("### System Configuration")
+        
+        # LLM Configuration
+        st.markdown("**LLM Configuration:**")
+        st.info("""
+        - **Provider:** Databricks
+        - **Model:** databricks-llama-2-70b-chat
+        - **Timeout:** 120 seconds
+        - **Temperature:** 0.1 (for extraction), 0.7 (for responses)
+        """)
+        
+        # Agent Configuration
+        st.markdown("**Agent Configuration:**")
+        st.info("""
+        - **Total Agents:** 18 specialized agents
+        - **Response Types:** Clarification, Confirmation, Acknowledgment
+        - **Thread Management:** Enhanced with recency priority
+        - **Forwarder Management:** Country-based assignment
+        """)
+            
+        # Workflow Configuration
+        st.markdown("**Workflow Configuration:**")
+        st.info("""
+        - **Framework:** LangGraph
+        - **Steps:** 10 main processing steps
+        - **Routing:** Conditional based on email type and content
+        - **Escalation:** Automatic for low confidence cases
+        """)
+    
+    def process_email(self, sender_email: str, sender_name: str, subject: str, content: str, thread_id: str, email_type: str):
+        """Process email through the workflow"""
+        st.markdown('<h3 class="section-header">🔄 Processing Email...</h3>', unsafe_allow_html=True)
+        
+        # Prepare email data
+        email_data = {
+            "sender": sender_email,
+            "sender_name": sender_name,
             "subject": subject,
-            "content": email_text,
-            "type": "customer",
+            "content": content,
             "thread_id": thread_id
         }
         
-        # Add customer email to structured thread history (most recent first)
-        st.session_state.email_thread_history.insert(0, customer_email_entry)
+        # Check if this is a forwarder email first
+        if self.is_forwarder_email(sender_email):
+            st.info("🤝 Forwarder email detected - generating acknowledgment...")
+            self.process_forwarder_email_simple(sender_email, sender_name, subject, content)
+            return
         
-        # Update formatted thread for backward compatibility (most recent first)
-        new_email_formatted = f"""
-From: {sender}
-Subject: {subject}
-Date: {timestamp}
-
-{email_text}
-
-"""
+        # Process with progress indicator for regular emails
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        if email_thread:
-            # Add new email at the top (most recent first)
-            st.session_state.email_thread = new_email_formatted + "---\n" + email_thread
-        else:
-            # First email
-            st.session_state.email_thread = new_email_formatted.strip()
-        
-        # Prepare email data with full thread
-        email_data = {
-            'email_text': full_email_content,
-            'subject': subject,
-            'sender': sender,
-            'thread_id': thread_id,
-            'timestamp': timestamp
-        }
-        
-        # Process email
-        with st.spinner("🔄 Processing email through LangGraph workflow..."):
-            try:
-                result = orchestrator.orchestrate_workflow(email_data)
-                
-                if result.get('status') == 'success':
-                    st.success("✅ Email processed successfully!")
-                else:
-                    st.error(f"❌ Processing failed: {result.get('error')}")
-                    return
-                    
-            except Exception as e:
-                st.error(f"❌ Processing error: {e}")
-                return
-        
-        # =====================================================
-        #                 🤖 BOT RESPONSE (TOP PRIORITY)
-        # =====================================================
-        
-        # Display the bot response prominently at the top
-        final_response = result.get('final_response', {})
-        
-        if final_response and 'response_body' in final_response:
-            st.markdown("## 🤖 Bot Response")
+        try:
+            # Update progress
+            progress_bar.progress(25)
+            status_text.text("Initializing workflow...")
             
-            # Create a styled response display
-            col1, col2 = st.columns([3, 1])
+            # Process email
+            result = asyncio.run(self.orchestrator.process_email(email_data))
             
-            with col1:
-                st.markdown("### 📝 Response Content")
-                
-                # Display response in email-like format
-                response_display = f"""
-<div class="email-display">
-<div class="email-header">
-<strong>📧 Bot Response</strong><br>
-<small>From: {final_response.get('sales_person_name', 'SeaRates Team')} &lt;{final_response.get('sales_person_email', 'logistics@searates.com')}&gt;</small><br>
-<small>To: {sender}</small><br>
-<small>Subject: {final_response.get('response_subject', f'Re: {subject}')}</small><br>
-<small>Type: {final_response.get('response_type', 'unknown')}</small>
-</div>
-
-<div class="email-body">
-{final_response['response_body']}
-</div>
-</div>
-"""
-                
-                st.markdown(response_display, unsafe_allow_html=True)
+            progress_bar.progress(100)
+            status_text.text("Processing completed!")
             
-            with col2:
-                st.markdown("### 📊 Response Details")
-                st.markdown(f"**Type:** {final_response.get('response_type', 'unknown')}")
-                st.markdown(f"**Tone:** {final_response.get('tone', 'professional')}")
-                st.markdown(f"**Urgency:** {final_response.get('urgency_level', 'normal')}")
-                st.markdown(f"**Follow-up Required:** {'Yes' if final_response.get('follow_up_required', False) else 'No'}")
-                st.markdown(f"**Response Time:** {final_response.get('estimated_response_time', 'N/A')}")
-                
-                # Sales person info
-                if 'sales_person_name' in final_response:
-                    st.markdown("### 👤 Assigned Sales Person")
-                    st.markdown(f"**Name:** {final_response.get('sales_person_name', 'N/A')}")
-                    st.markdown(f"**Email:** {final_response.get('sales_person_email', 'N/A')}")
-                    st.markdown(f"**Phone:** {final_response.get('sales_person_phone', 'N/A')}")
-                
-                # Collate email info if available
-                collate_email = final_response.get('collate_email')
-                if collate_email:
-                    st.markdown("### 🎯 Sales Team Notification")
-                    st.markdown(f"**Subject:** {collate_email.get('subject', 'N/A')}")
-                    st.markdown(f"**Priority:** {collate_email.get('priority', 'N/A')}")
-                    st.markdown(f"**Customer:** {collate_email.get('customer_email', 'N/A')}")
-                    st.markdown(f"**Forwarder:** {collate_email.get('forwarder_email', 'N/A')}")
-        else:
-            st.warning("No bot response generated")
-        
-        # Get current timestamp for bot response
-        bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # =====================================================
-        #                 📊 WORKFLOW OVERVIEW
-        # =====================================================
-        
-        # Metrics dashboard
-        create_metrics_dashboard(result)
-        
-        # Workflow visualization
-        if show_workflow_viz:
-            st.markdown("## 🔄 Workflow Visualization")
+            # Display results
+            self.display_workflow_results(result)
             
-            final_state = result.get('final_state', {})
-            workflow_history = final_state.get('workflow_history', [])
-            current_node = final_state.get('current_node', '')
-            errors = final_state.get('errors', [])
+        except Exception as e:
+            progress_bar.progress(0)
+            status_text.text("Processing failed!")
+            st.error(f"❌ Error processing email: {e}")
+    
+    def is_forwarder_email(self, sender_email: str) -> bool:
+        """Check if the email is from a forwarder"""
+        try:
+            # Load forwarder data
+            with open('config/forwarders.json', 'r') as f:
+                forwarder_data = json.load(f)
             
-            fig = create_workflow_visualization(workflow_history, current_node, errors)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Detailed workflow information
-        st.markdown("## 📋 Workflow Details")
-        
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # Workflow history
-            st.markdown("### 🔄 Workflow History")
-            workflow_history = result.get('final_state', {}).get('workflow_history', [])
+            forwarder_emails = [f['email'] for f in forwarder_data.get('forwarders', [])]
+            return sender_email.lower() in [email.lower() for email in forwarder_emails]
+        except Exception as e:
+            st.warning(f"⚠️ Could not check forwarder status: {e}")
+            return False
+    
+    def process_forwarder_email_simple(self, sender_email: str, sender_name: str, subject: str, content: str):
+        """Simple forwarder email processing that generates acknowledgment directly"""
+        try:
+            # Load sales team data
+            with open('config/sales_team.json', 'r') as f:
+                sales_team_data = json.load(f)
             
-            for i, node in enumerate(workflow_history):
-                status_icon = "✅" if i < len(workflow_history) - 1 else "🔄"
-                st.markdown(f"{status_icon} **{node}**")
-            
-            # Current status
-            st.markdown("### 📈 Current Status")
-            final_state = result.get('final_state', {})
-            
-            status_data = {
-                "Conversation State": final_state.get('conversation_state', 'N/A'),
-                "Email Type": final_state.get('email_type', 'N/A'),
-                "Intent": final_state.get('intent', 'N/A'),
-                "Confidence Score": f"{final_state.get('confidence_score', 0):.1%}",
-                "Next Action": final_state.get('next_action', 'N/A'),
-                "Workflow Complete": "Yes" if result.get('workflow_complete', False) else "No"
-            }
-            
-            for key, value in status_data.items():
-                st.markdown(f"**{key}:** {value}")
-        
-        with col2:
-            # Errors and warnings
-            st.markdown("### ⚠️ Issues")
-            
-            errors = result.get('final_state', {}).get('errors', [])
-            warnings = result.get('final_state', {}).get('warnings', [])
-            
-            if errors:
-                st.markdown("#### ❌ Errors")
-                for error in errors:
-                    st.error(error)
-            
-            if warnings:
-                st.markdown("#### ⚠️ Warnings")
-                for warning in warnings:
-                    st.warning(warning)
-            
-            if not errors and not warnings:
-                st.success("✅ No issues detected!")
-        
-        # Extracted data
-        st.markdown("## 📊 Extracted Data")
-        
-        extracted_data = result.get('final_state', {}).get('extracted_data', {})
-        if extracted_data:
-            # Display in organized sections
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("### 🏠 Port Information")
-                port_data = {
-                    "Origin Port": extracted_data.get('origin_port', 'N/A'),
-                    "Origin Country": extracted_data.get('origin_country', 'N/A'),
-                    "Destination Port": extracted_data.get('destination_port', 'N/A'),
-                    "Destination Country": extracted_data.get('destination_country', 'N/A'),
-                    "Origin (Full)": extracted_data.get('origin', 'N/A'),
-                    "Destination (Full)": extracted_data.get('destination', 'N/A')
+            # Get a sales person (use the first available one)
+            sales_persons = sales_team_data.get('sales_team', [])
+            if not sales_persons:
+                # Fallback sales person
+                sales_person = {
+                    "name": "Digital Sales Specialist",
+                    "title": "Digital Sales Specialist", 
+                    "email": "sales@searates.com",
+                    "phone": "+1-555-0123",
+                    "signature": "Best regards,\n\nDigital Sales Specialist\nSearates By DP World\n📧 sales@searates.com\n📞 +1-555-0123"
                 }
-                
-                for key, value in port_data.items():
-                    if value and value != 'N/A':
-                        st.markdown(f"**{key}:** {value}")
-                
-                if not any(v and v != 'N/A' for v in port_data.values()):
-                    st.info("No port information extracted")
-            
-            with col2:
-                st.markdown("### 📦 Shipment Details")
-                shipment_data = {
-                    "Shipment Type": extracted_data.get('shipment_type', 'N/A'),
-                    "Container Type": extracted_data.get('container_type', 'N/A'),
-                    "Quantity": extracted_data.get('quantity', 'N/A'),
-                    "Weight": extracted_data.get('weight', 'N/A'),
-                    "Volume": extracted_data.get('volume', 'N/A'),
-                    "Shipment Date": extracted_data.get('shipment_date', 'N/A'),
-                    "Commodity": extracted_data.get('commodity', 'N/A')
-                }
-                
-                for key, value in shipment_data.items():
-                    if value and value != 'N/A':
-                        st.markdown(f"**{key}:** {value}")
-                
-                if not any(v and v != 'N/A' for v in shipment_data.values()):
-                    st.info("No shipment details extracted")
-            
-            # Additional information
-            st.markdown("### 📋 Additional Information")
-            additional_data = {
-                "Customer Name": extracted_data.get('customer_name', 'N/A'),
-                "Customer Company": extracted_data.get('customer_company', 'N/A'),
-                "Customer Email": extracted_data.get('customer_email', 'N/A'),
-                "Dangerous Goods": extracted_data.get('dangerous_goods', 'N/A'),
-                "Insurance": extracted_data.get('insurance', 'N/A'),
-                "Customs Clearance": extracted_data.get('customs_clearance', 'N/A'),
-                "Special Requirements": extracted_data.get('special_requirements', 'N/A'),
-                "Packaging": extracted_data.get('packaging', 'N/A'),
-                "Delivery Address": extracted_data.get('delivery_address', 'N/A'),
-                "Pickup Address": extracted_data.get('pickup_address', 'N/A')
-            }
-            
-            col1, col2, col3 = st.columns(3)
-            for i, (key, value) in enumerate(additional_data.items()):
-                if value and value != 'N/A':
-                    if i % 3 == 0:
-                        col1.markdown(f"**{key}:** {value}")
-                    elif i % 3 == 1:
-                        col2.markdown(f"**{key}:** {value}")
-                    else:
-                        col3.markdown(f"**{key}:** {value}")
-            
-            # Show raw extracted data in expander
-            with st.expander("🔍 Raw Extracted Data (JSON)"):
-                st.json(extracted_data)
-        else:
-            st.info("No data extracted")
-        
-        # Enriched data
-        st.markdown("## 🔧 Enriched Data")
-        
-        enriched_data = result.get('final_state', {}).get('enriched_data', {})
-        if enriched_data:
-            # Port Lookup Results
-            if enriched_data.get('port_lookup'):
-                st.markdown("### 🏠 Port Lookup Results")
-                port_results = enriched_data['port_lookup'].get('results', [])
-                if port_results:
-                    port_df = pd.DataFrame([
-                        {
-                            "Port Name": port.get('port_name', 'N/A'),
-                            "Port Code": port.get('port_code', 'N/A'),
-                            "Country": port.get('country', 'N/A')
-                        }
-                        for port in port_results
-                    ])
-                    st.dataframe(port_df, use_container_width=True)
-                else:
-                    st.info("No port lookup results")
-            
-            # Container Standardization Results
-            if enriched_data.get('container_standardization'):
-                st.markdown("### 📦 Container Standardization")
-                container_data = enriched_data['container_standardization']
-                container_df = pd.DataFrame([
-                    {
-                        "Original Type": container_data.get('original_type', 'N/A'),
-                        "Standard Type": container_data.get('standard_type', 'N/A'),
-                        "Status": container_data.get('status', 'N/A')
-                    }
-                ])
-                st.dataframe(container_df, use_container_width=True)
-            
-            # Rate Data Preparation
-            if enriched_data.get('rate_data'):
-                st.markdown("### 💰 Rate Data Prepared")
-                rate_data = enriched_data['rate_data']
-                rate_df = pd.DataFrame([
-                    {
-                        "Origin Name": rate_data.get('origin_name', 'N/A'),
-                        "Origin Code": rate_data.get('origin_code', 'N/A'),
-                        "Destination Name": rate_data.get('destination_name', 'N/A'),
-                        "Destination Code": rate_data.get('destination_code', 'N/A'),
-                        "Container Type": rate_data.get('container_type', 'N/A')
-                    }
-                ])
-                st.dataframe(rate_df, use_container_width=True)
-        else:
-            st.info("No enriched data available")
-        
-        # Validation results
-        st.markdown("## ✅ Validation Results")
-        
-        validation_results = result.get('final_state', {}).get('validation_results', {})
-        if validation_results:
-            port_validation = validation_results.get('validation_results', {})
-            if port_validation:
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.markdown("### 🏠 Origin Port")
-                    origin_validation = port_validation.get('origin_port', {})
-                    if origin_validation:
-                        is_valid = origin_validation.get('is_valid', False)
-                        confidence = origin_validation.get('confidence', 0)
-                        notes = origin_validation.get('validation_notes', 'N/A')
-                        
-                        if is_valid:
-                            st.success(f"✅ Valid (confidence: {confidence:.1%})")
-                        else:
-                            st.error(f"❌ Invalid (confidence: {confidence:.1%})")
-                        
-                        st.info(f"**Notes:** {notes}")
-                    else:
-                        st.warning("No validation data")
-                
-                with col2:
-                    st.markdown("### 🏠 Destination Port")
-                    destination_validation = port_validation.get('destination_port', {})
-                    if destination_validation:
-                        is_valid = destination_validation.get('is_valid', False)
-                        confidence = destination_validation.get('confidence', 0)
-                        notes = destination_validation.get('validation_notes', 'N/A')
-                        
-                        if is_valid:
-                            st.success(f"✅ Valid (confidence: {confidence:.1%})")
-                        else:
-                            st.error(f"❌ Invalid (confidence: {confidence:.1%})")
-                        
-                        st.info(f"**Notes:** {notes}")
-                    else:
-                        st.warning("No validation data")
-                
-                with col3:
-                    st.markdown("### 📦 Container Type")
-                    container_validation = port_validation.get('container_type', {})
-                    if container_validation:
-                        is_valid = container_validation.get('is_valid', False)
-                        confidence = container_validation.get('confidence', 0)
-                        notes = container_validation.get('validation_notes', 'N/A')
-                        
-                        if is_valid:
-                            st.success(f"✅ Valid (confidence: {confidence:.1%})")
-                        else:
-                            st.error(f"❌ Invalid (confidence: {confidence:.1%})")
-                        
-                        st.info(f"**Notes:** {notes}")
-                    else:
-                        st.warning("No validation data")
             else:
-                st.info("No port validation results available")
-        else:
-            st.info("No validation results available")
-        
-        # Rate recommendation
-        st.markdown("## 💰 Rate Recommendation")
-        
-        rate_recommendation = result.get('final_state', {}).get('rate_recommendation', {})
-        if rate_recommendation:
-            col1, col2 = st.columns(2)
+                sales_person = sales_persons[0]  # Use first sales person
             
-            with col1:
-                st.markdown("### 📊 Rate Information")
-                indicative_rate = rate_recommendation.get('indicative_rate', 'N/A')
-                if indicative_rate:
-                    st.success(f"**Indicative Rate:** {indicative_rate}")
-                else:
-                    st.warning("No indicative rate available")
-                
-                disclaimer = rate_recommendation.get('disclaimer', 'N/A')
-                st.info(f"**Disclaimer:** {disclaimer}")
-            
-            with col2:
-                st.markdown("### 🛣️ Route Information")
-                route_info = rate_recommendation.get('route_info', {})
-                if route_info:
-                    route_data = {
-                        "Origin": f"{route_info.get('origin_name', 'N/A')} ({route_info.get('origin_code', 'N/A')})",
-                        "Destination": f"{route_info.get('destination_name', 'N/A')} ({route_info.get('destination_code', 'N/A')})",
-                        "Container": route_info.get('container_type', 'N/A')
-                    }
-                    
-                    for key, value in route_data.items():
-                        st.markdown(f"**{key}:** {value}")
-                else:
-                    st.info("No route information available")
-            
-            # Show validation info if available
-            validation_info = rate_recommendation.get('validation_info', {})
-            if validation_info:
-                st.markdown("### ✅ Validation Summary")
-                validation_summary = []
-                
-                origin_val = validation_info.get('origin_port_validation', {})
-                if origin_val:
-                    is_valid = origin_val.get('is_valid', False)
-                    validation_summary.append(f"Origin Port: {'✅ Valid' if is_valid else '❌ Invalid'}")
-                
-                dest_val = validation_info.get('destination_port_validation', {})
-                if dest_val:
-                    is_valid = dest_val.get('is_valid', False)
-                    validation_summary.append(f"Destination Port: {'✅ Valid' if is_valid else '❌ Invalid'}")
-                
-                container_val = validation_info.get('container_type_validation', {})
-                if container_val:
-                    is_valid = container_val.get('is_valid', False)
-                    validation_summary.append(f"Container Type: {'✅ Valid' if is_valid else '❌ Invalid'}")
-                
-                if validation_summary:
-                    for summary in validation_summary:
-                        st.markdown(f"**{summary}**")
-        else:
-            st.info("No rate recommendation available")
-        
-        # =====================================================
-        #                 📋 DETAILED WORKFLOW ANALYSIS
-        # =====================================================
-        
-        # Detailed workflow information
-        st.markdown("## 📋 Workflow Details")
-        
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # Workflow history
-            st.markdown("### 🔄 Workflow History")
-            workflow_history = result.get('final_state', {}).get('workflow_history', [])
-            
-            for i, node in enumerate(workflow_history):
-                status_icon = "✅" if i < len(workflow_history) - 1 else "🔄"
-                st.markdown(f"{status_icon} **{node}**")
-            
-            # Current status
-            st.markdown("### 📈 Current Status")
-            final_state = result.get('final_state', {})
-            
-            status_data = {
-                "Conversation State": final_state.get('conversation_state', 'N/A'),
-                "Email Type": final_state.get('email_type', 'N/A'),
-                "Intent": final_state.get('intent', 'N/A'),
-                "Confidence Score": f"{final_state.get('confidence_score', 0):.1%}",
-                "Next Action": final_state.get('next_action', 'N/A'),
-                "Workflow Complete": "Yes" if result.get('workflow_complete', False) else "No"
-            }
-            
-            for key, value in status_data.items():
-                st.markdown(f"**{key}:** {value}")
-        
-        with col2:
-            # Errors and warnings
-            st.markdown("### ⚠️ Issues")
-            
-            errors = result.get('final_state', {}).get('errors', [])
-            warnings = result.get('final_state', {}).get('warnings', [])
-            
-            if errors:
-                st.markdown("#### ❌ Errors")
-                for error in errors:
-                    st.error(error)
-            
-            if warnings:
-                st.markdown("#### ⚠️ Warnings")
-                for warning in warnings:
-                    st.warning(warning)
-            
-            if not errors and not warnings:
-                st.success("✅ No issues detected!")
-        
-        # =====================================================
-        #                 📊 AGENT DATA & ANALYSIS
-        # =====================================================
-        
-        # Show current thread status
-        if st.session_state.email_thread_history:
-            with st.expander("📧 Current Email Thread", expanded=False):
-                st.markdown("**Structured conversation history being processed:**")
-                
-                # Display thread summary
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    customer_emails = len([e for e in st.session_state.email_thread_history if e['type'] == 'customer'])
-                    st.metric("Customer Emails", customer_emails)
-                
-                with col2:
-                    bot_responses = len([e for e in st.session_state.email_thread_history if e['type'] == 'bot'])
-                    st.metric("Bot Responses", bot_responses)
-                
-                with col3:
-                    total_emails = len(st.session_state.email_thread_history)
-                    st.metric("Total Messages", total_emails)
-                
-                # Show thread timeline (most recent first)
-                st.markdown("### 📅 Thread Timeline (Most Recent First)")
-                for i, email in enumerate(st.session_state.email_thread_history):
-                    if email['type'] == 'customer':
-                        st.markdown(f"**{i+1}. 📧 Customer** - {email['timestamp']} - {email['subject']}")
-                    else:
-                        st.markdown(f"**{i+1}. 🤖 Bot** - {email['timestamp']} - {email.get('response_type', 'response')}")
-                
-                # Show complete thread content
-                st.markdown("### 📝 Complete Thread Content")
-                complete_thread_content = ""
-                for email in st.session_state.email_thread_history:
-                    if email['type'] == 'customer':
-                        complete_thread_content += f"""
-From: {email['sender']}
-Subject: {email['subject']}
-Date: {email['timestamp']}
+            # Generate acknowledgment
+            acknowledgment_subject = f"Re: {subject}"
+            acknowledgment_body = f"""Dear {sender_name or 'Valued Partner'},
 
-{email['content']}
+Thank you for your email regarding the shipment inquiry.
 
-"""
-                    else:
-                        complete_thread_content += f"""
-From: {email['sender']}
-Subject: {email['subject']}
-Date: {email['timestamp']}
+We have received your message and our team is working on providing you with the requested information. You can expect our response within 24 hours.
 
-{email['content']}
-
-"""
-                
-                st.text_area("Thread Content", value=complete_thread_content.strip(), height=300, disabled=True)
-        
-        # Get current timestamp for bot response
-        bot_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # =====================================================
-        #                 🚨 ESCALATION SECTION
-        # =====================================================
-        
-        # Check if workflow was escalated
-        final_state = result.get('final_state', {})
-        next_action = final_state.get('next_action', '')
-        current_node = final_state.get('current_node', '')
-        
-        if current_node == 'ESCALATION' or 'escalate' in next_action.lower():
-            st.markdown("## 🚨 Escalation to Human")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.error("⚠️ **Email Escalated to Human**")
-                st.markdown("""
-                **Reason for Escalation:**
-                - Low confidence in processing
-                - Complex or unclear request
-                - System error or timeout
-                - Manual intervention required
-                """)
-                
-                # Escalation details
-                escalation_data = {
-                    "Escalation Reason": final_state.get('escalation_reason', 'Low confidence or system error'),
-                    "Confidence Score": f"{final_state.get('confidence_score', 0):.1%}",
-                    "Escalation Time": bot_timestamp,
-                    "Assigned To": "Sales Team",
-                    "Priority": "High" if final_state.get('confidence_score', 0) < 0.5 else "Medium"
-                }
-                
-                for key, value in escalation_data.items():
-                    st.markdown(f"**{key}:** {value}")
-            
-            with col2:
-                st.markdown("### 📧 Escalation Email Template")
-                
-                escalation_email = f"""Subject: URGENT - Manual Review Required - {subject}
-
-Dear Sales Team,
-
-An email has been escalated for manual review:
-
-**Customer Details:**
-- From: {sender}
-- Subject: {subject}
-- Thread ID: {thread_id}
-- Escalation Time: {bot_timestamp}
-
-**Escalation Reason:**
-{escalation_data['Escalation Reason']}
-
-**Original Email Content:**
-{email_text[:500]}{'...' if len(email_text) > 500 else ''}
-
-**Required Action:**
-Please review this email and respond appropriately to the customer.
+If you have any specific requirements or urgent requests, please let us know.
 
 Best regards,
-AI Logistics System
-"""
-                
-                st.text_area("Escalation Email", value=escalation_email, height=300, disabled=True)
-        
-        # =====================================================
-        #                 🔧 FORWARDER ENGAGEMENT SECTION
-        # =====================================================
-        
-        # Check if forwarders were assigned
-        forwarder_assignment = result.get('final_state', {}).get('forwarder_assignment', {})
-        forwarder_responses = result.get('final_state', {}).get('forwarder_responses', [])
-        
-        if forwarder_assignment and forwarder_assignment.get('assigned_forwarders'):
-            st.markdown("## 🔧 Forwarder Assignment")
+{sales_person['name']}
+{sales_person['title']}
+Searates By DP World
+📧 {sales_person['email']}
+📞 {sales_person['phone']}"""
             
-            # Show forwarder assignment status
-            st.success(f"✅ {len(forwarder_assignment['assigned_forwarders'])} forwarders assigned")
+            # Display the acknowledgment
+            st.success("✅ Forwarder Acknowledgment Generated")
             
-            # Show forwarder details
-            with st.expander("📋 Forwarder Details", expanded=False):
-                for i, forwarder in enumerate(forwarder_assignment['assigned_forwarders'], 1):
-                    st.markdown(f"**{i}. {forwarder.get('name', 'N/A')}**")
-                    st.markdown(f"   📧 {forwarder.get('email', 'N/A')}")
-                    st.markdown(f"   📞 {forwarder.get('phone', 'N/A')}")
-                    st.markdown(f"   🌍 {forwarder.get('country', 'N/A')}")
-                    st.markdown("---")
-            
-            # Show forwarder response emails immediately
-            if forwarder_responses:
-                st.markdown("### 📧 Forwarder Response Emails Generated")
-                st.info(f"📧 {len(forwarder_responses)} forwarder response emails ready to send")
-                
-                # Display forwarder response emails immediately
-                for i, response in enumerate(forwarder_responses, 1):
-                    st.markdown(f"**📧 Forwarder Response #{i}**")
-                    st.markdown(f"**To:** {response['forwarder_name']} <{response['forwarder_email']}>")
-                    st.markdown(f"**Subject:** {response['subject']}")
-                    st.markdown(f"**Date:** {response['timestamp']}")
-                    
-                    # Display forwarder email in styled format
-                    forwarder_display = f"""
-<div class="email-display">
-<div class="email-header">
-<strong>📧 Forwarder Rate Request</strong><br>
-<small>To: {response['forwarder_name']} &lt;{response['forwarder_email']}&gt;</small><br>
-<small>Subject: {response['subject']}</small><br>
-<small>Date: {response['timestamp']}</small>
-</div>
-
-<div class="email-body">
-{response['body']}
-</div>
-</div>
-"""
-                    st.markdown(forwarder_display, unsafe_allow_html=True)
-                    st.markdown("---")
-                
-                # Send button for forwarder acknowledgments
-                if st.button("📤 Send Forwarder Acknowledgments", type="primary", use_container_width=True):
-                    # Store forwarder responses in session state for mail trail display
-                    st.session_state.forwarder_acknowledgments = forwarder_responses
-                    st.session_state.show_mail_trails = True  # Flag to show mail trails
-                    st.success("✅ Forwarder acknowledgments sent! View mail trails below.")
-                    st.rerun()
-            else:
-                st.warning("⚠️ No forwarder response emails generated")
-            
-            col1, col2 = st.columns([2, 1])
+            col1, col2 = st.columns([1, 1])
             
             with col1:
-                st.markdown("### 📧 Rate Requests Sent to Forwarders")
-                
-                # Display forwarder assignment summary
-                assignment_summary = {
-                    "Total Forwarders": forwarder_assignment.get('total_forwarders', 0),
-                    "Origin Country": forwarder_assignment.get('origin_country', 'N/A'),
-                    "Destination Country": forwarder_assignment.get('destination_country', 'N/A'),
-                    "Assignment Method": forwarder_assignment.get('assignment_method', 'N/A'),
-                    "Rate Requests Generated": len(forwarder_assignment.get('rate_requests', []))
-                }
-                
-                for key, value in assignment_summary.items():
-                    st.markdown(f"**{key}:** {value}")
-                
-                # Show forwarder details
-                st.markdown("### 🔧 Assigned Forwarders")
-                forwarders = forwarder_assignment.get('assigned_forwarders', [])
-                
-                for i, forwarder in enumerate(forwarders, 1):
-                    with st.expander(f"{i}. {forwarder['name']}", expanded=False):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown(f"**Email:** {forwarder['email']}")
-                            st.markdown(f"**Phone:** {forwarder['phone']}")
-                            st.markdown(f"**Operator:** {forwarder.get('operator', 'N/A')}")
-                        
-                        with col2:
-                            st.markdown(f"**Specialties:** {', '.join(forwarder.get('specialties', []))}")
-                            st.markdown(f"**Rating:** {forwarder.get('rating', 'N/A')}")
-                            st.markdown(f"**Country:** {forwarder.get('country', 'N/A')}")
+                st.markdown("### 📧 Acknowledgment Details")
+                st.write(f"**To:** {sender_email}")
+                st.write(f"**From:** {sales_person['email']}")
+                st.write(f"**Subject:** {acknowledgment_subject}")
+                st.write(f"**Sales Person:** {sales_person['name']} ({sales_person['title']})")
             
             with col2:
-                st.markdown("### 📊 Forwarder Engagement Stats")
-                
-                # Engagement metrics
-                engagement_metrics = {
-                    "Rate Requests Sent": len(forwarder_assignment.get('rate_requests', [])),
-                    "Response Expected": "24 hours",
-                    "Follow-up Required": "Yes",
-                    "Status": "Pending Responses"
-                }
-                
-                for key, value in engagement_metrics.items():
-                    st.metric(key, value)
-                
-                # Show rate request preview
-                if forwarder_assignment.get('rate_requests'):
-                    st.markdown("### 📝 Rate Request Preview")
-                    
-                    # Show first rate request as example
-                    first_request = forwarder_assignment['rate_requests'][0]
-                    
-                    with st.expander("📧 Sample Rate Request Email", expanded=False):
-                        st.markdown(f"**To:** {first_request['forwarder_name']}")
-                        st.markdown(f"**Subject:** {first_request['subject']}")
-                        st.markdown("**Body:**")
-                        st.text_area("Email Content", value=first_request['body'], height=200, disabled=True)
+                st.markdown("### 📄 Acknowledgment Body")
+                st.text_area("Response Body", acknowledgment_body, height=300, disabled=True)
+            
+            # Show success message
+            st.success("🎉 Forwarder email processed successfully! The acknowledgment has been generated and is ready to be sent.")
+            
+        except Exception as e:
+            st.error(f"❌ Error processing forwarder email: {e}")
+            st.info("Please check the configuration files (config/forwarders.json and config/sales_team.json)")
+    
+    def display_workflow_results(self, result: Dict[str, Any]):
+        """Display workflow results with detailed step-by-step information"""
+        st.markdown('<h3 class="section-header">📊 Workflow Results</h3>', unsafe_allow_html=True)
         
-        # =====================================================
-        #                 📧 FORWARDER RATE REQUEST EMAILS
-        # =====================================================
-        
-        # Display all forwarder rate request emails
-        if forwarder_assignment and forwarder_assignment.get('rate_requests'):
-            st.markdown("## 📧 Forwarder Rate Request Emails")
-            st.markdown("### 📤 Emails to be sent to forwarders for rate procurement")
-            
-            # Show summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Total Emails", len(forwarder_assignment['rate_requests']))
-            
-            with col2:
-                st.metric("Origin Country", forwarder_assignment.get('origin_country', 'N/A'))
-            
-            with col3:
-                st.metric("Destination Country", forwarder_assignment.get('destination_country', 'N/A'))
-            
-            with col4:
-                st.metric("Shipment Type", "FCL" if forwarder_assignment.get('rate_requests') else 'N/A')
-            
-            # Display rate request emails in dropdown format
-            st.markdown("### 📧 Rate Request Emails")
-            
-            # Create a summary table first
-            email_summary_data = []
-            for i, rate_request in enumerate(forwarder_assignment['rate_requests'], 1):
-                shipment_details = rate_request['shipment_details']
-                email_summary_data.append({
-                    "Email #": i,
-                    "Forwarder": rate_request['forwarder_name'],
-                    "Email": rate_request['forwarder_email'],
-                    "Operator": shipment_details.get('operator', 'N/A'),
-                    "Route": f"{shipment_details.get('origin', 'N/A')} → {shipment_details.get('destination', 'N/A')}",
-                    "Container": shipment_details.get('container_type', 'N/A'),
-                    "Status": "Ready to Send"
-                })
-            
-            # Display summary table
-            if email_summary_data:
-                summary_df = pd.DataFrame(email_summary_data)
-                st.dataframe(summary_df, use_container_width=True)
-            
-            # Display each email in expandable sections
-            for i, rate_request in enumerate(forwarder_assignment['rate_requests'], 1):
-                shipment_details = rate_request['shipment_details']
-                
-                # Create expander title with key information
-                expander_title = f"📧 Email #{i}: {rate_request['forwarder_name']} ({shipment_details.get('operator', 'N/A')}) - {shipment_details.get('origin', 'N/A')} → {shipment_details.get('destination', 'N/A')}"
-                
-                with st.expander(expander_title, expanded=False):
-                    # Email header information
-                    col1, col2 = st.columns([2, 1])
-                    
-                    with col1:
-                        st.markdown("**📋 Email Details:**")
-                        st.markdown(f"**To:** {rate_request['forwarder_name']}")
-                        st.markdown(f"**Email:** {rate_request['forwarder_email']}")
-                        st.markdown(f"**Subject:** {rate_request['subject']}")
-                        st.markdown(f"**Operator:** {shipment_details.get('operator', 'N/A')}")
-                        
-                        # Shipment details summary
-                        st.markdown("**📦 Shipment Details:**")
-                        st.markdown(f"- **Route:** {shipment_details.get('origin', 'N/A')} → {shipment_details.get('destination', 'N/A')}")
-                        st.markdown(f"- **Container:** {shipment_details.get('container_type', 'N/A')}")
-                        st.markdown(f"- **Weight:** {shipment_details.get('weight', 'N/A')}")
-                        st.markdown(f"- **Commodity:** {shipment_details.get('commodity', 'N/A')}")
-                        st.markdown(f"- **Shipment Date:** {shipment_details.get('shipment_date', 'N/A')}")
-                    
-                    with col2:
-                        # Email status and actions
-                        st.markdown("**📊 Status:**")
-                        st.success("✅ Ready to Send")
-                        
-                        st.markdown("**⚡ Quick Actions:**")
-                        if st.button(f"📤 Send", key=f"send_email_{i}", use_container_width=True):
-                            st.success(f"✅ Email sent to {rate_request['forwarder_name']}!")
-                            st.info("Note: This is a demo - emails are not actually sent")
-                        
-                        if st.button(f"📝 Edit", key=f"edit_email_{i}", use_container_width=True):
-                            st.info("Edit functionality would open email editor")
-                        
-                        if st.button(f"📋 Copy", key=f"copy_email_{i}", use_container_width=True):
-                            st.info("Email content copied to clipboard")
-                    
-                    # Email body in styled format
-                    st.markdown("**📝 Email Content:**")
-                    
-                    # Create a styled email display
-                    email_display = f"""
-<div class="email-display">
-<div class="email-header">
-<strong>📧 Rate Request Email</strong><br>
-<small>From: DP World Logistics Team &lt;rates@dpworld.com&gt;</small><br>
-<small>To: {rate_request['forwarder_name']} &lt;{rate_request['forwarder_email']}&gt;</small><br>
-<small>Subject: {rate_request['subject']}</small>
-</div>
-
-<div class="email-body">
-{rate_request['body'].replace('**', '<strong>').replace('*', '•')}
-</div>
-</div>
-"""
-                    
-                    st.markdown(email_display, unsafe_allow_html=True)
-                    
-                    # Forwarder details in a sub-expander
-                    with st.expander("🔧 Forwarder Details", expanded=False):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown("**👤 Forwarder Information:**")
-                            st.markdown(f"- **Name:** {rate_request['forwarder_name']}")
-                            st.markdown(f"- **Email:** {rate_request['forwarder_email']}")
-                            st.markdown(f"- **Phone:** {rate_request['forwarder_phone']}")
-                            
-                            # Find forwarder details for additional info
-                            forwarder_details = next((f for f in forwarder_assignment['assigned_forwarders'] 
-                                                    if f['name'] == rate_request['forwarder_name']), None)
-                            if forwarder_details:
-                                st.markdown(f"- **Operator:** {forwarder_details.get('operator', 'N/A')}")
-                                st.markdown(f"- **Specialties:** {', '.join(forwarder_details.get('specialties', []))}")
-                        
-                        with col2:
-                            st.markdown("**📦 Complete Shipment Info:**")
-                            for key, value in shipment_details.items():
-                                if key != 'operator':  # Already shown above
-                                    st.markdown(f"- **{key.replace('_', ' ').title()}:** {value}")
-            
-            # Bulk actions with enhanced functionality
-            st.markdown("### 🚀 Bulk Actions")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                if st.button("📤 Send All Emails", type="primary", use_container_width=True):
-                    st.success("✅ All rate request emails sent!")
-                    st.info("Note: This is a demo - emails are not actually sent")
-            
-            with col2:
-                if st.button("📊 Track Responses", use_container_width=True):
-                    st.info("📊 Response tracking dashboard would open")
-                    st.markdown("**Expected Responses:** 24 hours")
-                    st.markdown("**Follow-up Required:** Yes")
-            
-            with col3:
-                if st.button("📋 Export Email List", use_container_width=True):
-                    st.info("📋 Email list exported to CSV")
-                    st.markdown("**Format:** Forwarder, Email, Subject, Status")
-            
-            with col4:
-                if st.button("🔍 Preview All", use_container_width=True):
-                    st.info("🔍 All emails expanded for preview")
-                    st.markdown("**Tip:** Use individual expanders for detailed view")
-        
-        # =====================================================
-        #                 📊 FORWARDER RESPONSE TRACKING
-        # =====================================================
-        
-        # Add forwarder response tracking section
-        if forwarder_assignment and forwarder_assignment.get('rate_requests'):
-            st.markdown("## 📊 Forwarder Response Tracking")
-            
-            # Create a mock response tracking table
-            response_data = []
-            for rate_request in forwarder_assignment['rate_requests']:
-                response_data.append({
-                    "Forwarder": rate_request['forwarder_name'],
-                    "Email": rate_request['forwarder_email'],
-                    "Subject": rate_request['subject'],
-                    "Sent Date": datetime.now().strftime("%Y-%m-%d"),
-                    "Status": "Pending",
-                    "Expected Response": "24 hours",
-                    "Follow-up": "Required",
-                    "Operator": rate_request['shipment_details'].get('operator', 'N/A')
-                })
-            
-            # Display as a table
-            if response_data:
-                df = pd.DataFrame(response_data)
-                st.dataframe(df, use_container_width=True)
-                
-                # Response statistics
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric("Total Sent", len(response_data))
-                
-                with col2:
-                    st.metric("Pending", len(response_data))
-                
-                with col3:
-                    st.metric("Responses", 0)
-                
-                with col4:
-                    st.metric("Response Rate", "0%")
-        
-        # =====================================================
-        #                 📧 EMAIL RECIPIENT SELECTION
-        # =====================================================
-        
-        # Add email recipient selection interface
-        st.markdown("## 📧 Email Recipient Selection")
-        
-        col1, col2 = st.columns(2)
+        # Basic info
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.markdown("### 👤 Send Email To")
-            
-            # Email recipient options
-            recipient_options = ["Customer", "Forwarder", "Sales Team", "Custom"]
-            selected_recipient = st.selectbox("Choose Recipient", recipient_options, index=0)
-            
-            if selected_recipient == "Customer":
-                st.info("📧 **Customer Email** - Standard response to customer")
-                st.markdown(f"**Recipient:** {sender}")
-                st.markdown(f"**Subject:** Re: {subject}")
-                
-            elif selected_recipient == "Forwarder":
-                st.info("🔧 **Forwarder Email** - Rate request or follow-up")
-                
-                # Show available forwarders
-                if forwarder_assignment and forwarder_assignment.get('assigned_forwarders'):
-                    forwarder_names = [f['name'] for f in forwarder_assignment['assigned_forwarders']]
-                    selected_forwarder = st.selectbox("Select Forwarder", forwarder_names, index=0)
-                    
-                    # Find selected forwarder details
-                    selected_fwd = next((f for f in forwarder_assignment['assigned_forwarders'] if f['name'] == selected_forwarder), None)
-                    
-                    if selected_fwd:
-                        st.markdown(f"**Recipient:** {selected_fwd['email']}")
-                        st.markdown(f"**Forwarder:** {selected_fwd['name']}")
-                        st.markdown(f"**Operator:** {selected_fwd.get('operator', 'N/A')}")
-                else:
-                    st.warning("No forwarders assigned yet")
-                    
-            elif selected_recipient == "Sales Team":
-                st.info("🚨 **Sales Team Email** - Escalation or notification")
-                st.markdown("**Recipient:** sales@company.com")
-                st.markdown("**Subject:** Manual Review Required")
-                
-            elif selected_recipient == "Custom":
-                custom_email = st.text_input("Custom Email Address", placeholder="Enter email address")
-                custom_subject = st.text_input("Custom Subject", placeholder="Enter subject")
-                if custom_email:
-                    st.markdown(f"**Recipient:** {custom_email}")
-                    st.markdown(f"**Subject:** {custom_subject}")
+            st.metric("Status", result.get('status', 'Unknown'))
         
         with col2:
-            st.markdown("### 📝 Email Content")
+            st.metric("Workflow ID", result.get('workflow_id', 'Unknown'))
+        
+        with col3:
+            st.metric("Thread ID", result.get('thread_id', 'Unknown'))
+        
+        if result.get('status') == 'completed':
+            workflow_result = result.get('result', {})
             
-            # Email content options based on recipient
-            if selected_recipient == "Customer":
-                content_options = ["Confirmation", "Clarification Request", "Rate Quote", "Status Update", "Custom"]
-                selected_content = st.selectbox("Email Type", content_options, index=0)
+            # Check if workflow_result is not None before proceeding
+            if workflow_result:
+                # Show final response email prominently
+                self.display_final_response(workflow_result)
                 
-                if selected_content == "Confirmation":
-                    st.success("✅ Confirmation email template")
-                elif selected_content == "Clarification Request":
-                    st.warning("❓ Clarification request template")
-                elif selected_content == "Rate Quote":
-                    st.info("💰 Rate quote template")
-                elif selected_content == "Status Update":
-                    st.info("📊 Status update template")
-                elif selected_content == "Custom":
-                    custom_content = st.text_area("Custom Email Content", height=150)
-                    
-            elif selected_recipient == "Forwarder":
-                content_options = ["Rate Request", "Follow-up", "Rate Negotiation", "Custom"]
-                selected_content = st.selectbox("Email Type", content_options, index=0)
-                
-                if selected_content == "Rate Request":
-                    st.info("💰 Rate request template")
-                elif selected_content == "Follow-up":
-                    st.warning("⏰ Follow-up template")
-                elif selected_content == "Rate Negotiation":
-                    st.info("🤝 Rate negotiation template")
-                elif selected_content == "Custom":
-                    custom_content = st.text_area("Custom Email Content", height=150)
-                    
-            elif selected_recipient == "Sales Team":
-                content_options = ["Escalation", "Notification", "Custom"]
-                selected_content = st.selectbox("Email Type", content_options, index=0)
-                
-                if selected_content == "Escalation":
-                    st.error("🚨 Escalation template")
-                elif selected_content == "Notification":
-                    st.info("📢 Notification template")
-                elif selected_content == "Custom":
-                    custom_content = st.text_area("Custom Email Content", height=150)
-            
-            # Send button
-            if st.button("📧 Send Email", type="primary"):
-                st.success(f"✅ Email sent to {selected_recipient}!")
-                st.info("Note: This is a demo - emails are not actually sent")
-        
-        # Add bot response to structured thread history (most recent first)
-        if final_response and 'response_body' in final_response:
-            bot_email_entry = {
-                "timestamp": bot_timestamp,
-                "sender": final_response.get('sales_person_email', 'logistics@company.com'),
-                "subject": f"Re: {subject}",
-                "content": final_response['response_body'],
-                "type": "bot",
-                "thread_id": thread_id,
-                "response_type": final_response.get('response_type', 'unknown'),
-                "next_action": result.get('final_state', {}).get('next_action', 'unknown')
-            }
-            # Insert bot response at the top (most recent first)
-            st.session_state.email_thread_history.insert(0, bot_email_entry)
-        
-                # =====================================================
-        #                 📧 MAIL TRAIL DISPLAY
-        # =====================================================
-        
-        # Check if we have emails to display
-        has_customer_emails = len(st.session_state.email_thread_history) > 0
-        has_forwarder_emails = len(st.session_state.forwarder_acknowledgments) > 0
-        show_mail_trails = st.session_state.get('show_mail_trails', False)
-        
-        # Show mail trail display if we have emails or if send button was clicked
-        if has_customer_emails or has_forwarder_emails or show_mail_trails:
-            st.markdown("## 📧 Mail Trail Display")
-            
-            # Add a note about the mail trail
-            if has_forwarder_emails:
-                st.success("✅ Forwarder acknowledgments sent! Below are the complete mail trails.")
+                # Show forwarder assignment information prominently
+                if workflow_result.get('forwarder_assignment_result'):
+                    self.display_forwarder_assignment(workflow_result['forwarder_assignment_result'])
             else:
-                st.info("📧 Email conversation history:")
+                st.error("❌ Workflow completed but no result data available")
+                st.info("The workflow completed successfully but no result data was returned.")
+        elif result.get('status') == 'failed':
+            st.error("❌ Workflow failed")
+            st.error(f"Error: {result.get('error', 'Unknown error')}")
             
-            # Customer Mail Trail
-            if has_customer_emails:
-                st.markdown("### 🤖 Customer Email Trail")
+            # Try to show partial results if available
+            if result.get('result'):
+                st.info("Partial workflow results available:")
+                workflow_result = result['result']
                 
-                # Display customer emails in chronological order
-                for i, email in enumerate(st.session_state.email_thread_history):
-                    if email['type'] == 'customer':
-                        st.markdown(f"**📧 Customer Email #{i+1}**")
-                        st.markdown(f"**From:** {email['sender']}")
-                        st.markdown(f"**Subject:** {email['subject']}")
-                        st.markdown(f"**Date:** {email['timestamp']}")
-                        
-                        # Display email content in styled format
-                        email_display = f"""
-<div class="email-display">
-<div class="email-header">
-<strong>📧 Customer Email</strong><br>
-<small>From: {email['sender']}</small><br>
-<small>Subject: {email['subject']}</small><br>
-<small>Date: {email['timestamp']}</small>
-</div>
-
-<div class="email-body">
-{email['content']}
-</div>
-</div>
-"""
-                        st.markdown(email_display, unsafe_allow_html=True)
-                        
-                    elif email['type'] == 'bot':
-                        st.markdown(f"**🤖 Bot Response #{i+1}**")
-                        st.markdown(f"**From:** {email['sender']}")
-                        st.markdown(f"**Subject:** {email['subject']}")
-                        st.markdown(f"**Date:** {email['timestamp']}")
-                        st.markdown(f"**Type:** {email.get('response_type', 'unknown')}")
-                        
-                        # Display bot response in styled format
-                        response_display = f"""
-<div class="email-display">
-<div class="email-header">
-<strong>🤖 Bot Response</strong><br>
-<small>From: {email['sender']}</small><br>
-<small>Subject: {email['subject']}</small><br>
-<small>Type: {email.get('response_type', 'unknown')}</small>
-</div>
-
-<div class="email-body">
-{email['content']}
-</div>
-</div>
-"""
-                        st.markdown(response_display, unsafe_allow_html=True)
-                    
-                    st.markdown("---")
-            
-            # Forwarder Mail Trail
-            if has_forwarder_emails:
-                st.markdown("### 🚢 Forwarder Email Trail")
+                # Show classification if available
+                if workflow_result and workflow_result.get('classification_result'):
+                    classification = workflow_result['classification_result']
+                    st.write(f"**Email Type:** {classification.get('email_type', 'Unknown')}")
+                    st.write(f"**Sender Type:** {classification.get('sender_type', 'Unknown')}")
+                    if classification.get('error'):
+                        st.write(f"**Classification Error:** {classification['error']}")
                 
-                # Display forwarder acknowledgment emails
-                for i, ack in enumerate(st.session_state.forwarder_acknowledgments):
-                    st.markdown(f"**📧 Forwarder Email #{i+1}**")
-                    st.markdown(f"**To:** {ack['forwarder_name']} <{ack['forwarder_email']}>")
-                    st.markdown(f"**Subject:** {ack['subject']}")
-                    st.markdown(f"**Date:** {ack['timestamp']}")
-                    
-                    # Display forwarder email in styled format
-                    forwarder_display = f"""
-<div class="email-display">
-<div class="email-header">
-<strong>📧 Forwarder Rate Request</strong><br>
-<small>To: {ack['forwarder_name']} &lt;{ack['forwarder_email']}&gt;</small><br>
-<small>Subject: {ack['subject']}</small><br>
-<small>Date: {ack['timestamp']}</small>
-</div>
-
-<div class="email-body">
-{ack['body']}
-</div>
-</div>
-"""
-                    st.markdown(forwarder_display, unsafe_allow_html=True)
-                    
-                    # Add action buttons for each forwarder email
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        if st.button(f"📤 Send", key=f"send_forwarder_{i}", use_container_width=True):
-                            st.success(f"✅ Email sent to {ack['forwarder_name']}!")
-                            st.info("Note: This is a demo - emails are not actually sent")
-                    
-                    with col2:
-                        if st.button(f"📝 Edit", key=f"edit_forwarder_{i}", use_container_width=True):
-                            st.info("Edit functionality would open email editor")
-                    
-                    with col3:
-                        if st.button(f"📋 Copy", key=f"copy_forwarder_{i}", use_container_width=True):
-                            st.info("Email content copied to clipboard")
-                    
-                    st.markdown("---")
-            
-            # Create complete thread display with proper numbering
-            complete_thread_display = ""
-            total_emails = len(st.session_state.email_thread_history)
-            
-            # Show emails in reverse chronological order (newest first)
-            for i, email in enumerate(st.session_state.email_thread_history):
-                email_number = i + 1
+                # Show acknowledgment if it was generated before the error
+                if workflow_result and workflow_result.get('acknowledgment_response_result'):
+                    st.success("✅ Acknowledgment was generated before the error occurred")
+                    acknowledgment = workflow_result['acknowledgment_response_result']
+                    st.write(f"**Subject:** {acknowledgment.get('subject', 'Unknown')}")
+                    st.write(f"**Body:** {acknowledgment.get('body', 'No body')[:200]}...")
                 
-                if email['type'] == 'customer':
-                    complete_thread_display += f"""
-📧 CUSTOMER EMAIL #{email_number}
-From: {email['sender']}
-Subject: {email['subject']}
-Date: {email['timestamp']}
-
-{email['content']}
-
-"""
-                else:  # bot
-                    complete_thread_display += f"""
-🤖 BOT RESPONSE #{email_number}
-From: {email['sender']}
-Subject: {email['subject']}
-Date: {email['timestamp']}
-Type: {email.get('response_type', 'unknown')}
-Action: {email.get('next_action', 'unknown')}
-
-{email['content']}
-
-"""
-            
-            # Add thread summary
-            customer_count = len([e for e in st.session_state.email_thread_history if e['type'] == 'customer'])
-            bot_count = len([e for e in st.session_state.email_thread_history if e['type'] == 'bot'])
-            
-            st.markdown(f"**Thread Summary:** {total_emails} total messages ({customer_count} customer emails, {bot_count} bot responses)")
-            
-            st.text_area(
-                "Complete Email Thread",
-                value=complete_thread_display.strip(),
-                height=500,
-                disabled=True,
-                help="Complete email conversation history (newest to oldest)"
-            )
-            
-            # Show thread timeline for quick reference
-            with st.expander("📅 Thread Timeline", expanded=False):
-                st.markdown("**Reverse Chronological Order (Newest to Oldest):**")
-                for i, email in enumerate(st.session_state.email_thread_history):
-                    email_number = i + 1
-                    if email['type'] == 'customer':
-                        st.markdown(f"**{email_number}. 📧 Customer** - {email['timestamp']} - {email['subject']}")
-                    else:
-                        st.markdown(f"**{email_number}. 🤖 Bot** - {email['timestamp']} - {email.get('response_type', 'response')}")
+                # Show assigned sales person if available
+                if workflow_result and workflow_result.get('assigned_sales_person'):
+                    sales_person = workflow_result['assigned_sales_person']
+                    st.info(f"**Sales Person Assigned:** {sales_person.get('name', 'Unknown')} ({sales_person.get('email', 'Unknown')})")
+                
+                # Debug: Show available keys in workflow_result
+                if workflow_result:
+                    st.markdown("### 🔍 Debug: Available Data")
+                    available_keys = list(workflow_result.keys())
+                    st.write(f"**Available keys:** {', '.join(available_keys)}")
+                    
+                    # Show workflow history if available
+                    if workflow_result.get('workflow_history'):
+                        st.write(f"**Workflow steps completed:** {', '.join(workflow_result['workflow_history'])}")
         else:
-            st.info("No email thread history available")
+            st.warning("⚠️ Unknown workflow status")
+            st.info(f"Status: {result.get('status', 'Unknown')}")
+            
+            # Show coalesced data immediately
+            thread_id = result.get('thread_id', '')
+            if thread_id:
+                thread_data = self.thread_manager.load_thread(thread_id)
+                if thread_data:
+                    st.markdown("### 📊 Updated Coalesced Data")
+                    self.display_coalesced_data(thread_data)
+                else:
+                    st.info("ℹ️ No thread data available for display")
+            
+            # Get workflow_result safely for the else block
+            workflow_result = result.get('result', {})
+            
+            # Create tabs for detailed view
+            tab1, tab2, tab3 = st.tabs(["📋 Summary", "🔍 Step-by-Step Details", "📊 Raw Data"])
+            
+            with tab1:
+                st.markdown("### Workflow Summary")
+                
+                # Classification
+                if workflow_result and workflow_result.get('classification_result'):
+                    classification = workflow_result['classification_result']
+                    st.write(f"**Email Type:** {classification.get('email_type', 'Unknown')}")
+                    st.write(f"**Sender Type:** {classification.get('sender_type', 'Unknown')}")
+                    st.write(f"**Confidence:** {classification.get('confidence', 0):.2f}")
+                else:
+                    st.warning("⚠️ No classification data available")
+                
+                # Next Action
+                if workflow_result and workflow_result.get('next_action_result'):
+                    next_action = workflow_result['next_action_result']
+                    st.write(f"**Next Action:** {next_action.get('next_action', 'Unknown')}")
+                    st.write(f"**Priority:** {next_action.get('action_priority', 'Unknown')}")
+                
+                # Response
+                if workflow_result and workflow_result.get('clarification_response_result'):
+                    response = workflow_result['clarification_response_result']
+                    st.write(f"**Response Type:** {response.get('response_type', 'Unknown')}")
+                    st.write(f"**Subject:** {response.get('subject', 'Unknown')}")
+                
+                # Forwarder Assignment
+                if workflow_result and workflow_result.get('forwarder_assignment_result'):
+                    forwarder_result = workflow_result['forwarder_assignment_result']
+                    st.write(f"**Forwarder Status:** {forwarder_result.get('status', 'Unknown')}")
+                    if forwarder_result.get('assigned_forwarder'):
+                        forwarder = forwarder_result['assigned_forwarder']
+                        st.write(f"**Assigned Forwarder:** {forwarder.get('name', 'Unknown')}")
+                        st.write(f"**Route:** {forwarder_result.get('origin_country', 'Unknown')} → {forwarder_result.get('destination_country', 'Unknown')}")
+            
+            with tab2:
+                st.markdown("### Detailed Step Results")
+                
+                # Step 1: Classification
+                if workflow_result and workflow_result.get('classification_result'):
+                    classification = workflow_result['classification_result']
+                    with st.expander("🔄 Step 1: Email Classification", expanded=True):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**Email Type:** {classification.get('email_type', 'Unknown')}")
+                            st.write(f"**Sender Type:** {classification.get('sender_type', 'Unknown')}")
+                        with col2:
+                            st.write(f"**Confidence:** {classification.get('confidence', 0):.2f}")
+                            st.write(f"**Urgency:** {classification.get('urgency', 'Unknown')}")
+                else:
+                    with st.expander("🔄 Step 1: Email Classification", expanded=True):
+                        st.warning("⚠️ No classification data available")
+                
+                # Step 2: Conversation State
+                if workflow_result and workflow_result.get('conversation_state_result'):
+                    conv_state = workflow_result['conversation_state_result']
+                    with st.expander("🔄 Step 2: Conversation State Analysis", expanded=True):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**Conversation Stage:** {conv_state.get('conversation_stage', 'Unknown')}")
+                            st.write(f"**Latest Sender:** {conv_state.get('latest_sender', 'Unknown')}")
+                        with col2:
+                            st.write(f"**Next Action:** {conv_state.get('next_action', 'Unknown')}")
+                            st.write(f"**Should Escalate:** {conv_state.get('should_escalate', False)}")
+                else:
+                    with st.expander("🔄 Step 2: Conversation State Analysis", expanded=True):
+                        st.warning("⚠️ No conversation state data available")
+                
+                # Step 3: Information Extraction
+                if workflow_result.get('extraction_result'):
+                    extraction = workflow_result['extraction_result']
+                    with st.expander("🔄 Step 3: Information Extraction", expanded=True):
+                        st.write(f"**Quality Score:** {extraction.get('quality_score', 0):.2f}")
+                        st.write(f"**Confidence:** {extraction.get('confidence', 0):.2f}")
+                        
+                        if 'extracted_data' in extraction:
+                            extracted_data = extraction['extracted_data']
+                            for category, data in extracted_data.items():
+                                if data:
+                                    st.write(f"**{category.title()}:**")
+                                    st.json(data)
+                
+                # Forwarder Assignment Step
+                if workflow_result.get('forwarder_assignment_result'):
+                    forwarder_result = workflow_result['forwarder_assignment_result']
+                    with st.expander("🚚 Forwarder Assignment", expanded=True):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**Status:** {forwarder_result.get('status', 'Unknown')}")
+                            st.write(f"**Assignment Method:** {forwarder_result.get('assignment_method', 'Unknown')}")
+                        with col2:
+                            st.write(f"**Origin Country:** {forwarder_result.get('origin_country', 'Unknown')}")
+                            st.write(f"**Destination Country:** {forwarder_result.get('destination_country', 'Unknown')}")
+                        
+                        if forwarder_result.get('assigned_forwarder'):
+                            forwarder = forwarder_result['assigned_forwarder']
+                            st.write(f"**Assigned Forwarder:** {forwarder.get('name', 'Unknown')}")
+                            st.write(f"**Forwarder Email:** {forwarder.get('email', 'Unknown')}")
+                            
+                            if forwarder_result.get('rate_request'):
+                                rate_request = forwarder_result['rate_request']
+                                st.write(f"**Rate Request Subject:** {rate_request.get('subject', 'No Subject')}")
+                                st.write(f"**Rate Request Generated:** Yes")
+                        else:
+                            st.error("❌ No forwarder assigned")
+                            if forwarder_result.get('error'):
+                                st.write(f"**Error:** {forwarder_result.get('error')}")
+            
+            with tab3:
+                st.markdown("### Raw Workflow Data")
+                st.json(workflow_result)
         
-        # Debug information
-        if enable_debug:
-            st.markdown("## 🔍 Debug Information")
+    def display_final_response(self, workflow_result: Dict[str, Any]):
+        """Display the final generated response email prominently"""
+        st.markdown('<h3 class="section-header">📧 Generated Response Email</h3>', unsafe_allow_html=True)
+        
+        # Check for different types of responses
+        response_data = None
+        response_type = "Unknown"
+        
+        # Check classification result to determine sender type
+        classification_result = workflow_result.get('classification_result', {})
+        sender_type = classification_result.get('sender_type', 'customer')
+        sender_classification = classification_result.get('sender_classification', {})
+        sender_classification_type = sender_classification.get('type', 'customer')
+        
+        # Determine if this is a forwarder or sales person email
+        is_forwarder_or_sales = (sender_classification_type in ['forwarder', 'sales_person'] or 
+                                sender_type in ['forwarder', 'sales_person'])
+        
+        if workflow_result.get('clarification_response_result'):
+            response_data = workflow_result['clarification_response_result']
+            response_type = "Clarification Request"
+        elif workflow_result.get('confirmation_response_result'):
+            response_data = workflow_result['confirmation_response_result']
+            response_type = "Confirmation Request"
+        elif workflow_result.get('acknowledgment_response_result'):
+            response_data = workflow_result['acknowledgment_response_result']
+            response_type = "Acknowledgment"
+        elif workflow_result.get('confirmation_acknowledgment_result'):
+            response_data = workflow_result['confirmation_acknowledgment_result']
+            response_type = "Confirmation Acknowledgment"
+        elif workflow_result.get('forwarder_assignment_result'):
+            response_data = workflow_result['forwarder_assignment_result']
+            response_type = "Forwarder Assignment"
+        elif workflow_result.get('forwarder_email_draft_result'):
+            response_data = workflow_result['forwarder_email_draft_result']
+            response_type = "Forwarder Email"
+        
+        if response_data and response_data is not None:
+            # Special handling for forwarder/sales person acknowledgments
+            if is_forwarder_or_sales and response_type == "Acknowledgment":
+                st.markdown("### 🤝 Internal Acknowledgment Generated")
+                st.info("This email was from a forwarder or sales person. An acknowledgment response has been generated.")
+                
+                # Display acknowledgment details
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Response Type", "Acknowledgment")
+                with col2:
+                    st.metric("Sender Type", sender_classification_type.title())
+                with col3:
+                    st.metric("Status", "Sent")
+                
+                # Display the acknowledgment email
+                st.markdown("### 📧 Acknowledgment Email")
+                st.markdown("""
+                <div style="
+                    border: 2px solid #28a745;
+                    border-radius: 10px;
+                    padding: 20px;
+                    background-color: #d4edda;
+                    margin: 1rem 0;
+                ">
+                """, unsafe_allow_html=True)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Get sender email from workflow result
+                    email_data = workflow_result.get('email_data', {})
+                    sender_email = email_data.get('sender', 'Unknown')
+                    st.write(f"**To:** {sender_email}")
+                    
+                    # Get assigned sales person
+                    assigned_sales_person = workflow_result.get('assigned_sales_person', {})
+                    sales_email = assigned_sales_person.get('email', 'sales@searates.com')
+                    st.write(f"**From:** {sales_email}")
+                with col2:
+                    st.write(f"**Subject:** {response_data.get('subject', 'Acknowledgment')}")
+                    st.write(f"**Type:** {sender_classification_type.title()} Acknowledgment")
+                
+                st.markdown("**Email Body:**")
+                st.markdown("""
+                <div style="
+                    border: 1px solid #28a745;
+                    border-radius: 5px;
+                    padding: 15px;
+                    background-color: #f8f9fa;
+                    font-family: 'Courier New', monospace;
+                    white-space: pre-wrap;
+                    max-height: 300px;
+                    overflow-y: auto;
+                ">
+                """, unsafe_allow_html=True)
+                
+                st.text(response_data.get('body', 'No acknowledgment content available'))
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+                return  # Exit early for forwarder/sales acknowledgments
+            
+            # Special handling for forwarder assignment
+            elif response_type == "Forwarder Assignment":
+                st.markdown("### 🚚 Forwarder Assignment Results")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Status", response_data.get('status', 'Unknown'))
+                with col2:
+                    st.metric("Assignment Method", response_data.get('assignment_method', 'Unknown'))
+                with col3:
+                    st.metric("Route", f"{response_data.get('origin_country', 'Unknown')} → {response_data.get('destination_country', 'Unknown')}")
+                
+                # Forwarder details
+                if response_data.get('assigned_forwarder'):
+                    forwarder = response_data['assigned_forwarder']
+                    st.markdown("### 👤 Assigned Forwarder")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Name:** {forwarder.get('name', 'Unknown')}")
+                        st.write(f"**Email:** {forwarder.get('email', 'Unknown')}")
+                    with col2:
+                        st.write(f"**Company:** {forwarder.get('company', 'Unknown')}")
+                        st.write(f"**Countries:** {forwarder.get('countries', 'Unknown')}")
+                    
+                    # Rate request email
+                    if response_data.get('rate_request'):
+                        st.markdown("### 📧 Rate Request Email to Forwarder")
+                        rate_request = response_data['rate_request']
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**Subject:** {rate_request.get('subject', 'Rate Request')}")
+                            st.write(f"**To:** {forwarder.get('email', 'Unknown')}")
+                        with col2:
+                            st.write(f"**From:** logistics@dummycompany.com")
+                            st.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        
+                        st.markdown("**Email Body:**")
+                        st.markdown("""
+                        <div style="
+                            border: 2px solid #e0e0e0;
+                            border-radius: 10px;
+                            padding: 20px;
+                            background-color: #f8f9fa;
+                            font-family: 'Courier New', monospace;
+                            white-space: pre-wrap;
+                            max-height: 500px;
+                            overflow-y: auto;
+                        ">
+                        """, unsafe_allow_html=True)
+                        
+                        st.text(rate_request.get('body', 'No email body generated'))
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    else:
+                        st.warning("⚠️ No rate request email generated")
+                else:
+                    st.error("❌ No forwarder assigned")
+                    if response_data.get('error'):
+                        st.write(f"**Error:** {response_data.get('error')}")
+                
+                return  # Exit early for forwarder assignment
+            
+            # Regular response handling for customer emails
+            if not is_forwarder_or_sales:
+                st.markdown("### 👤 Customer Email Processing")
+                st.info("This email was from a customer and has been processed through the full workflow.")
+            
+            # Response header with metadata
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Response Type", response_type)
+            
+            with col2:
+                st.metric("Subject", response_data.get('subject', 'No Subject')[:30] + "..." if len(response_data.get('subject', '')) > 30 else response_data.get('subject', 'No Subject'))
+            
+            with col3:
+                missing_fields = response_data.get('missing_fields', [])
+                st.metric("Missing Fields", len(missing_fields))
+            
+            # Display the email in a styled container
+            st.markdown("---")
+            
+            # Email header
+            st.markdown("### 📧 Email Details")
             
             col1, col2 = st.columns(2)
-            
             with col1:
-                with st.expander("Raw Result Data"):
-                    st.json(result)
-                
-                with st.expander("Final State"):
-                    st.json(result.get('final_state', {}))
-            
+                st.write(f"**To:** {response_data.get('to', 'Unknown')}")
+                st.write(f"**From:** {response_data.get('from', 'sales@searates.com')}")
             with col2:
-                with st.expander("Structured Thread History"):
-                    st.json(st.session_state.email_thread_history)
+                st.write(f"**Subject:** {response_data.get('subject', 'No Subject')}")
+                st.write(f"**Response Type:** {response_type}")
+            
+            # Email body in a styled container
+            st.markdown("### 📝 Email Body")
+            
+            # Create a styled container for the email body
+            email_body = response_data.get('body', 'No content available')
+            
+            # Display in a bordered container
+            st.markdown("""
+            <div style="
+                border: 2px solid #e0e0e0;
+                border-radius: 10px;
+                padding: 20px;
+                background-color: #f8f9fa;
+                font-family: 'Courier New', monospace;
+                white-space: pre-wrap;
+                max-height: 500px;
+                overflow-y: auto;
+            ">
+            """, unsafe_allow_html=True)
+            
+            st.text(email_body)
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            # Missing fields if any
+            if missing_fields:
+                st.markdown("### ⚠️ Missing Information Requested")
+                for field in missing_fields:
+                    st.write(f"• {field}")
+            
+            # Rate recommendation if available
+            if workflow_result.get('rate_recommendation_result'):
+                rate_result = workflow_result['rate_recommendation_result']
+                if rate_result.get('status') != 'skipped' and rate_result.get('status') != 'error':
+                    st.markdown("### 💰 Indicative Rates")
+                    
+                    if rate_result.get('rate_ranges'):
+                        rate_ranges = rate_result['rate_ranges']
+                        for route, rates in rate_ranges.items():
+                            with st.expander(f"📊 {route}", expanded=True):
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("Min Rate", f"${rates.get('min_rate', 'N/A')}")
+                                with col2:
+                                    st.metric("Max Rate", f"${rates.get('max_rate', 'N/A')}")
+                                with col3:
+                                    st.metric("Avg Rate", f"${rates.get('avg_rate', 'N/A')}")
+                                
+                                if rates.get('transit_time'):
+                                    st.write(f"**Transit Time:** {rates['transit_time']}")
+                                if rates.get('validity'):
+                                    st.write(f"**Valid Until:** {rates['validity']}")
+                    
+                    elif rate_result.get('recommendations'):
+                        recommendations = rate_result['recommendations']
+                        for i, rec in enumerate(recommendations, 1):
+                            with st.expander(f"💡 Recommendation {i}", expanded=True):
+                                st.write(f"**Route:** {rec.get('route', 'N/A')}")
+                                st.write(f"**Rate:** ${rec.get('rate', 'N/A')}")
+                                st.write(f"**Transit Time:** {rec.get('transit_time', 'N/A')}")
+                                st.write(f"**Provider:** {rec.get('provider', 'N/A')}")
+                                if rec.get('notes'):
+                                    st.write(f"**Notes:** {rec['notes']}")
+                else:
+                    st.info("ℹ️ Rate recommendation not available for this shipment type")
+            
+            # Copy button for the email
+            st.markdown("### 📋 Copy Email")
+            if st.button("📋 Copy Email to Clipboard", key="copy_email"):
+                # Create a formatted email for copying
+                copy_text = f"""To: {response_data.get('to', 'Unknown')}
+From: {response_data.get('from', 'sales@searates.com')}
+Subject: {response_data.get('subject', 'No Subject')}
+
+{email_body}"""
+                
+                st.code(copy_text, language=None)
+                st.success("✅ Email content copied to clipboard!")
+            
+        else:
+            # Handle case where no response data but we have classification info
+            if is_forwarder_or_sales:
+                st.markdown("### 🤝 Forwarder/Sales Person Email Processed")
+                st.info("This email was from a forwarder or sales person. An acknowledgment response has been generated and sent.")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Sender Type", sender_classification_type.title())
+                with col2:
+                    st.metric("Response Type", "Acknowledgment")
+                with col3:
+                    st.metric("Status", "Sent")
+                
+                st.success("✅ Acknowledgment email sent successfully")
+            else:
+                st.warning("⚠️ No response email generated")
+                st.info("The workflow completed but no response email was generated. Check the workflow details for more information.")
     
-    else:
-        # Welcome screen
-        st.markdown("## 🎯 Welcome to LangGraph Orchestrator")
+    def display_forwarder_assignment(self, forwarder_result: Dict[str, Any]):
+        """Display forwarder assignment information prominently"""
+        if not forwarder_result or forwarder_result is None:
+            st.error("❌ No forwarder assignment data available")
+            return
+            
+        st.markdown('<h3 class="section-header">🚚 Forwarder Assignment Results</h3>', unsafe_allow_html=True)
         
-        col1, col2 = st.columns(2)
-        
+        # Status and assignment details
+        col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown("""
-            ### 🚀 What is LangGraph Orchestrator?
-            
-            The LangGraph Orchestrator is a state-driven workflow system that intelligently 
-            orchestrates the logistic AI response system using LangGraph's powerful 
-            graph-based workflow engine.
-            
-            **Key Features:**
-            - 🧠 LLM-based decision making
-            - 📊 Visual workflow representation
-            - 🛡️ Robust error handling
-            - 📈 Comprehensive monitoring
-            - 🔄 Dynamic routing
-            """)
-        
+            st.metric("Status", forwarder_result.get('status', 'Unknown'))
         with col2:
+            st.metric("Assignment Method", forwarder_result.get('assignment_method', 'Unknown'))
+        with col3:
+            st.metric("Route", f"{forwarder_result.get('origin_country', 'Unknown')} → {forwarder_result.get('destination_country', 'Unknown')}")
+        
+        # Forwarder details
+        if forwarder_result.get('assigned_forwarder') and forwarder_result['assigned_forwarder'] is not None:
+            forwarder = forwarder_result['assigned_forwarder']
+            
+            st.markdown("### 👤 Assigned Forwarder Details")
+            
+            # Forwarder information in a styled container
             st.markdown("""
-            ### 🎯 How to Use
+            <div style="
+                border: 2px solid #28a745;
+                border-radius: 10px;
+                padding: 20px;
+                background-color: #d4edda;
+                margin: 1rem 0;
+            ">
+            """, unsafe_allow_html=True)
             
-            1. **Enter Email Content**: Paste the email content in the sidebar
-            2. **Configure Metadata**: Set subject, sender, thread ID, and timestamp
-            3. **Process**: Click the "Process Email" button
-            4. **Monitor**: Watch the workflow execute in real-time
-            5. **Review**: Analyze the results and extracted data
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"**🏢 Name:** {forwarder.get('name', 'Unknown')}")
+                st.write(f"**📧 Email:** {forwarder.get('email', 'Unknown')}")
+            with col2:
+                st.write(f"**🏢 Company:** {forwarder.get('company', 'Unknown')}")
+                st.write(f"**🌍 Countries:** {forwarder.get('countries', 'Unknown')}")
             
-            ### 📊 Workflow Nodes
-            
-            - **EMAIL_INPUT**: Initialize workflow state
-            - **CONVERSATION_STATE_ANALYSIS**: Analyze conversation context
-            - **CLASSIFICATION**: Classify email type and intent
-            - **DATA_EXTRACTION**: Extract shipment details
-            - **DATA_ENRICHMENT**: Enrich with additional context
-            - **VALIDATION**: Validate data quality
-            - **DECISION_NODE**: LLM-based routing decision
-            - **Response Nodes**: Generate appropriate responses
-            """)
+            st.markdown("</div>", unsafe_allow_html=True)
         
-        # Sample email
-        st.markdown("## 📧 Sample Email")
+            # Rate request email
+            if forwarder_result.get('rate_request'):
+                st.markdown("### 📧 Rate Request Email to Forwarder")
+                
+                rate_request = forwarder_result['rate_request']
+                
+                # Email header information
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**📧 Subject:** {rate_request.get('subject', 'Rate Request')}")
+                    st.write(f"**👤 To:** {forwarder.get('email', 'Unknown')}")
+                with col2:
+                    st.write(f"**📤 From:** logistics@dummycompany.com")
+                    st.write(f"**⏰ Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                # Email body in a styled container
+                st.markdown("### 📝 Email Body")
+                st.markdown("""
+                <div style="
+                    border: 2px solid #007bff;
+                    border-radius: 10px;
+                    padding: 20px;
+                    background-color: #f8f9fa;
+                    font-family: 'Courier New', monospace;
+                    white-space: pre-wrap;
+                    max-height: 400px;
+                    overflow-y: auto;
+                    margin: 1rem 0;
+                ">
+                """, unsafe_allow_html=True)
+                
+                email_body = rate_request.get('body', 'No email body generated')
+                st.text(email_body)
+                
+                st.markdown("</div>", unsafe_allow_html=True)
         
-        sample_email = """Hi, I need rates for 2x40HC from Jebel Ali to Mundra.
-Cargo: Electronics, weight: 25,000 kg, volume: 35 CBM
-Ready date: 20th April 2024
+                # Copy button for the rate request email
+                st.markdown("### 📋 Copy Rate Request Email")
+                if st.button("📋 Copy Rate Request Email to Clipboard", key="copy_rate_request"):
+                    copy_text = f"""To: {forwarder.get('email', 'Unknown')}
+From: logistics@dummycompany.com
+Subject: {rate_request.get('subject', 'Rate Request')}
 
-Thanks,
-Mike Johnson"""
-        
-        st.markdown("""
-        <div class="email-preview">
-        {}
-        </div>
-        """.format(sample_email.replace('\n', '<br>')), unsafe_allow_html=True)
-        
-        st.markdown("""
-        **Try this sample email or enter your own email content in the sidebar to get started!**
-        """)
+{email_body}"""
+                    
+                    st.code(copy_text, language=None)
+                    st.success("✅ Rate request email copied to clipboard!")
+                
+            else:
+                st.warning("⚠️ No rate request email generated")
+                
+        else:
+            st.error("❌ No forwarder assigned")
+            if forwarder_result.get('error'):
+                st.markdown("""
+                <div style="
+                    border: 2px solid #dc3545;
+                    border-radius: 10px;
+                    padding: 20px;
+                    background-color: #f8d7da;
+                    margin: 1rem 0;
+                ">
+                """, unsafe_allow_html=True)
+                st.write(f"**Error:** {forwarder_result.get('error')}")
+                st.markdown("</div>", unsafe_allow_html=True)
 
+
+# Run the app
 if __name__ == "__main__":
-    main() 
+    app = ImprovedStreamlitApp()
+    app.run() 
