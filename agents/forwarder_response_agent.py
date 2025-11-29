@@ -35,8 +35,14 @@ class ForwarderResponseAgent(BaseAgent):
             forwarder_name = forwarder_details.get("name", "Forwarder")
             forwarder_email = forwarder_details.get("email", "")
             
-            # Extract rate information from email
-            rate_info = self._extract_rate_information(email_data.get("email_text", ""))
+            # Extract rate information from email (try multiple possible field names)
+            email_text = (
+                email_data.get("email_text", "") or 
+                email_data.get("content", "") or 
+                email_data.get("body_text", "") or
+                email_data.get("body", "")
+            )
+            rate_info = self._extract_rate_information(email_text)
             
             # Generate response based on email content
             response = self._generate_forwarder_response(
@@ -148,6 +154,24 @@ class ForwarderResponseAgent(BaseAgent):
                 break
         
         # Extract rates
+        # Simple "Rate:" pattern (most common in forwarder emails)
+        rate_patterns = [
+            r"rate[:\s]*\$?\s*([\d,]+\.?\d*)\s*USD?",
+            r"rate[:\s]*USD?\s*([\d,]+\.?\d*)",
+            r"rate[:\s]*\$?\s*([\d,]+\.?\d*)",
+            r"\$?\s*([\d,]+\.?\d*)\s*USD?\s*\(?rate\)?"
+        ]
+        
+        for pattern in rate_patterns:
+            matches = re.findall(pattern, email_text, re.IGNORECASE)
+            if matches:
+                rate_value = float(matches[0].replace(',', ''))
+                # Store in rates_with_dthc as it's likely the total rate
+                rate_info["rates_with_dthc"] = rate_value
+                # Also store as a general rate field for compatibility
+                rate_info["rate"] = rate_value
+                break
+        
         # Total rate (usually includes all charges)
         total_patterns = [
             r"total[:\s]*USD?\s*([\d,]+\.?\d*)",
@@ -491,8 +515,12 @@ sales@searates.com"""
             if not model_name:
                 raise Exception("Model name not configured")
             
-            # Generate response using LLM
-            response = self.client.chat.completions.create(
+            # Generate response using LLM (use OpenAI client for function calling)
+            client = self.get_openai_client()
+            if not client:
+                raise Exception("OpenAI client not available")
+            
+            response = client.chat.completions.create(
                 model=model_name,
                 messages=[
                     {"role": "system", "content": "You are a professional sales representative at SeaRates by DP World. Generate friendly, professional, and human-like responses."},

@@ -10,6 +10,7 @@ Integrates all agents with enhanced thread management and forwarder handling.
 import asyncio
 import json
 import logging
+import operator
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Annotated, TypedDict
 from dataclasses import asdict
@@ -42,13 +43,43 @@ from utils.thread_manager import ThreadManager, EmailEntry
 from utils.forwarder_manager import ForwarderManager
 from utils.logger import get_logger
 from utils.sales_team_manager import SalesTeamManager
+from utils.name_extractor import extract_name_from_email_data
 
 logger = get_logger(__name__)
 
+# Reducer function for escalation_result - handles concurrent updates
+def _escalation_reducer(x: Optional[Dict[str, Any]], y: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Reducer for escalation_result - takes first non-None value to prevent conflicts"""
+    return x if x is not None else y
+
+# Reducer function for should_escalate - takes True if either value is True (OR logic)
+def _should_escalate_reducer(x: bool, y: bool) -> bool:
+    """Reducer for should_escalate - True if either value is True"""
+    return x or y
+
+# Reducer function for sales_notification_result - takes first non-None value
+def _sales_notification_reducer(x: Optional[Dict[str, Any]], y: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Reducer for sales_notification_result - takes first non-None value to prevent conflicts"""
+    return x if x is not None else y
+
+# Reducer function for forwarder_response_result - takes first non-None value
+# Using operator.add pattern for LangGraph compatibility
+def _forwarder_response_reducer(x: Optional[Dict[str, Any]], y: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Reducer for forwarder_response_result - takes first non-None value to prevent conflicts.
+    This ensures only one node can set forwarder_response_result per step."""
+    # If both are None, return None
+    if x is None and y is None:
+        return None
+    # If x is not None, return x (first value takes precedence)
+    if x is not None:
+        return x
+    # Otherwise return y
+    return y
+
 class WorkflowState(TypedDict):
     """Enhanced workflow state with all necessary fields"""
-    # Email data
-    email_data: Annotated[Dict[str, Any], "shared"]
+    # Email data (immutable - set once at workflow start)
+    email_data: Dict[str, Any]
     thread_history: Annotated[List[Dict[str, Any]], "shared"]
     
     # Agent results
@@ -67,16 +98,18 @@ class WorkflowState(TypedDict):
     confirmation_response_result: Optional[Dict[str, Any]]
     acknowledgment_response_result: Optional[Dict[str, Any]]
     confirmation_acknowledgment_result: Optional[Dict[str, Any]]
+    customer_quote_result: Optional[Dict[str, Any]]
     
     # Forwarder handling
     forwarder_detection_result: Optional[Dict[str, Any]]
-    forwarder_response_result: Optional[Dict[str, Any]]
+    forwarder_response_result: Annotated[Optional[Dict[str, Any]], _forwarder_response_reducer]
     forwarder_email_draft_result: Optional[Dict[str, Any]]
     forwarder_assignment_result: Optional[Dict[str, Any]]
     
     # Escalation and notifications
-    escalation_result: Optional[Dict[str, Any]]
-    sales_notification_result: Optional[Dict[str, Any]]
+    # Use reducer to handle concurrent updates - take the first non-None value
+    escalation_result: Annotated[Optional[Dict[str, Any]], _escalation_reducer]
+    sales_notification_result: Annotated[Optional[Dict[str, Any]], _sales_notification_reducer]
     
     # Context and metadata
     customer_context: Annotated[Dict[str, Any], "shared"]
@@ -85,7 +118,8 @@ class WorkflowState(TypedDict):
     historical_data: Annotated[Dict[str, Any], "shared"]
     
     # Decision flags
-    should_escalate: bool
+    # Use reducer to handle concurrent updates - True if either value is True
+    should_escalate: Annotated[bool, _should_escalate_reducer]
     is_forwarder_email: bool
     workflow_completed: bool
     
@@ -202,12 +236,12 @@ class LangGraphWorkflowOrchestrator:
         # Set entry point
         workflow.set_entry_point("classify_email")
         
-        # Add conditional edges
+        # Add conditional edges - Happy flow only, escalation removed
         workflow.add_conditional_edges(
             "classify_email",
             self._route_after_classification,
             {
-                "check_escalation": "check_escalation",
+                # REMOVED: "check_escalation": "check_escalation" - no escalation in happy flow
                 "conversation_state": "conversation_state",
                 "generate_acknowledgment_response": "generate_acknowledgment_response",
                 "notify_sales": "notify_sales"
@@ -218,7 +252,7 @@ class LangGraphWorkflowOrchestrator:
             "conversation_state",
             self._route_after_conversation_state,
             {
-                "escalate": "check_escalation",
+                # REMOVED: "escalate": "check_escalation" - no escalation in happy flow
                 "continue": "analyze_thread"
             }
         )
@@ -238,7 +272,7 @@ class LangGraphWorkflowOrchestrator:
             {
                 "assign_sales_person": "assign_sales_person",
                 "detect_forwarder": "detect_forwarder",
-                "check_escalation": "check_escalation"
+                # REMOVED: "check_escalation": "check_escalation" - no escalation in happy flow
             }
         )
         
@@ -250,7 +284,7 @@ class LangGraphWorkflowOrchestrator:
                 "generate_confirmation_response": "generate_confirmation_response",
                 "generate_acknowledgment_response": "generate_acknowledgment_response",
                 "generate_confirmation_acknowledgment": "generate_confirmation_acknowledgment",
-                "check_escalation": "check_escalation"
+                # REMOVED: "check_escalation": "check_escalation" - no escalation in happy flow
             }
         )
         
@@ -272,24 +306,41 @@ class LangGraphWorkflowOrchestrator:
         # Forwarder assignment leads to thread update
         workflow.add_edge("assign_forwarders", "update_thread")
         
-        # Acknowledgment response can trigger escalation if confidence is low
+        # Acknowledgment response routing - Happy flow only, escalation removed
+        # For forwarder emails: acknowledgment -> process_forwarder_response -> notify_sales
+        # For other emails: acknowledgment -> update_thread
         workflow.add_conditional_edges(
             "generate_acknowledgment_response",
             self._route_after_acknowledgment,
             {
-                "check_escalation": "check_escalation",
-                "update_thread": "update_thread"
+                # REMOVED: "check_escalation": "check_escalation" - no escalation in happy flow
+                "process_forwarder_response": "process_forwarder_response",  # For forwarder emails
+                "update_thread": "update_thread"  # For other emails
             }
         )
         
         # Forwarder handling edges
         workflow.add_edge("detect_forwarder", "process_forwarder_response")
-        workflow.add_edge("process_forwarder_response", "draft_forwarder_email")
+        workflow.add_edge("process_forwarder_response", "notify_sales")  # After processing forwarder response, notify sales
+        
+        # Add customer quote generation node
+        workflow.add_node("generate_customer_quote", self._generate_customer_quote)
         workflow.add_edge("draft_forwarder_email", "update_thread")
         
         # Escalation edges
         workflow.add_edge("check_escalation", "notify_sales")
-        workflow.add_edge("notify_sales", "update_thread")
+        # After sales notification, generate customer quote if forwarder rates are available
+        workflow.add_conditional_edges(
+            "notify_sales",
+            self._route_after_sales_notification,
+            {
+                "generate_customer_quote": "generate_customer_quote",  # If forwarder rates available
+                "update_thread": "update_thread"  # Otherwise just update thread
+            }
+        )
+        
+        # Customer quote leads to thread update
+        workflow.add_edge("generate_customer_quote", "update_thread")
         
         # Final edge to END
         workflow.add_edge("update_thread", END)
@@ -315,9 +366,10 @@ class LangGraphWorkflowOrchestrator:
             state["classification_result"] = {"error": error_msg, "email_type": "escalation_needed"}
             return state
         
-        content = email_data.get('content', '')
+        # Handle both content/body_text and sender/from_email formats
+        content = email_data.get('content', email_data.get('body_text', email_data.get('body', '')))
         subject = email_data.get('subject', '')
-        sender = email_data.get('sender', '')
+        sender = email_data.get('sender', email_data.get('from_email', email_data.get('from', '')))
         
         if not content:
             error_msg = "❌ Email content is missing"
@@ -373,7 +425,11 @@ class LangGraphWorkflowOrchestrator:
         try:
             # Get email data safely
             email_data = state.get('email_data', {})
-            content = email_data.get('content', '')
+            if not email_data:
+                raise ValueError("Email data is missing")
+            
+            # Handle both content/body_text formats
+            content = email_data.get('content', email_data.get('body_text', email_data.get('body', '')))
             subject = email_data.get('subject', '')
             
             if not content:
@@ -415,11 +471,23 @@ class LangGraphWorkflowOrchestrator:
         logger.info("🔄 Step 3: Analyzing thread context...")
         
         try:
+            # Get email_data safely
+            email_data_raw = state.get("email_data", {})
+            if not email_data_raw:
+                logger.error("❌ Email data is missing in thread analysis")
+                state["thread_analysis_result"] = {"error": "Email data is missing"}
+                return state
+            
+            # Handle both content/body_text and sender/from_email formats
+            email_content = email_data_raw.get("content", email_data_raw.get("body_text", email_data_raw.get("body", "")))
+            email_subject = email_data_raw.get("subject", "")
+            email_sender = email_data_raw.get("sender", email_data_raw.get("from_email", email_data_raw.get("from", "")))
+            
             # Prepare email_data in the format expected by thread analyzer
             email_data = {
-                "email_text": state["email_data"]["content"],
-                "subject": state["email_data"]["subject"],
-                "sender": state["email_data"]["sender"],
+                "email_text": email_content,
+                "subject": email_subject,
+                "sender": email_sender,
                 "thread_id": state["thread_id"]
             }
             
@@ -454,15 +522,29 @@ class LangGraphWorkflowOrchestrator:
         print(f"\n{'='*60}")
         print(f"🔄 STEP 4: INFORMATION EXTRACTION")
         print(f"{'='*60}")
-        print(f"📧 Email Content Length: {len(state['email_data']['content'])} characters")
+        email_data_raw = state.get("email_data", {})
+        email_content = email_data_raw.get("content", email_data_raw.get("body_text", email_data_raw.get("body", "")))
+        print(f"📧 Email Content Length: {len(email_content)} characters")
         print(f"🧵 Thread History: {len(state['thread_history'])} previous emails")
         print(f"📊 Cumulative Extraction: {len(state['cumulative_extraction'])} existing items")
         
         try:
+            # Get email_data safely
+            email_data_raw = state.get("email_data", {})
+            if not email_data_raw:
+                logger.error("❌ Email data is missing in information extraction")
+                state["extraction_result"] = {"error": "Email data is missing"}
+                return state
+            
+            # Handle both content/body_text and sender/from_email formats
+            email_content = email_data_raw.get("content", email_data_raw.get("body_text", email_data_raw.get("body", "")))
+            email_sender = email_data_raw.get("sender", email_data_raw.get("from_email", email_data_raw.get("from", "")))
+            email_subject = email_data_raw.get("subject", "")
+            
             result = self.extraction_agent.process({
-                "email_text": state["email_data"]["content"],
-                "sender": state["email_data"]["sender"],
-                "subject": state["email_data"]["subject"],
+                "email_text": email_content,
+                "sender": email_sender,
+                "subject": email_subject,
                 "thread_id": state["thread_id"],
                 "timestamp": state["timestamp"],
                 "customer_context": state["customer_context"],
@@ -800,20 +882,54 @@ class LangGraphWorkflowOrchestrator:
     
     # Response generation nodes
     async def _generate_clarification_response(self, state: WorkflowState) -> WorkflowState:
-        """Generate clarification response"""
+        """Generate clarification response - uses enriched ports and standardized container per spec"""
         logger.info("🔄 Generating clarification response...")
         
         try:
             extracted_data = state["extraction_result"].get("extracted_data", {})
+            
+            # Debug logging
+            logger.info(f"🔍 DEBUG: Raw extracted_data: {extracted_data}")
+            logger.info(f"🔍 DEBUG: Container standardization result: {state.get('container_standardization_result')}")
+            logger.info(f"🔍 DEBUG: Port lookup result: {state.get('port_lookup_result')}")
+            
             # Let the clarification agent determine missing fields instead of using validation result
             missing_fields = []  # Will be determined by clarification agent
+            
+            # Use standardized container type in extracted_data for display (per spec)
+            # The spec says clarification responses show standardized container types
+            # IMPORTANT: Use standardized_type, NOT rate_fallback_type
+            if state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
+                # Get standardized_type (the actual standardized type, e.g., "40HC")
+                standardized_type = state["container_standardization_result"].get("standardized_type")
+                # Do NOT use rate_fallback_type - that's only for pricing, not display
+                logger.info(f"🔍 DEBUG: Standardized container type: {standardized_type}")
+                logger.info(f"🔍 DEBUG: Rate fallback type (NOT used for display): {state['container_standardization_result'].get('rate_fallback_type')}")
+                
+                if standardized_type:
+                    # Update extracted_data with standardized container type for display
+                    if "shipment_details" in extracted_data:
+                        original_type = extracted_data["shipment_details"].get("container_type", "")
+                        extracted_data["shipment_details"]["container_type"] = standardized_type
+                        logger.info(f"🔍 DEBUG: Updated container type from '{original_type}' to '{standardized_type}'")
+                    else:
+                        # Create shipment_details if it doesn't exist
+                        if "shipment_details" not in extracted_data:
+                            extracted_data["shipment_details"] = {}
+                        extracted_data["shipment_details"]["container_type"] = standardized_type
+                        logger.info(f"🔍 DEBUG: Created shipment_details and set container type to '{standardized_type}'")
+                else:
+                    logger.warning(f"🔍 DEBUG: Standardized type is empty/None")
+            else:
+                logger.warning(f"🔍 DEBUG: No container standardization result available")
             
             result = self.clarification_agent.process({
                 "extracted_data": extracted_data,
                 "missing_fields": missing_fields,  # Empty list - agent will determine missing fields
-                "customer_name": state["email_data"].get("sender_name", "Valued Customer"),
+                "customer_name": state["email_data"].get("sender_name", "Valued Customer"),  # First name extracted from email
                 "agent_info": state["assigned_sales_person"],
-                "port_lookup_result": state["port_lookup_result"]
+                "port_lookup_result": state["port_lookup_result"],  # For enriched port display with codes
+                "container_standardization_result": state.get("container_standardization_result")  # For reference
             })
             
             state["clarification_response_result"] = result
@@ -839,18 +955,29 @@ class LangGraphWorkflowOrchestrator:
         return state
     
     async def _generate_confirmation_response(self, state: WorkflowState) -> WorkflowState:
-        """Generate confirmation response"""
+        """Generate confirmation response - uses standardized container type per spec"""
         logger.info("🔄 Generating confirmation response...")
         
         try:
             extracted_data = state["extraction_result"].get("extracted_data", {})
             rate_info = state["rate_recommendation_result"]
             
+            # Use standardized container type in extracted_data for display (per spec)
+            # The spec says confirmation responses show standardized container types
+            if state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
+                standardized_type = state["container_standardization_result"].get("standardized_type")
+                if standardized_type:
+                    # Update extracted_data with standardized container type for display
+                    if "shipment_details" in extracted_data:
+                        extracted_data["shipment_details"]["container_type"] = standardized_type
+            
             result = self.confirmation_agent.process({
                 "extracted_data": extracted_data,
-                "customer_name": state["email_data"].get("sender_name", "Valued Customer"),
+                "customer_name": state["email_data"].get("sender_name", "Valued Customer"),  # First name extracted from email
                 "agent_info": state["assigned_sales_person"],
-                "rate_info": rate_info
+                "rate_info": rate_info,
+                "container_standardization_result": state.get("container_standardization_result"),  # Pass for reference
+                "port_lookup_result": state.get("port_lookup_result")  # For human-friendly port formatting (per spec)
             })
             
             state["confirmation_response_result"] = result
@@ -941,8 +1068,6 @@ class LangGraphWorkflowOrchestrator:
                 "assigned_sales_person": assigned_sales_person
             })
             
-            state["acknowledgment_response_result"] = result
-            
             # Print final response on terminal
             print(f"\n{'='*80}")
             print(f"📧 FINAL RESPONSE GENERATED: {sender_type.upper()} ACKNOWLEDGMENT")
@@ -958,20 +1083,35 @@ class LangGraphWorkflowOrchestrator:
             
             logger.info(f"✅ {sender_type.title()} acknowledgment response generated: {result.get('subject', 'No subject')}")
             
+            # Return only the fields we modify (don't include email_data)
+            return {
+                "acknowledgment_response_result": result
+            }
+            
         except Exception as e:
             logger.error(f"❌ Acknowledgment response generation failed: {e}")
-            state["acknowledgment_response_result"] = {"error": str(e)}
-        
-        return state
+            # Return only the fields we modify
+            return {
+                "acknowledgment_response_result": {"error": str(e)}
+            }
     
     async def _generate_confirmation_acknowledgment(self, state: WorkflowState) -> WorkflowState:
-        """Generate confirmation acknowledgment response"""
+        """Generate confirmation acknowledgment response - uses standardized container type per spec"""
         logger.info("🔄 Generating confirmation acknowledgment response...")
         
         try:
             # Get extraction result safely
             extraction_result = state.get("extraction_result", {})
             extracted_data = extraction_result.get("extracted_data", {}) if extraction_result else {}
+            
+            # Use standardized container type in extracted_data for display (per spec)
+            # The spec says confirmation acknowledgment shows standardized container types
+            if state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
+                standardized_type = state["container_standardization_result"].get("standardized_type")
+                if standardized_type:
+                    # Update extracted_data with standardized container type for display
+                    if "shipment_details" in extracted_data:
+                        extracted_data["shipment_details"]["container_type"] = standardized_type
             
             # Get email data safely
             email_data = state.get("email_data", {})
@@ -983,7 +1123,9 @@ class LangGraphWorkflowOrchestrator:
                 "agent_info": state["assigned_sales_person"],
                 "tone": "professional",
                 "quote_timeline": "24 hours",
-                "include_forwarder_info": True
+                "include_forwarder_info": True,
+                "container_standardization_result": state.get("container_standardization_result"),  # Pass for reference
+                "port_lookup_result": state.get("port_lookup_result")  # Pass port codes for display
             })
             
             state["confirmation_acknowledgment_result"] = result
@@ -1050,8 +1192,10 @@ class LangGraphWorkflowOrchestrator:
             
             if not email_data:
                 logger.error("❌ Email data is missing in forwarder response processing")
-                state["forwarder_response_result"] = {"error": "Email data is missing"}
-                return state
+                # Return only the field we modify (consistent with success path)
+                return {
+                    "forwarder_response_result": {"error": "Email data is missing"}
+                }
                 
             result = self.forwarder_response_agent.process({
                 "email_data": email_data,
@@ -1059,14 +1203,17 @@ class LangGraphWorkflowOrchestrator:
                 "extracted_data": extracted_data
             })
             
-            state["forwarder_response_result"] = result
-            logger.info(f"✅ Forwarder response processed: {result.get('response_type', 'unknown')}")
+            # Return only the field we modify (don't include email_data)
+            return {
+                "forwarder_response_result": result
+            }
             
         except Exception as e:
             logger.error(f"❌ Forwarder response processing failed: {e}")
-            state["forwarder_response_result"] = {"error": str(e)}
-        
-        return state
+            # Return only the field we modify
+            return {
+                "forwarder_response_result": {"error": str(e)}
+            }
     
     async def _draft_forwarder_email(self, state: WorkflowState) -> WorkflowState:
         """Draft forwarder email"""
@@ -1138,14 +1285,17 @@ class LangGraphWorkflowOrchestrator:
                 sales_manager_id = state.get("assigned_sales_person", {}).get("id", "")
                 
                 # Get customer email content for additional details extraction
-                customer_email_content = state["email_data"].get("content", "")
+                email_data = state.get("email_data", {})
+                customer_email_content = email_data.get("content", email_data.get("body_text", email_data.get("body", "")))
                 
                 # Generate rate request email using forwarder email draft agent
+                # Include all confirmed shipment details including port codes
                 rate_request_data = {
                     "assigned_forwarders": [assigned_forwarder],
                     "shipment_details": extracted_data.get("shipment_details", {}),
                     "origin_country": origin_country,
                     "destination_country": destination_country,
+                    "port_lookup_result": state.get("port_lookup_result", {}),  # Include port codes
                     "thread_id": state["thread_id"],
                     "sales_manager_id": sales_manager_id,
                     "customer_email_content": customer_email_content
@@ -1200,7 +1350,6 @@ class LangGraphWorkflowOrchestrator:
                 
                 logger.info(f"✅ Forwarder assigned: {assigned_forwarder.get('name', 'Unknown')}")
                 logger.info(f"✅ Rate request generated for {origin_country} to {destination_country}")
-                
             else:
                 state["forwarder_assignment_result"] = {
                     "assigned_forwarder": None,
@@ -1235,17 +1384,46 @@ class LangGraphWorkflowOrchestrator:
         """Check if escalation is needed"""
         logger.info("🔄 Checking escalation...")
         
+        # Guard: If escalation_result already exists, don't process again
+        if state.get("escalation_result") is not None:
+            logger.info("⚠️ Escalation already processed, skipping duplicate call")
+            return {}  # Return empty dict to avoid updating state
+        
+        print("🚨 ESCALATION_DECISION: Starting specialized LLM escalation analysis...")
+        
         try:
-            result = self.escalation_agent.process({
-                "email_data": state["email_data"],
-                "classification_result": state["classification_result"],
-                "conversation_state_result": state["conversation_state_result"],
-                "extraction_result": state["extraction_result"],
-                "validation_result": state["validation_result"]
-            })
+            # Safely get email_data and ensure it's not None
+            email_data_raw = state.get("email_data", {})
+            if not email_data_raw:
+                logger.error("❌ Email data is missing in escalation check")
+                # Return only the fields we modify (don't include email_data)
+                return {
+                    "escalation_result": {"error": "Email data is missing", "should_escalate": True},
+                    "should_escalate": True
+                }
             
-            state["escalation_result"] = result
-            state["should_escalate"] = result.get("should_escalate", False)
+            # Create a normalized copy (don't modify shared state)
+            email_data = email_data_raw.copy()
+            if "content" not in email_data and "body_text" in email_data:
+                email_data["content"] = email_data["body_text"]
+            if "sender" not in email_data and "from_email" in email_data:
+                email_data["sender"] = email_data["from_email"]
+            
+            # Get email content and sender safely
+            email_content = email_data.get("content", email_data.get("body_text", email_data.get("body", "")))
+            email_sender = email_data.get("sender", email_data.get("from_email", email_data.get("from", "")))
+            
+            print(f"📧 Email: {email_content[:100] if email_content else 'No content'}...")
+            print(f"👤 Sender: {email_sender}")
+            print(f"🧵 Thread ID: {state.get('thread_id', 'unknown')}")
+            
+            result = self.escalation_agent.process({
+                "email_data": email_data,
+                "classification_result": state.get("classification_result"),
+                "conversation_state_result": state.get("conversation_state_result"),
+                "extraction_result": state.get("extraction_result"),
+                "validation_result": state.get("validation_result")
+            })
             
             # Print final response on terminal
             print(f"\n{'='*80}")
@@ -1259,28 +1437,143 @@ class LangGraphWorkflowOrchestrator:
             print(f"{result.get('body', 'No body')}")
             print(f"{'='*80}")
             
-            logger.info(f"✅ Escalation check completed: {'Escalate' if state['should_escalate'] else 'Continue'}")
+            logger.info(f"✅ Escalation check completed: {'Escalate' if result.get('should_escalate', False) else 'Continue'}")
+            
+            # Return only the fields we modify (don't include email_data)
+            return {
+                "escalation_result": result,
+                "should_escalate": result.get("should_escalate", False)
+            }
             
         except Exception as e:
-            logger.error(f"❌ Escalation check failed: {e}")
-            state["escalation_result"] = {"error": str(e)}
-            state["should_escalate"] = True
-        
-        return state
+            error_msg = f"❌ Escalation check failed: {e}"
+            logger.error(error_msg)
+            print(f"\n❌ ESCALATION ERROR: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Return only the fields we modify
+            return {
+                "escalation_result": {"error": str(e), "should_escalate": True},
+                "should_escalate": True
+            }
     
     async def _notify_sales(self, state: WorkflowState) -> WorkflowState:
         """Notify sales team"""
         logger.info("🔄 Notifying sales team...")
         
         try:
-            result = self.sales_notification_agent.process({
-                "email_data": state["email_data"],
-                "escalation_result": state["escalation_result"],
-                "classification_result": state["classification_result"],
-                "extraction_result": state["extraction_result"]
-            })
+            # Safely get email_data and ensure it's not None
+            email_data_raw = state.get("email_data", {})
+            if not email_data_raw:
+                logger.error("❌ Email data is missing in sales notification")
+                # Return only the fields we modify (don't include email_data)
+                return {
+                    "sales_notification_result": {
+                        "error": "Email data is missing",
+                        "notification_type": "unknown",
+                        "to": "Sales Team",
+                        "subject": "Sales Notification",
+                        "body": "No body"
+                    }
+                }
             
-            state["sales_notification_result"] = result
+            # Create a normalized copy (don't modify shared state)
+            email_data = email_data_raw.copy()
+            if "content" not in email_data and "body_text" in email_data:
+                email_data["content"] = email_data["body_text"]
+            if "sender" not in email_data and "from_email" in email_data:
+                email_data["sender"] = email_data["from_email"]
+            
+            # Include forwarder response data if available (for collated email)
+            forwarder_response_result = state.get("forwarder_response_result", {})
+            cumulative_extraction = state.get("cumulative_extraction", {})
+            extraction_result = state.get("extraction_result", {})
+            
+            # Determine notification type
+            notification_type = "rates_received" if forwarder_response_result and not forwarder_response_result.get('error') else "deal_update"
+            
+            # Extract customer details from cumulative extraction (with proper None checks)
+            customer_details = {}
+            if cumulative_extraction and isinstance(cumulative_extraction, dict):
+                customer_details = cumulative_extraction.get("contact_information", {})
+            
+            shipment_details = {}
+            if cumulative_extraction and isinstance(cumulative_extraction, dict):
+                shipment_details = cumulative_extraction.get("shipment_details", {})
+            elif extraction_result and isinstance(extraction_result, dict):
+                extracted_data = extraction_result.get("extracted_data", {})
+                if extracted_data and isinstance(extracted_data, dict):
+                    shipment_details = extracted_data.get("shipment_details", {})
+            
+            # Extract forwarder rates from forwarder_response_result
+            forwarder_rates = []
+            if forwarder_response_result and not forwarder_response_result.get('error'):
+                # Forwarder response agent returns 'extracted_rate_info', not 'rate_info'
+                rate_info = forwarder_response_result.get('extracted_rate_info', {}) or forwarder_response_result.get('rate_info', {})
+                
+                # Only add to forwarder_rates if rate_info has actual rate data
+                if rate_info and isinstance(rate_info, dict):
+                    # Check if rate_info has any actual rate values (not just None/empty)
+                    has_rate_data = any(
+                        rate_info.get(key) is not None and str(rate_info.get(key)).strip()
+                        for key in ['rates_with_othc', 'rates_with_dthc', 'rates_without_thc', 'rate', 'total_rate']
+                    )
+                    if has_rate_data:
+                        forwarder_rates = [rate_info]
+            
+            # Get conversation state (with proper None check)
+            conversation_state = "unknown"
+            conversation_state_result = state.get("conversation_state_result")
+            if conversation_state_result and isinstance(conversation_state_result, dict):
+                conversation_state = conversation_state_result.get("conversation_stage", "unknown")
+            
+            # Get forwarder email content if available
+            forwarder_email_content = ""
+            forwarder_details = {}
+            if forwarder_response_result and not forwarder_response_result.get('error'):
+                # Get the original forwarder email content from email_data
+                forwarder_email_content = (
+                    email_data.get("content", "") or 
+                    email_data.get("body_text", "") or 
+                    email_data.get("body", "") or
+                    email_data.get("email_text", "")
+                )
+                # Extract forwarder details from forwarder_response_result
+                forwarder_details = {
+                    "name": forwarder_response_result.get("forwarder_name", ""),
+                    "email": forwarder_response_result.get("forwarder_email", ""),
+                    "company": forwarder_response_result.get("forwarder_name", "")  # Use name as company fallback
+                }
+            
+            # Also check forwarder_detection_result for forwarder details
+            forwarder_detection_result = state.get("forwarder_detection_result", {})
+            if forwarder_detection_result and not forwarder_detection_result.get('error'):
+                forwarder_detection_details = forwarder_detection_result.get("forwarder_details", {})
+                if forwarder_detection_details:
+                    if not forwarder_details.get("name"):
+                        forwarder_details["name"] = forwarder_detection_details.get("name", "")
+                    if not forwarder_details.get("email"):
+                        forwarder_details["email"] = forwarder_detection_details.get("email", "")
+                    if not forwarder_details.get("company"):
+                        forwarder_details["company"] = forwarder_detection_details.get("company", "")
+            
+            # Get timeline information for urgency calculation
+            timeline_info = {}
+            if cumulative_extraction and isinstance(cumulative_extraction, dict):
+                timeline_info = cumulative_extraction.get("timeline_information", {})
+            
+            result = self.sales_notification_agent.process({
+                "notification_type": notification_type,
+                "customer_details": customer_details,
+                "shipment_details": shipment_details,
+                "forwarder_rates": forwarder_rates,
+                "forwarder_details": forwarder_details,
+                "forwarder_email_content": forwarder_email_content,
+                "timeline_information": timeline_info,
+                "conversation_state": conversation_state,
+                "thread_id": state.get("thread_id", ""),
+                "urgency": "high" if forwarder_response_result else "medium"
+            })
             
             # Print final response on terminal
             print(f"\n{'='*80}")
@@ -1296,11 +1589,134 @@ class LangGraphWorkflowOrchestrator:
             
             logger.info(f"✅ Sales notification sent: {result.get('notification_type', 'unknown')}")
             
+            # Return only the fields we modify (don't include email_data)
+            return {
+                "sales_notification_result": result
+            }
+            
         except Exception as e:
             logger.error(f"❌ Sales notification failed: {e}")
-            state["sales_notification_result"] = {"error": str(e)}
+            # Return only the fields we modify
+            return {
+                "sales_notification_result": {"error": str(e)}
+            }
+    
+    def _route_after_sales_notification(self, state: WorkflowState) -> str:
+        """Route after sales notification - generate customer quote if forwarder rates available"""
+        forwarder_response_result = state.get("forwarder_response_result", {})
+        if forwarder_response_result and not forwarder_response_result.get('error'):
+            rate_info = forwarder_response_result.get('rate_info', {})
+            if rate_info:
+                return "generate_customer_quote"
+        return "update_thread"
+    
+    async def _generate_customer_quote(self, state: WorkflowState) -> WorkflowState:
+        """Generate final customer quote email after forwarder rates are received"""
+        logger.info("🔄 Generating customer quote email...")
         
-        return state
+        try:
+            # Get customer details
+            email_data = state.get("email_data", {})
+            customer_name = email_data.get("sender_name", "Valued Customer")
+            customer_email = email_data.get("sender", email_data.get("from_email", ""))
+            
+            # Get shipment details
+            cumulative_extraction = state.get("cumulative_extraction", {})
+            shipment_details = cumulative_extraction.get("shipment_details", {}) if cumulative_extraction else {}
+            
+            # Get forwarder rates
+            forwarder_response_result = state.get("forwarder_response_result", {})
+            rate_info = forwarder_response_result.get('rate_info', {}) if forwarder_response_result else {}
+            
+            # Get port lookup result for formatting
+            port_lookup_result = state.get("port_lookup_result", {})
+            
+            # Get assigned sales person
+            assigned_sales_person = state.get("assigned_sales_person", {})
+            
+            # Build quote body with rates
+            origin = shipment_details.get('origin', 'N/A')
+            destination = shipment_details.get('destination', 'N/A')
+            
+            # Format ports with codes if available
+            if port_lookup_result:
+                origin_result = port_lookup_result.get("origin", {})
+                dest_result = port_lookup_result.get("destination", {})
+                if origin_result:
+                    origin = f"{origin_result.get('port_name', origin)} ({origin_result.get('port_code', '')})"
+                if dest_result:
+                    destination = f"{dest_result.get('port_name', destination)} ({dest_result.get('port_code', '')})"
+            
+            quote_subject = f"Shipping Quote - {origin} to {destination}"
+            
+            quote_body = f"""Dear {customer_name},
+
+Thank you for your patience. I'm pleased to provide you with the shipping quote for your shipment.
+
+**Shipment Details:**
+• Origin: {origin}
+• Destination: {destination}
+• Container Type: {shipment_details.get('container_type', 'N/A')}
+• Number of Containers: {shipment_details.get('container_count', 'N/A')}
+"""
+            
+            if shipment_details.get('commodity'):
+                quote_body += f"• Commodity: {shipment_details.get('commodity')}\n"
+            if shipment_details.get('weight'):
+                quote_body += f"• Weight: {shipment_details.get('weight')}\n"
+            if shipment_details.get('volume'):
+                quote_body += f"• Volume: {shipment_details.get('volume')}\n"
+            if shipment_details.get('shipment_date'):
+                quote_body += f"• Ready Date: {shipment_details.get('shipment_date')}\n"
+            if shipment_details.get('incoterm'):
+                quote_body += f"• Incoterm: {shipment_details.get('incoterm')}\n"
+            
+            quote_body += "\n**Rate Information:**\n"
+            if rate_info:
+                quote_body += f"• Rate: {rate_info.get('rate', 'N/A')} {rate_info.get('currency', 'USD')}\n"
+                if rate_info.get('rate_with_othc'):
+                    quote_body += f"• Rate with Origin THC: {rate_info.get('rate_with_othc')} {rate_info.get('currency', 'USD')}\n"
+                if rate_info.get('transit_time'):
+                    quote_body += f"• Transit Time: {rate_info.get('transit_time')} days\n"
+                if rate_info.get('valid_until'):
+                    quote_body += f"• Valid Until: {rate_info.get('valid_until')}\n"
+                if rate_info.get('sailing_date'):
+                    quote_body += f"• Sailing Date: {rate_info.get('sailing_date')}\n"
+            else:
+                quote_body += "• Rate information will be provided shortly.\n"
+            
+            quote_body += f"""
+Please review the quote above and let me know if you'd like to proceed with the booking.
+
+Best regards,
+{assigned_sales_person.get('name', 'Sales Team')}
+{assigned_sales_person.get('title', 'Account Executive')}
+{assigned_sales_person.get('email', 'sales@searates.com')}
+{assigned_sales_person.get('phone', '+1-555-0101')}
+"""
+            
+            customer_quote_result = {
+                "response_type": "customer_quote",
+                "subject": quote_subject,
+                "body": quote_body,
+                "to": customer_email,
+                "from": assigned_sales_person.get('email', 'sales@searates.com'),
+                "rate_info": rate_info,
+                "shipment_details": shipment_details
+            }
+            
+            logger.info(f"✅ Customer quote generated for {customer_email}")
+            
+            # Return only the field we modify
+            return {
+                "customer_quote_result": customer_quote_result
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Customer quote generation failed: {e}")
+            return {
+                "customer_quote_result": {"error": str(e)}
+            }
     
     # Thread management
     async def _update_thread(self, state: WorkflowState) -> WorkflowState:
@@ -1319,15 +1735,20 @@ class LangGraphWorkflowOrchestrator:
                 state["workflow_completed"] = True
                 return state
             
+            # Normalize email data structure
+            email_content = email_data.get("content", email_data.get("body_text", email_data.get("body", "")))
+            email_sender = email_data.get("sender", email_data.get("from_email", email_data.get("from", "unknown")))
+            email_subject = email_data.get("subject", "No Subject")
+            
             customer_email_entry = EmailEntry(
                 timestamp=state["timestamp"],
                 email_id=state["workflow_id"],
-                sender=email_data.get("sender", "unknown"),
+                sender=email_sender,
                 direction="inbound",
-                subject=email_data.get("subject", "No Subject"),
-                content=email_data.get("content", ""),
-                extracted_data=extraction_result.get("extracted_data", {}),
-                response_type=next_action_result.get("action", "unknown"),
+                subject=email_subject,
+                content=email_content,
+                extracted_data=extraction_result.get("extracted_data", {}) if extraction_result else {},
+                response_type=next_action_result.get("action", "unknown") if next_action_result else "unknown",
                 workflow_id=state["workflow_id"]
             )
             
@@ -1367,6 +1788,8 @@ class LangGraphWorkflowOrchestrator:
                 response_result = state["acknowledgment_response_result"]
             elif state.get("confirmation_acknowledgment_result"):
                 response_result = state["confirmation_acknowledgment_result"]
+            elif state.get("customer_quote_result"):
+                response_result = state["customer_quote_result"]
             elif state.get("forwarder_assignment_result"):
                 # For forwarder assignment, we don't create a bot response entry
                 # as it's an internal process
@@ -1425,7 +1848,7 @@ class LangGraphWorkflowOrchestrator:
     
     # Routing methods
     def _route_after_classification(self, state: WorkflowState) -> str:
-        """Route after email classification"""
+        """Route after email classification - Happy flow only, no escalation"""
         classification_result = state.get("classification_result", {})
         email_type = classification_result.get("email_type", "unknown")
         sender_type = classification_result.get("sender_type", "unknown")
@@ -1442,25 +1865,31 @@ class LangGraphWorkflowOrchestrator:
             print(f"📧 Forwarder email detected - routing to acknowledgment")
             return "generate_acknowledgment_response"
         elif "customer" in email_type or sender_type == "customer" or sender_classification_type == "customer":
+            # Happy flow: Customer emails go to conversation_state for processing
             return "conversation_state"
         elif "forwarder" in email_type or sender_type == "forwarder":
+            # Forwarder emails also go through conversation_state
             return "conversation_state"
-        elif email_type == "escalation_needed" or classification_result.get("escalation_needed", False):
-            return "check_escalation"
         else:
-            return "check_escalation"
+            # REMOVED: Escalation routing - default to conversation_state for happy flow
+            # Previously: return "check_escalation"
+            # Now: Always continue with normal flow
+            print(f"📧 Default routing to conversation_state (happy flow)")
+            return "conversation_state"
     
     def _route_after_conversation_state(self, state: WorkflowState) -> str:
-        """Route after conversation state analysis"""
-        if state["should_escalate"]:
-            return "escalate"
-        else:
-            return "continue"
+        """Route after conversation state analysis - Happy flow only, no escalation"""
+        # REMOVED: Escalation check - always continue to analyze_thread for happy flow
+        # Previously: if state["should_escalate"]: return "escalate"
+        # Now: Always continue with normal processing flow
+        return "continue"  # Maps to "analyze_thread" in conditional edges
     
     def _route_after_next_action(self, state: WorkflowState) -> str:
-        """Route after next action determination"""
+        """Route after next action determination - Happy flow only, no escalation"""
         next_action_result = state.get("next_action_result", {})
-        action = next_action_result.get("next_action", next_action_result.get("action", "escalate"))
+        # REMOVED: Default to "escalate" - now default to "send_confirmation_request" for happy flow
+        # Previously: action = next_action_result.get("next_action", next_action_result.get("action", "escalate"))
+        action = next_action_result.get("next_action", next_action_result.get("action", "send_confirmation_request"))
         
         print(f"🔄 NEXT ACTION ROUTING: Action = {action}")
         
@@ -1469,10 +1898,12 @@ class LangGraphWorkflowOrchestrator:
             return "assign_sales_person"
         elif action == "assign_forwarder" or action == "forwarder":
             return "detect_forwarder"
-        elif action == "escalate" or next_action_result.get("should_escalate", False):
-            return "check_escalation"
         else:
-            return "check_escalation"
+            # REMOVED: Escalation routing - default to assign_sales_person for happy flow
+            # Previously: return "check_escalation"
+            # Now: Default to sales person assignment to continue normal flow
+            print(f"📧 Default routing to assign_sales_person (happy flow)")
+            return "assign_sales_person"
     
     def _route_after_sales_assignment(self, state: WorkflowState) -> str:
         """Intelligent routing based on missing fields, confidence, and data quality"""
@@ -1540,17 +1971,23 @@ class LangGraphWorkflowOrchestrator:
             print(f"   📧 Sending confirmation acknowledgment")
             return "generate_confirmation_acknowledgment"
         
-        # Intelligent routing logic
+        # REMOVED: Low confidence escalation - now sends clarification instead
+        # Previously: Low confidence triggered escalation
+        # Now: Low confidence triggers clarification request (happy flow)
+        # if overall_confidence < LOW_CONFIDENCE_THRESHOLD:
+        #     return "generate_acknowledgment_response"  # This was causing escalation
+        
+        # Intelligent routing logic - Happy flow only
+        # Low confidence now triggers clarification, not escalation
         if overall_confidence < LOW_CONFIDENCE_THRESHOLD:
-            print(f"   🚨 LOW CONFIDENCE DETECTED: {overall_confidence:.2f} < {LOW_CONFIDENCE_THRESHOLD}")
-            print(f"   📧 Sending acknowledgment to customer")
-            print(f"   📞 Escalating to sales person")
-            # Set escalation flag for later use
-            state["should_escalate"] = True
-            # Also update the next action result to reflect this decision
-            if "next_action_result" in state:
-                state["next_action_result"]["should_escalate"] = True
-            return "generate_acknowledgment_response"
+            print(f"   ⚠️ LOW CONFIDENCE DETECTED: {overall_confidence:.2f} < {LOW_CONFIDENCE_THRESHOLD}")
+            print(f"   📧 Sending clarification request (happy flow)")
+            # Check if we have missing fields to clarify
+            if missing_fields:
+                return "generate_clarification_response"
+            else:
+                # Even with low confidence, if no missing fields, send confirmation
+                return "generate_confirmation_response"
         
         # Check if next action agent explicitly chose clarification
         elif action == "send_clarification_request" or action == "clarification":
@@ -1569,27 +2006,28 @@ class LangGraphWorkflowOrchestrator:
             return "generate_clarification_response"
     
     def _route_after_acknowledgment(self, state: WorkflowState) -> str:
-        """Route after acknowledgment response - check if escalation is needed"""
-        should_escalate = state.get("should_escalate", False) or state.get("next_action_result", {}).get("should_escalate", False)
+        """Route after acknowledgment response - Happy flow only, no escalation"""
+        # REMOVED: Escalation check - always proceed to thread update for happy flow
+        # Previously: if should_escalate: return "check_escalation"
+        # Now: Always continue to thread update
         
-        if should_escalate:
-            print(f"🔄 ACKNOWLEDGMENT ROUTING: Escalation needed due to low confidence")
-            return "check_escalation"
-        else:
-            # For forwarder/sales person emails, we can skip thread update to avoid NoneType errors
-            # since the acknowledgment is already generated and the UI will handle it properly
-            classification_result = state.get("classification_result", {})
-            sender_classification = classification_result.get("sender_classification", {})
-            sender_type = sender_classification.get("type", "customer")
-            
-            if sender_type in ["forwarder", "sales_person"]:
-                print(f"🔄 Forwarder/Sales person email - skipping thread update to avoid errors")
-                # Mark workflow as completed without thread update
-                state["workflow_completed"] = True
-                return END
-            
-            print(f"🔄 ACKNOWLEDGMENT ROUTING: Proceeding to thread update")
+        # For forwarder emails, process the response and notify sales
+        classification_result = state.get("classification_result", {})
+        sender_classification = classification_result.get("sender_classification", {})
+        sender_type = sender_classification.get("type", "customer")
+        email_type = classification_result.get("email_type", "")
+        
+        if sender_type == "forwarder" or email_type == "forwarder_response":
+            print(f"🔄 Forwarder email detected - processing response and notifying sales")
+            # Process forwarder response first, then notify sales
+            return "process_forwarder_response"
+        
+        if sender_type == "sales_person":
+            print(f"🔄 Sales person email - proceeding to thread update")
             return "update_thread"
+        
+        print(f"🔄 ACKNOWLEDGMENT ROUTING: Proceeding to thread update (happy flow)")
+        return "update_thread"
     
     def _route_after_confirmation_acknowledgment(self, state: WorkflowState) -> str:
         """Route after confirmation acknowledgment - proceed with forwarder assignment"""
@@ -1600,15 +2038,44 @@ class LangGraphWorkflowOrchestrator:
         """Process email through the complete workflow"""
         workflow_id = f"workflow_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
         
-        # Generate consistent thread ID based on sender email
-        sender_email = email_data.get("sender", "unknown")
-        thread_id = email_data.get("thread_id", f"thread_{sender_email.replace('@', '_').replace('.', '_')}")
+        # Normalize email data structure - handle both Streamlit format and standard format
+        # Create a copy to avoid modifying the original input
+        normalized_email_data = email_data.copy() if email_data else {}
+        
+        if normalized_email_data:
+            # Map body_text -> content if content doesn't exist
+            if "content" not in normalized_email_data and "body_text" in normalized_email_data:
+                normalized_email_data["content"] = normalized_email_data["body_text"]
+            # Map from_email -> sender if sender doesn't exist
+            if "sender" not in normalized_email_data and "from_email" in normalized_email_data:
+                normalized_email_data["sender"] = normalized_email_data["from_email"]
+            # Ensure content exists (use body_text as fallback)
+            if "content" not in normalized_email_data:
+                normalized_email_data["content"] = normalized_email_data.get("body_text", normalized_email_data.get("body", ""))
+            # Ensure sender exists (use from_email as fallback)
+            if "sender" not in normalized_email_data:
+                normalized_email_data["sender"] = normalized_email_data.get("from_email", normalized_email_data.get("from", "unknown"))
+        
+        # Generate consistent thread ID - use provided thread_id or create one with current timestamp
+        thread_id = normalized_email_data.get("thread_id")
+        if not thread_id:
+            # Default to timestamp-based thread ID
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            thread_id = f"thread_{timestamp}"
+        
+        # Extract sender email for logging
+        sender_email = normalized_email_data.get("sender", normalized_email_data.get("from_email", "unknown"))
+        
+        # Extract first name from email data (per Rule IV: "Dear <FirstName>," not "Dear Valued Customer,")
+        sender_name = extract_name_from_email_data(normalized_email_data)
+        normalized_email_data["sender_name"] = sender_name
+        logger.info(f"👤 Extracted sender name: {sender_name} from email: {sender_email}")
         
         logger.info(f"🚀 Starting workflow {workflow_id} for thread {thread_id}")
         
-        # Initialize state
+        # Initialize state with normalized email_data
         initial_state = WorkflowState(
-            email_data=email_data,
+            email_data=normalized_email_data,
             thread_history=[],
             classification_result=None,
             conversation_state_result=None,
