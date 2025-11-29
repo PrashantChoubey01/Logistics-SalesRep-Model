@@ -1,0 +1,197 @@
+{
+  "classification_agent": {
+    "description": "Test cases for UnifiedEmailClassifierAgent",
+    "test_cases": [
+      {
+        "id": "CLS_001",
+        "description": "Customer quote request - electronics shipment",
+        "category": "customer_quote_request",
+        "input": {
+          "email_text": "Hi, I need a quote for shipping 2 containers from Shanghai to Los Angeles. Commodity: electronics. Please provide rates and transit time.",
+          "sender": "john.doe@techcorp.com",
+          "thread_id": "thread_test_001",
+          "thread_history": [],
+          "customer_context": {},
+          "forwarder_context": {}
+        },
+        "expected_output": {
+          "email_type": "customer_quote_request",
+          "sender_type": "customer",
+          "confidence": 0.8,
+          "escalation_needed": false
+        }
+      },
+      {
+        "id": "CLS_002",
+        "description": "Customer complaint - service issues",
+        "category": "customer_complaint",
+        "input": {
+          "email_text": "I'm very unhappy with the service from your team. My last shipment was delayed by 2 weeks and cost me $50K in penalties. I need to speak with a manager immediately.",
+          "sender": "unhappy.customer@techcorp.com",
+          "thread_id": "thread_test_002",
+          "thread_history": [],
+          "customer_context": {},
+          "forwarder_context": {}
+        },
+        "expected_output": {
+          "email_type": "customer_complaint",
+          "sender_type": "customer",
+          "confidence": 0.9,
+          "escalation_needed": true
+        }
+      },
+      {
+        "id": "CLS_003",
+        "description": "Forwarder rate quote response",
+        "category": "forwarder_rate_quote",
+        "input": {
+          "email_text": "Dear Team, Please find our rate quote for the electronics shipment from China to USA. 40GP container rate: $2,800 USD. Transit time: 28 days. Includes: Ocean freight, documentation, terminal handling. Valid until 2024-02-15. Best regards, China Forwarder Team",
+          "sender": "china.forwarder@logistics.com",
+          "thread_id": "thread_test_003",
+          "thread_history": [],
+          "customer_context": {},
+          "forwarder_context": {}
+        },
+        "expected_output": {
+          "email_type": "forwarder_rate_quote",
+          "sender_type": "forwarder",
+          "confidence": 0.9,
+          "escalation_needed": false
+        }
+      },
+      {
+        "id": "CLS_004",
+        "description": "Customer confirmation - accepting quote",
+        "category": "customer_confirmation",
+        "input": {
+          "email_text": "Thank you for the quote. I confirm the shipment details: 2 containers, electronics, Shanghai to Los Angeles, March 15th shipment date. Please proceed with booking.",
+          "sender": "john.doe@techcorp.com",
+          "thread_id": "thread_test_004",
+          "thread_history": [],
+          "customer_context": {},
+          "forwarder_context": {}
+        },
+        "expected_output": {
+          "email_type": "customer_confirmation",
+          "sender_type": "customer",
+          "confidence": 0.9,
+          "escalation_needed": false
+        }
+      },
+      {
+        "id": "CLS_005",
+        "description": "High-value contract escalation",
+        "category": "customer_quote_request",
+        "input": {
+          "email_text": "We need to ship 100 containers monthly for the next 12 months. This is a $2M annual contract. Please provide special pricing and senior management approval for this large volume commitment.",
+          "sender": "bulk.customer@techcorp.com",
+          "thread_id": "thread_test_005",
+          "thread_history": [],
+          "customer_context": {},
+          "forwarder_context": {}
+        },
+        "expected_output": {
+          "email_type": "customer_quote_request",
+          "sender_type": "customer",
+          "confidence": 0.9,
+          "escalation_needed": true
+        }
+      },
+      {
+        "id": "CLS_006",
+        "description": "Complex technical request",
+        "category": "customer_quote_request",
+        "input": {
+          "email_text": "We need to ship lithium batteries from Germany to Brazil. This requires special handling, temperature control, and hazardous materials certification. We need immediate assistance and senior management approval for this complex shipment.",
+          "sender": "technical.customer@techcorp.com",
+          "thread_id": "thread_test_006",
+          "thread_history": [],
+          "customer_context": {},
+          "forwarder_context": {}
+        },
+        "expected_output": {
+          "email_type": "customer_quote_request",
+          "sender_type": "customer",
+          "confidence": 0.8,
+          "escalation_needed": true
+        }
+      },
+      {
+        "id": "CLS_007",
+        "description": "Urgent escalation request",
+        "category": "customer_urgent",
+        "input": {
+          "email_text": "URGENT: Our shipment is stuck at the port due to documentation issues. This is causing $10K daily losses. I need immediate senior management intervention to resolve this critical situation.",
+          "sender": "urgent.customer@techcorp.com",
+          "thread_id": "thread_test_007",
+          "thread_history": [],
+          "customer_context": {},
+          "forwarder_context": {}
+        },
+        "expected_output": {
+          "email_type": "customer_urgent",
+          "sender_type": "customer",
+          "confidence": 0.9,
+          "escalation_needed": true
+        }
+      },
+      {
+        "id": "CLS_008",
+        "description": "Forwarder problem report",
+        "category": "forwarder_problem_report",
+        "input": {
+          "email_text": "Dear Team, We are experiencing delays with the CNSHA to USLAX route due to vessel schedule changes. This may affect your customer's March 15th shipment. Please escalate to management for alternative solutions.",
+          "sender": "fedex.trade@logistics.com",
+          "thread_id": "thread_test_008",
+          "thread_history": [],
+          "customer_context": {},
+          "forwarder_context": {}
+        },
+        "expected_output": {
+          "email_type": "forwarder_problem_report",
+          "sender_type": "forwarder",
+          "confidence": 0.9,
+          "escalation_needed": true
+        }
+      },
+      {
+        "id": "CLS_009",
+        "description": "Vague customer response",
+        "category": "customer_vague_response",
+        "input": {
+          "email_text": "Hi, I want to ship some goods internationally. Can you help me with rates? I'm not sure about the details but need it done soon.",
+          "sender": "new.customer@startup.com",
+          "thread_id": "thread_test_009",
+          "thread_history": [],
+          "customer_context": {},
+          "forwarder_context": {}
+        },
+        "expected_output": {
+          "email_type": "customer_vague_response",
+          "sender_type": "customer",
+          "confidence": 0.7,
+          "escalation_needed": false
+        }
+      },
+      {
+        "id": "CLS_010",
+        "description": "Sales person inquiry",
+        "category": "sales_person_inquiry",
+        "input": {
+          "email_text": "Hi team, I need to check the status of the CNSHA to USLAX shipment for customer John Doe. Can you provide an update on the current status?",
+          "sender": "sarah.johnson@searates.com",
+          "thread_id": "thread_test_010",
+          "thread_history": [],
+          "customer_context": {},
+          "forwarder_context": {}
+        },
+        "expected_output": {
+          "email_type": "sales_person_inquiry",
+          "sender_type": "sales_person",
+          "confidence": 0.8,
+          "escalation_needed": false
+        }
+      }
+    ]
+  }
+} 
