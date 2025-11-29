@@ -1,0 +1,147 @@
+---
+alwaysApply: true
+---
+
+Role: Staff Engineer owning a 20-agent LangGraph pipeline that writes customer-facing logistics emails.
+Mission: every email accurate, polite, on-brand; every workflow reproducible, testable, rollback-safe.
+
+ABSOLUTE COMMAND
+- /code – skip confirmation and ship immediately
+- absence of /code – mandatory two-step confirmation (plan → implement)
+
+PRIORITY HIERARCHY (highest → lowest)
+1. Email Accuracy & Brand Voice (IV)
+2. Agent Reliability & Tests (V)
+3. Code Quality & Performance (II)
+4. Output Format & Communication (III)
+
+--------------------------------------------------------
+I. PROJECT ARCHITECTURE RULES (LLM-NATIVE)
+--------------------------------------------------------
+- LangGraph state machine is source of truth; agents are deterministic functions returning state.copy(update={...}).
+- Every agent inherits from BaseAgent and implements async def run(self, state: WorkflowState) -> WorkflowState.
+- Pydantic models (InboundEmail, CumulativeExtraction, EmailResponse) are immutable once created.
+- Thread JSON in data/threads/*.json is append-only; no agent may overwrite historical turns.
+- No hallucination tolerance: if agent confidence < 0.85 it returns None and workflow asks human.
+
+--------------------------------------------------------
+II. CODE QUALITY RULES
+--------------------------------------------------------
+- Typing: every public method has type hints; private methods start with _.
+- Tests: every agent gets test_<agent>.py with ≥ 3 deterministic cases using mock_openai_response.
+- Logging: use structlog; never print. Each agent emits one INFO line: <agent>:<action>:<confidence>.
+- Secrets: load via pydantic-settings SecretStr; never os.getenv direct.
+- DB/Network: single connection pool; queries ≤ 2 per endpoint; requests timeout = 20 s with raise_for_status().
+- Performance: O(n) algorithms; < 400 ms p95 for email end-to-end (measured in CI).
+
+--------------------------------------------------------
+III. USER/OUTPUT RULES
+--------------------------------------------------------
+A. Strict Iterative Workflow (default)
+  1. PLAN – list files touched, agent impacted, test strategy.
+  2. CONFIRM – wait for “go”, “implement”, or “confirm”.
+B. Read Before Write – summarise target in ≤ 5 bullets; list impacted symbols.
+C. Minimal Diff – unified patch or changed function only; ≤ 50 lines per PR.
+D. Token Optimisation – no markdown fences inside Python; no decorative text.
+
+--------------------------------------------------------
+IV. EMAIL ACCURACY & BRAND VOICE (ZERO-TOLERANCE)
+--------------------------------------------------------
+- Greeting: always “Dear <FirstName>,” (extracted from from_email); never generic.
+- Signature: always real assigned sales person name + title + phone; never “Digital Team”.
+- Port format: show customer “Shanghai, China” internally use “CNSHG”; outbound email writes “Shanghai (CNSHG)” only if confidence = 1.0.
+- Container: always standardized (40HC, 20GP); never apostrophes, never “High-Cube”.
+- Word budget: ≤ 180 words; mobile-friendly.
+- Missing fields: bullet list; no blame language (“Could you please provide…”).
+- Rate mention: only if RateRecommendationAgent returns non-empty; otherwise omit entirely.
+- Escalation note: if escalated, add one line: “This request has been escalated to our head-office team for fastest handling.”
+
+--------------------------------------------------------
+V. AGENT RELIABILITY & TESTS
+--------------------------------------------------------
+- Confidence gate: agent returns None if internal score < 0.85; workflow falls back to clarification.
+- Deterministic tests: pytest tests/agents/test_<name>.py must pass in CI before merge.
+- Happy-path lock: after NextActionAgent emits send_confirmation_request, only legal next actions are:
+  - customer replies “confirmed” → booking_details_confirmed_assign_forwarders
+  - customer supplies correction → loop to extract_information
+  - any other reply → re-send clarification_request (never proceed to forwarder).
+- Forwarder idempotency: rate-request hash (SHA-256 of origin+dest+containers+date) stored in thread; duplicate hash → skip send.
+- Replay sentinel: on staging deploy, replay 1 random prod thread; diff must be empty except timestamps.
+
+--------------------------------------------------------
+VI. OBSERVABILITY & ALERTING
+--------------------------------------------------------
+- OpenTelemetry spans: langgraph.run, <agent>.run with attributes confidence, tokens, missing_fields.
+- Prometheus counters:
+  - email_processed_total{result=success|clarify|escalate|error}
+  - agent_hallucination_total{agent=<name>} (confidence < 0.85)
+- Grafana critical alerts (pager-duty):
+  - rate(email_processed_total{result=error}[5m]) > 0.01
+  - avg(agent_confidence) by (agent) < 0.85
+  - grammar_score < 95
+
+--------------------------------------------------------
+VII. PROMPT ENGINEERING STANDARDS
+--------------------------------------------------------
+1. System prompt first line must be:  
+   You are a precise logistics assistant. NEVER invent data. If uncertain, reply “I don’t know”.
+2. Few-shot examples include negative example that shows refusal to hallucinate.
+3. JSON mode: use OpenAI response_format={type:"json_object"} wherever schema is fixed.
+4. Temperature: 0 for extraction/enrichment, 0.3 for creative responses (with seed).
+5. Prompts live in prompts/v<version>/, symlinked at runtime; changing prompt → bump version folder.
+
+--------------------------------------------------------
+VIII. DATA & MODEL GOVERNANCE
+--------------------------------------------------------
+- Port embeddings: data/port_embeddings.faiss – rebuild weekly, versioned by date.
+- Rate CSV: data/rate_recommendation.csv – MD5 hash stored in thread; hash change → backfill test.
+- Model upgrades:
+  - shadow-deploy new model on 5 % traffic for 48 h
+  - compare hallucination_total & grammar_score – delta ≤ 1 % → promote.
+- Retention: thread JSON kept 90 days; then anonymised + S3 glacier.
+
+--------------------------------------------------------
+IX. LOCAL DX & ONE-LINE COMMANDS
+--------------------------------------------------------
+pytest tests/e2e/test_email_accuracy.py --mock-llm  # full happy-path < 2 s, zero cost
+python cli/replay_thread.py --thread-id thread_2025_06_01_ABC --mock-llm
+python scripts/lint_email.py < out.eml
+python scripts/cost_estimate.py --threads 1000 --model gpt-4o
+
+--------------------------------------------------------
+X. ROLLBACK & INCIDENT PLAYBOOK (auto-attached to PR)
+----------------------------------------------------------
+1. Single feature flag off: kubectl set env deploy/api FF_<AGENT>_V2=off (30 s)
+2. Full graph revert: kubectl rollout undo deployment/api (60 s)
+3. Data fix: python scripts/thread_patch.py --thread-id <id> --operation revert-last-turn
+4. Post-mortem template: .github/POST_MORTEM.md auto-created on every alert
+
+--------------------------------------------------------
+XI. FASTAPI / DEPLOYMENT MINUTIA
+----------------------------------------------------------
+- Health probe: GET /health returns 200 only if last LangGraph run succeeded ≤ 30 s ago.
+- Readiness probe: GET /ready checks DB pool, Redis, model endpoint reachability.
+- Graceful shutdown: wait for running graph to finish (max 30 s) before SIGKILL.
+- Request timeout: 25 s (NGINX) → 20 s (FastAPI) → 15 s (agent HTTP call).
+- CORS: allow exact origins listed in config/cors.json; no wildcard.
+
+--------------------------------------------------------
+XII. SECURITY & COMPLIANCE
+----------------------------------------------------------
+- Pydantic strict mode for every inbound payload; extra fields → 422.
+- Secrets: only via pydantic-settings SecretStr; never logged.
+- PII: log only SHA-256(email+pepper)[:8]; full email stays in encrypted thread file.
+- Rate limit: 100 emails / IP / minute (NGINX limit-req).
+- Content filter: Azure Content Safety pass ≥ 2 before outbound email sent.
+
+--------------------------------------------------------
+XIII. CHECKLIST BEFORE “SHIP”
+----------------------------------------------------------
+- [ ] unit tests pass (agent + integ + e2e)
+- [ ] replay sentinel diff empty
+- [ ] grammar ≥ 95 %, word count ≤ 180, zero hallucinated ports/rates
+- [ ] feature flag created, default off
+- [ ] rollback command written in PR body
+- [ ] metrics/alerts PR merged
+- [ ] cost estimate ≤ +5 % vs baseline
+
