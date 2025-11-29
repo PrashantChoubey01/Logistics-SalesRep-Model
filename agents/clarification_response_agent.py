@@ -47,6 +47,11 @@ class ClarificationResponseAgent(BaseAgent):
             Dictionary containing response details
         """
         try:
+            # Debug logging
+            logger.info(f"🔍 DEBUG: Generating clarification response")
+            logger.info(f"🔍 DEBUG: Extracted data: {json.dumps(extracted_data, indent=2)}")
+            logger.info(f"🔍 DEBUG: Port lookup result: {json.dumps(port_lookup_result, indent=2) if port_lookup_result else 'None'}")
+            
             # Determine missing fields based on business rules if not provided
             if not missing_fields:
                 missing_fields = self._determine_missing_fields(extracted_data)
@@ -80,56 +85,126 @@ class ClarificationResponseAgent(BaseAgent):
             return self._generate_fallback_response(missing_fields, customer_name, extracted_data, port_lookup_result)
     
     def _format_extracted_info(self, extracted_data: Dict[str, Any], port_lookup_result: Dict[str, Any] = None) -> str:
-        """Format extracted information for display with standardized port names"""
+        """
+        Format extracted information for display with standardized port names.
+        Per spec: Clarification responses show enriched ports with port codes (e.g., "Shanghai (CNSHG)").
+        """
         formatted_sections = []
         
         # Shipment details
         if "shipment_details" in extracted_data:
             shipment = extracted_data["shipment_details"]
-            if any(shipment.values()):
-                shipment_text = "**Shipment Details:**\n"
+            # Always create shipment section if shipment_details exists, even if some fields are empty
+            shipment_text = "**Shipment Details:**\n"
+            has_any_data = False
                 
-                # Origin with standardized port name
-                if shipment.get("origin"):
-                    origin_display = shipment['origin']
-                    if port_lookup_result and port_lookup_result.get("origin"):
-                        origin_result = port_lookup_result["origin"]
-                        # Show port code if available, regardless of confidence
-                        if origin_result.get("port_code"):
-                            origin_display = f"{origin_result.get('port_name', shipment['origin'])} ({origin_result.get('port_code', '')})"
-                    shipment_text += f"• Origin: {origin_display}\n"
+            # Origin with standardized port name, port code, and country (per spec: clarification shows codes)
+            origin = shipment.get("origin", "").strip() if shipment.get("origin") else ""
+            if origin:
+                has_any_data = True
+                origin_display = origin
+                # Use port_lookup_result to get enriched port with code and country
+                if port_lookup_result and port_lookup_result.get("origin"):
+                    origin_result = port_lookup_result["origin"]
+                    port_name = origin_result.get('port_name', origin)
+                    port_code = origin_result.get('port_code', '')
+                    country = origin_result.get('country', '')
+                    
+                    # Format: If country is available and different from port_name, show both
+                    # Format: "Port Name (Port Code), Country" or "Country - Port Name (Port Code)" if country was input
+                    if port_code:
+                        if country and country != "Unknown" and country.lower() != port_name.lower():
+                            # Check if original input was a country name (e.g., "USA", "China")
+                            origin_lower = origin.lower()
+                            country_lower = country.lower()
+                            # If input matches country better than port name, show country first
+                            if country_lower in origin_lower or origin_lower in country_lower:
+                                origin_display = f"{country} - {port_name} ({port_code})"
+                            else:
+                                origin_display = f"{port_name} ({port_code}), {country}"
+                        else:
+                            origin_display = f"{port_name} ({port_code})"
+                    elif country and country != "Unknown" and country.lower() != port_name.lower():
+                        origin_display = f"{port_name}, {country}"
+                    else:
+                        origin_display = port_name if port_name else origin
+                shipment_text += f"• Origin: {origin_display}\n"
                 
-                # Destination with standardized port name
-                if shipment.get("destination"):
-                    destination_display = shipment['destination']
-                    if port_lookup_result and port_lookup_result.get("destination"):
-                        destination_result = port_lookup_result["destination"]
-                        # Show port code if available, regardless of confidence
-                        if destination_result.get("port_code"):
-                            destination_display = f"{destination_result.get('port_name', shipment['destination'])} ({destination_result.get('port_code', '')})"
-                    shipment_text += f"• Destination: {destination_display}\n"
+            # Destination with standardized port name, port code, and country (per spec: clarification shows codes)
+            destination = shipment.get("destination", "").strip() if shipment.get("destination") else ""
+            if destination:
+                has_any_data = True
+                destination_display = destination
+                # Use port_lookup_result to get enriched port with code and country
+                if port_lookup_result and port_lookup_result.get("destination"):
+                    destination_result = port_lookup_result["destination"]
+                    port_name = destination_result.get('port_name', destination)
+                    port_code = destination_result.get('port_code', '')
+                    country = destination_result.get('country', '')
+                    
+                    # Format: If country is available and different from port_name, show both
+                    # Format: "Port Name (Port Code), Country" or "Country - Port Name (Port Code)" if country was input
+                    if port_code:
+                        if country and country != "Unknown" and country.lower() != port_name.lower():
+                            # Check if original input was a country name (e.g., "USA", "China")
+                            destination_lower = destination.lower()
+                            country_lower = country.lower()
+                            # If input matches country better than port name, show country first
+                            if country_lower in destination_lower or destination_lower in country_lower:
+                                destination_display = f"{country} - {port_name} ({port_code})"
+                            else:
+                                destination_display = f"{port_name} ({port_code}), {country}"
+                        else:
+                            destination_display = f"{port_name} ({port_code})"
+                    elif country and country != "Unknown" and country.lower() != port_name.lower():
+                        destination_display = f"{port_name}, {country}"
+                    else:
+                        destination_display = port_name if port_name else destination
+                shipment_text += f"• Destination: {destination_display}\n"
                 
-                # Container information
-                if shipment.get("container_type"):
-                    shipment_text += f"• Container Type: {shipment['container_type']}\n"
-                if shipment.get("container_count"):
-                    shipment_text += f"• Quantity: {shipment['container_count']}\n"
+            # Container information
+            container_type = shipment.get("container_type", "").strip() if shipment.get("container_type") else ""
+            if container_type:
+                has_any_data = True
+                shipment_text += f"• Container Type: {container_type}\n"
+            
+            container_count = shipment.get("container_count", "").strip() if shipment.get("container_count") else ""
+            if container_count:
+                has_any_data = True
+                shipment_text += f"• Quantity: {container_count}\n"
                 
-                # Commodity
-                if shipment.get("commodity"):
-                    shipment_text += f"• Commodity: {shipment['commodity']}\n"
+            # Commodity
+            commodity = shipment.get("commodity", "").strip() if shipment.get("commodity") else ""
+            if commodity:
+                has_any_data = True
+                shipment_text += f"• Commodity: {commodity}\n"
                 
-                # Weight and volume
-                if shipment.get("weight"):
-                    shipment_text += f"• Weight: {shipment['weight']}\n"
-                if shipment.get("volume"):
-                    shipment_text += f"• Volume: {shipment['volume']}\n"
+            # Weight and volume
+            weight = shipment.get("weight", "").strip() if shipment.get("weight") else ""
+            if weight:
+                has_any_data = True
+                shipment_text += f"• Weight: {weight}\n"
+            
+            volume = shipment.get("volume", "").strip() if shipment.get("volume") else ""
+            if volume:
+                has_any_data = True
+                shipment_text += f"• Volume: {volume}\n"
+            
+            # Incoterm
+            incoterm = shipment.get("incoterm", "").strip() if shipment.get("incoterm") else ""
+            if incoterm:
+                has_any_data = True
+                shipment_text += f"• Incoterm: {incoterm}\n"
                 
-                # Timeline information
-                timeline_info = extracted_data.get("timeline_information", {})
-                if timeline_info.get("requested_dates"):
-                    shipment_text += f"• Shipment Date: {timeline_info['requested_dates']}\n"
-                
+            # Timeline information
+            timeline_info = extracted_data.get("timeline_information", {})
+            requested_dates = timeline_info.get("requested_dates", "").strip() if timeline_info.get("requested_dates") else ""
+            if requested_dates:
+                has_any_data = True
+                shipment_text += f"• Shipment Date: {requested_dates}\n"
+            
+            # Only add section if we have at least one field
+            if has_any_data:
                 formatted_sections.append(shipment_text)
         
         # Contact information
@@ -165,7 +240,7 @@ class ClarificationResponseAgent(BaseAgent):
     def _generate_llm_response(self, extracted_data: Dict[str, Any], missing_fields: List[str], 
                              customer_name: str, agent_info: Dict[str, str], tone: str, 
                              port_lookup_result: Dict[str, Any]) -> str:
-        """Generate response using LLM"""
+        """Generate response using LLM - ALWAYS includes extracted information section per spec"""
         
         if not self.client:
             self.load_context()
@@ -173,7 +248,7 @@ class ClarificationResponseAgent(BaseAgent):
         if not self.client:
             return self._generate_fallback_response(missing_fields, customer_name, extracted_data, port_lookup_result)["body"]
         
-        # Format extracted information
+        # Format extracted information - MUST be included in response per spec
         extracted_info = self._format_extracted_info(extracted_data, port_lookup_result)
         missing_info = self._format_missing_fields(missing_fields)
         
@@ -185,7 +260,7 @@ You are a professional logistics sales representative. Generate a {tone} email r
 
 CUSTOMER NAME: {customer_name}
 
-EXTRACTED INFORMATION FROM CUSTOMER:
+EXTRACTED INFORMATION FROM CUSTOMER (this will be displayed separately - DO NOT mention specific port names or details):
 {extracted_info}
 
 MISSING REQUIRED INFORMATION:
@@ -197,47 +272,82 @@ AGENT SIGNATURE:
 INSTRUCTIONS:
 1. Write a completely unique and dynamic email response - DO NOT use any templates or standard phrases
 2. Make the response sound natural and conversational, as if written by a real person
-3. IMPORTANT: The extracted information above is already formatted with validation indicators (✅ and ❓) - DO NOT repeat this information in your response
-4. Acknowledge that you've reviewed their information and found some details that need clarification
-5. Clearly explain what additional information is needed and why it's important
-6. Use a {tone} tone - professional but approachable
-7. Include the agent signature at the end
-8. Keep the response concise but comprehensive
-9. Make it easy for the customer to provide the missing information
-10. Vary your language and sentence structure - avoid repetitive patterns
-11. Be creative with your opening and closing statements
+3. Acknowledge that you've reviewed their information and found some details that need clarification
+4. Clearly explain what additional information is needed and why it's important
+5. Use a {tone} tone - professional but approachable
+6. Keep the response concise but comprehensive
+7. Make it easy for the customer to provide the missing information
+8. Vary your language and sentence structure - avoid repetitive patterns
+9. Be creative with your opening and closing statements
+10. DO NOT mention specific port names, container types, or shipment details in your response - these will be shown separately
 
 RESPONSE REQUIREMENTS:
 - Start with a unique greeting using the customer's name
 - Thank them for their inquiry and acknowledge that you've reviewed their information
-- Reference the extracted information section above (which is already formatted for them to review)
 - Explain what's missing and why it's needed in a helpful way
 - Provide clear instructions on how to provide the information
-- End with a professional but friendly closing and the signature
+- End with a professional but friendly closing
 - Make each response sound different from typical template responses
+- DO NOT include the agent signature in your response - it will be added separately
 
 IMPORTANT: 
-- The extracted information is already displayed above with validation indicators - do not repeat it
 - Focus on explaining what's missing and why it's needed
 - This response should sound like it was written by a real person, not a template
+- The extracted information section will be added separately, so do NOT include it in your response
+- DO NOT mention specific ports, cities, container types, or other extracted details - just reference "the information you provided" or "your shipment details"
 
-Generate the complete email response:
+Generate ONLY the email body text (greeting, explanation of missing info, closing - NO signature):
 """
         
         try:
-            response = self.client.chat.completions.create(
+            # Use OpenAI client
+            client = self.get_openai_client()
+            if not client:
+                raise Exception("OpenAI client not available")
+            
+            response = client.chat.completions.create(
                 model=self.config.get("model_name"),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.8,  # Higher temperature for more creative responses
                 max_tokens=800
             )
             
-            response_text = response.choices[0].message.content.strip()
+            llm_response_text = response.choices[0].message.content.strip()
             
             # Clean the response to ensure JSON safety
-            response_text = self._clean_response_for_json(response_text)
+            llm_response_text = self._clean_response_for_json(llm_response_text)
             
-            return response_text
+            # CRITICAL: Per spec, clarification responses MUST explicitly show extracted information
+            # Combine LLM response with extracted information section
+            # Format: Introduction + Extracted Info Section + Missing Info + Closing
+            
+            # Build the full response
+            full_response_parts = [llm_response_text]
+            
+            # Add extracted information section if we have any data
+            if extracted_info and extracted_info.strip() and extracted_info != "No specific details provided yet.":
+                full_response_parts.append("")
+                full_response_parts.append("I've carefully reviewed your email and extracted the following information. Please take a moment to confirm these details are accurate:")
+                full_response_parts.append("")
+                full_response_parts.append(extracted_info)
+            
+            # Add next steps section
+            if missing_info and missing_info.strip() and missing_info != "All required information has been provided.":
+                full_response_parts.append("")
+                full_response_parts.append("**Next Steps:**")
+                full_response_parts.append("")
+                full_response_parts.append(missing_info)
+                full_response_parts.append("")
+                full_response_parts.append("Please provide the missing information, and I'll proceed with preparing your comprehensive shipping quote.")
+            
+            # Add signature
+            if signature:
+                full_response_parts.append("")
+                full_response_parts.append(signature)
+            
+            full_response = "\n".join(full_response_parts)
+            
+            return full_response
             
         except Exception as e:
             logger.error(f"LLM response generation failed: {e}")
@@ -300,17 +410,33 @@ Generate the complete email response:
         return "\n".join(formatted_fields)
     
     def _generate_subject_line(self, extracted_data: Dict[str, Any], port_lookup_result: Dict[str, Any] = None) -> str:
-        """Generate appropriate subject line with standardized port names"""
+        """
+        Generate appropriate subject line with standardized port names and codes.
+        Per spec: Clarification responses show enriched ports with port codes (e.g., "Shanghai (CNSHG)").
+        """
         shipment = extracted_data.get("shipment_details", {})
         origin = shipment.get("origin", "origin")
         destination = shipment.get("destination", "destination")
         
-        # Use standardized port names if available
+        # Use port_lookup_result to get enriched port with code (per spec: clarification shows codes)
         if port_lookup_result:
-            if port_lookup_result.get("origin") and port_lookup_result["origin"].get("port_code"):
-                origin = port_lookup_result["origin"].get("port_name", origin)
-            if port_lookup_result.get("destination") and port_lookup_result["destination"].get("port_code"):
-                destination = port_lookup_result["destination"].get("port_name", destination)
+            if port_lookup_result.get("origin"):
+                origin_result = port_lookup_result["origin"]
+                port_name = origin_result.get("port_name", origin)
+                port_code = origin_result.get("port_code", "")
+                if port_code:
+                    origin = f"{port_name} ({port_code})"  # Show with code per spec
+                else:
+                    origin = port_name
+            
+            if port_lookup_result.get("destination"):
+                destination_result = port_lookup_result["destination"]
+                port_name = destination_result.get("port_name", destination)
+                port_code = destination_result.get("port_code", "")
+                if port_code:
+                    destination = f"{port_name} ({port_code})"  # Show with code per spec
+                else:
+                    destination = port_name
         
         return f"Additional Information Needed - Shipping from {origin} to {destination}"
     

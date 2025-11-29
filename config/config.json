@@ -1,5 +1,6 @@
 {
-  "api_key": "dapi81b45be7f09611a410fc3e5104a8cadf-3",
-  "base_url": "https://adb-1825279086009288.8.azuredatabricks.net/",
-  "model_name": "databricks-meta-llama-3-70b-instruct"
+  "api_key": "dapibc1b1ba3a4f522480e6d9307d351c252-3",
+  "base_url": "https://adb-2252852771922438.18.azuredatabricks.net/serving-endpoints/",
+  // "model_name": "databricks-meta-llama-3-70b-instruct"
+  "model_name": "databricks-claude-3-7-sonnet"
 }

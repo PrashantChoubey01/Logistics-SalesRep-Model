@@ -165,7 +165,12 @@ Analyze the port code and provide:
 Be accurate and provide high confidence only for well-known ports.
 """
 
-            response = self.client.chat.completions.create(
+            # Use OpenAI client for function calling
+            client = self.get_openai_client()
+            if not client:
+                return {"error": "OpenAI client not available for function calling"}
+            
+            response = client.chat.completions.create(
                 model=self.config.get("model_name"),
                 messages=[{"role": "user", "content": prompt}],
                 tools=[{
