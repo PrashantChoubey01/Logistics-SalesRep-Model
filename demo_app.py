@@ -66,12 +66,18 @@ with col2:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         st.session_state.thread_id = f"demo_thread_{timestamp}"
         st.session_state.email_history = []
+        st.success("✅ Thread reset! Email history cleared.")
         st.rerun()
 
 st.markdown("---")
 
-# Email templates
-CUSTOMER_EMAIL = """Hello Searates,
+# Email templates - 5 different scenarios
+EMAIL_TEMPLATES = {
+    "Complete FCL Quote Request": {
+        "type": "Customer",
+        "sender": "john.doe@techcorp.com",
+        "subject": "FCL Shipping Quote - Shanghai to Los Angeles",
+        "content": """Hello Searates,
 
 I need a shipping quote for a full container load from Shanghai, China to Los Angeles, USA.
 
@@ -91,21 +97,118 @@ Best regards,
 John Doe
 Logistics Manager
 TechCorp Inc."""
+    },
+    "Minimal Information Request": {
+        "type": "Customer",
+        "sender": "sarah.williams@manufacturing.com",
+        "subject": "Shipping Quote Request",
+        "content": """Hi,
 
-FORWARDER_EMAIL = """Dear Logistics Team,
+I want to ship from USA to China.
 
-Please find our rate quote for the Shanghai to Los Angeles route:
+Please send me a quote.
 
-Route: Shanghai (CNSHA) to Los Angeles (USLAX)
+Thanks,
+Sarah Williams"""
+    },
+    "Customer Confirmation": {
+        "type": "Customer",
+        "sender": "john.doe@techcorp.com",
+        "subject": "Re: FCL Shipping Quote - Shanghai to Los Angeles",
+        "content": """Hi,
+
+I confirm the details are correct. Please proceed with the booking.
+
+Best regards,
+John Doe"""
+    },
+    "Forwarder Rate Quote": {
+        "type": "Forwarder",
+        "sender": "ops@pacificbridgelogistics.com",
+        "subject": "Rate Quote - Shanghai to Los Angeles",
+        "content": """Dear Logistics Team,
+
+Please find our rate quote:
+
+Route: Shanghai (CNSHG) to Los Angeles (USLAX)
 Container: 40HC
 Rate: $2,850 USD
 Transit Time: 18 days
-Valid Until: August 31, 2025
+Valid Until: December 31, 2024
 
-Please confirm if you would like to proceed with this rate.
+Please confirm if you would like to proceed.
 
 Best regards,
-DHL Global Forwarding"""
+Pacific Bridge Logistics"""
+    },
+    "LCL Shipment Request": {
+        "type": "Customer",
+        "sender": "mike.chen@trading.com",
+        "subject": "LCL Shipping Quote Request",
+        "content": """Dear SeaRates Team,
+
+I need a quote for LCL shipment:
+
+- Origin: Singapore
+- Destination: New York, USA
+- Weight: 500 kg
+- Volume: 2.5 CBM
+- Commodity: Textiles
+- Ready Date: 2024-04-01
+
+Please provide your best rates.
+
+Best regards,
+Mike Chen
+Trading Co."""
+    }
+}
+
+# Initialize session state for form values
+if 'form_email_type' not in st.session_state:
+    st.session_state.form_email_type = "Customer"
+if 'form_sender_email' not in st.session_state:
+    st.session_state.form_sender_email = "john.doe@techcorp.com"
+if 'form_subject' not in st.session_state:
+    st.session_state.form_subject = "FCL Shipping Quote - Shanghai to Los Angeles"
+if 'form_content' not in st.session_state:
+    st.session_state.form_content = EMAIL_TEMPLATES["Complete FCL Quote Request"]["content"]
+if 'selected_template_key' not in st.session_state:
+    st.session_state.selected_template_key = "-- Select a template --"
+
+# Email template selector dropdown
+st.subheader("📋 Email Templates")
+template_options = ["-- Select a template --"] + list(EMAIL_TEMPLATES.keys())
+
+# Calculate index for selectbox
+template_index = 0
+if 'selected_template_key' in st.session_state and st.session_state.selected_template_key != "-- Select a template --":
+    try:
+        template_index = template_options.index(st.session_state.selected_template_key)
+    except ValueError:
+        template_index = 0
+
+selected_template = st.selectbox(
+    "Select an email template to load:",
+    options=template_options,
+    index=template_index,
+    help="Choose a pre-configured email template to quickly test different scenarios",
+    key="template_selectbox"
+)
+
+# Update form values when template is selected
+if selected_template != "-- Select a template --" and selected_template in EMAIL_TEMPLATES:
+    if 'selected_template_key' not in st.session_state or st.session_state.selected_template_key != selected_template:
+        template = EMAIL_TEMPLATES[selected_template]
+        st.session_state.form_email_type = template["type"]
+        st.session_state.form_sender_email = template["sender"]
+        st.session_state.form_subject = template["subject"]
+        st.session_state.form_content = template["content"]
+        st.session_state.selected_template_key = selected_template
+        st.success(f"✅ Loaded template: {selected_template}")
+        st.rerun()
+
+st.markdown("---")
 
 # Email form
 st.subheader("📝 Send Email")
@@ -113,24 +216,28 @@ st.subheader("📝 Send Email")
 col1, col2 = st.columns([1, 2])
 
 with col1:
+    # Determine index based on current form_email_type
+    email_type_index = 0 if st.session_state.form_email_type == "Customer" else 1
     email_type = st.selectbox(
         "Email From:",
         ["Customer", "Forwarder"],
-        help="Select who is sending the email"
+        index=email_type_index,
+        help="Select who is sending the email",
+        key="email_type_selectbox"
     )
+    # Update session state when changed
+    if email_type != st.session_state.form_email_type:
+        st.session_state.form_email_type = email_type
 
 with col2:
     if email_type == "Customer":
-        sender_email = st.text_input("Customer Email", "john.doe@techcorp.com")
-        default_content = CUSTOMER_EMAIL
+        sender_email = st.text_input("Customer Email", st.session_state.form_sender_email, key="sender_email_input")
     else:
-        sender_email = st.text_input("Forwarder Email", "dhl@dhl.com")
-        default_content = FORWARDER_EMAIL
+        sender_email = st.text_input("Forwarder Email", st.session_state.form_sender_email, key="sender_email_input")
 
-subject = st.text_input("Subject", 
-    "FCL Shipping Quote - Shanghai to Los Angeles" if email_type == "Customer" else "Rate Quote - Shanghai to Los Angeles")
+subject = st.text_input("Subject", st.session_state.form_subject, key="subject_input")
 
-content = st.text_area("Email Content", default_content, height=250)
+content = st.text_area("Email Content", st.session_state.form_content, height=250, key="content_textarea")
 
 if st.button("🚀 Process Email", type="primary"):
     if not content.strip():
@@ -152,22 +259,78 @@ if st.button("🚀 Process Email", type="primary"):
                 # Extract response
                 workflow_state = result.get('result', {})
                 
-                # Find the response
+                # Debug: Log available keys in workflow_state
+                if not workflow_state:
+                    st.warning("⚠️ No workflow state returned. Result keys: " + str(list(result.keys())))
+                else:
+                    available_results = [key for key in workflow_state.keys() if key.endswith('_result')]
+                    if available_results:
+                        st.info(f"🔍 Available results in workflow state: {', '.join(available_results)}")
+                
+                # Find the response - check in priority order, skip error responses
                 response = None
                 response_type = None
                 
+                # CRITICAL: Always add email to history FIRST, even if no response found yet
+                # This ensures email history is always captured
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                email_history_entry = {
+                    "timestamp": timestamp,
+                    "type": email_type,
+                    "sender": sender_email,
+                    "subject": subject,
+                    "content": content,
+                    "response": None,  # Will be updated below
+                    "response_type": None,  # Will be updated below
+                    "forwarder_assignment": None,  # Will be updated below
+                    "forwarder_response": None,  # Will be updated below
+                    "sales_notification": None  # Will be updated below
+                }
+                
+                # Priority 1: Confirmation Request (only if no error)
                 if workflow_state.get('confirmation_response_result'):
-                    response = workflow_state['confirmation_response_result']
-                    response_type = "Confirmation"
-                elif workflow_state.get('clarification_response_result'):
-                    response = workflow_state['clarification_response_result']
-                    response_type = "Clarification"
-                elif workflow_state.get('confirmation_acknowledgment_result'):
-                    response = workflow_state['confirmation_acknowledgment_result']
-                    response_type = "Confirmation Acknowledgment"
-                elif workflow_state.get('acknowledgment_response_result'):
-                    response = workflow_state['acknowledgment_response_result']
-                    response_type = "Acknowledgment"
+                    confirmation_resp = workflow_state['confirmation_response_result']
+                    if confirmation_resp and not confirmation_resp.get('error'):
+                        response = confirmation_resp
+                        response_type = "Confirmation Request"
+                
+                # Priority 2: Clarification Request (check even if confirmation had error)
+                if not response and workflow_state.get('clarification_response_result'):
+                    clarification_resp = workflow_state['clarification_response_result']
+                    if clarification_resp and not clarification_resp.get('error'):
+                        response = clarification_resp
+                        response_type = "Clarification Request"
+                
+                # Priority 3: Confirmation Acknowledgment
+                if not response and workflow_state.get('confirmation_acknowledgment_result'):
+                    ack_resp = workflow_state['confirmation_acknowledgment_result']
+                    if ack_resp and not ack_resp.get('error'):
+                        response = ack_resp
+                        response_type = "Confirmation Acknowledgment"
+                
+                # Priority 4: Acknowledgment (forwarder or other)
+                if not response and workflow_state.get('acknowledgment_response_result'):
+                    ack_resp = workflow_state['acknowledgment_response_result']
+                    if ack_resp and not ack_resp.get('error'):
+                        response = ack_resp
+                        # Determine acknowledgment type based on sender
+                        sender_type = ack_resp.get('sender_type', '')
+                        if sender_type == 'forwarder':
+                            response_type = "Forwarder Acknowledgment"
+                        else:
+                            response_type = "Acknowledgment"
+                
+                # Debug: Log if no response found or if response has error
+                if not response:
+                    st.warning(f"⚠️ No response found. Checked for: confirmation_response_result, clarification_response_result, confirmation_acknowledgment_result, acknowledgment_response_result")
+                    # Show what's actually in workflow_state for debugging
+                    with st.expander("🔍 Debug: Workflow State Contents"):
+                        st.json(workflow_state)
+                elif response.get('error'):
+                    st.error(f"❌ Error in response: {response.get('error')}")
+                    # Still try to show what we have
+                    with st.expander("🔍 Debug: Response with Error"):
+                        st.json(response)
                 
                 # Get forwarder assignment details if available
                 forwarder_assignment = workflow_state.get('forwarder_assignment_result')
@@ -176,12 +339,8 @@ if st.button("🚀 Process Email", type="primary"):
                 forwarder_response = workflow_state.get('forwarder_response_result')
                 sales_notification = workflow_state.get('sales_notification_result')
                 
-                # Add to history
-                st.session_state.email_history.append({
-                    "type": email_type,
-                    "sender": sender_email,
-                    "subject": subject,
-                    "content": content,
+                # Update history entry with all collected data
+                email_history_entry.update({
                     "response": response,
                     "response_type": response_type,
                     "forwarder_assignment": forwarder_assignment,
@@ -189,16 +348,52 @@ if st.button("🚀 Process Email", type="primary"):
                     "sales_notification": sales_notification
                 })
                 
+                # Add to history (always add, even if response is None)
+                st.session_state.email_history.append(email_history_entry)
+                
+                # Log history update for debugging
+                st.info(f"📝 Email added to history. Total emails: {len(st.session_state.email_history)}")
+                
                 # Display response
                 st.markdown("---")
-                st.subheader(f"✅ Response Generated ({response_type})")
-                
-                if response:
-                    st.markdown(f"**Subject:** {response.get('subject', 'N/A')}")
-                    st.markdown("**Body:**")
-                    st.text_area("Response Body", response.get('body', 'N/A'), height=300, key=f"response_{len(st.session_state.email_history)}", label_visibility="collapsed")
+                if response and not response.get('error'):
+                    if response_type:
+                        st.subheader(f"✅ Response Generated ({response_type})")
+                    else:
+                        st.subheader("✅ Response Generated")
+                    
+                    # Display subject and body
+                    subject = response.get('subject', 'N/A')
+                    body = response.get('body', 'N/A')
+                    
+                    if subject and subject != 'N/A':
+                        st.markdown(f"**Subject:** {subject}")
+                    else:
+                        st.warning("⚠️ Response subject is missing")
+                    
+                    if body and body != 'N/A':
+                        st.markdown("**Body:**")
+                        st.text_area("Response Body", body, height=300, key=f"response_{len(st.session_state.email_history)}", label_visibility="collapsed")
+                    else:
+                        st.warning("⚠️ Response body is missing")
+                        # Show the full response for debugging
+                        with st.expander("🔍 Debug: Response Structure"):
+                            st.json(response)
+                elif response and response.get('error'):
+                    st.error(f"❌ Error in response: {response.get('error')}")
+                    # Still try to show what we have
+                    with st.expander("🔍 Debug: Response with Error"):
+                        st.json(response)
                 else:
-                    st.warning("⚠️ No response generated")
+                    st.warning("⚠️ No response generated or response is None")
+                    # Show debug info
+                    with st.expander("🔍 Debug: Why no response?"):
+                        st.write("**Workflow State Keys:**")
+                        st.write(list(workflow_state.keys()) if workflow_state else "No workflow_state")
+                        st.write("**Clarification Response Result:**")
+                        st.write(workflow_state.get('clarification_response_result'))
+                        st.write("**Result Structure:**")
+                        st.write(result)
                 
                 # Display forwarder assignment details if available
                 if forwarder_assignment:
@@ -344,16 +539,21 @@ Best regards,
                             response_type = "Sales Notification"
                         elif workflow_state.get('acknowledgment_response_result'):
                             response = workflow_state['acknowledgment_response_result']
-                            response_type = "Acknowledgment"
+                            response_type = "Forwarder Acknowledgment"
                         
                         # Add to history
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         st.session_state.email_history.append({
+                            "timestamp": timestamp,
                             "type": "Forwarder",
                             "sender": forwarder_email,
                             "subject": forwarder_subject,
                             "content": forwarder_content,
                             "response": response,
-                            "response_type": response_type
+                            "response_type": response_type,
+                            "forwarder_assignment": None,
+                            "forwarder_response": None,
+                            "sales_notification": None
                         })
                         
                         st.success("✅ Forwarder response processed!")
@@ -366,27 +566,76 @@ Best regards,
 
 st.markdown("---")
 
-# Email history
+# Email history - Always show prominently
+st.markdown("## 📜 Email History")
+st.markdown(f"**Total Emails:** {len(st.session_state.email_history)}")
+
 if st.session_state.email_history:
-    st.subheader("📜 Email History")
+    # Show history count and summary
+    st.info(f"📊 Showing {len(st.session_state.email_history)} email(s) in this thread")
     
+    # Display emails in reverse chronological order (newest first)
     for idx, email in enumerate(reversed(st.session_state.email_history)):
-        with st.expander(f"Email #{len(st.session_state.email_history) - idx}: {email['type']} - {email['subject']}", expanded=(idx == 0)):
+        email_num = len(st.session_state.email_history) - idx
+        timestamp = email.get('timestamp', 'Unknown time')
+        email_type = email.get('type', 'Unknown')
+        subject = email.get('subject', 'No subject')
+        
+        with st.expander(f"📧 Email #{email_num}: {email_type} - {subject} ({timestamp})", expanded=(idx == 0)):
+            # Email metadata
+            st.markdown(f"**⏰ Timestamp:** {timestamp}")
+            st.markdown(f"**👤 Type:** {email_type}")
+            
             col1, col2 = st.columns([1, 1])
             
             with col1:
-                st.markdown("**📤 Sent:**")
-                st.markdown(f"- **From:** {email['sender']}")
+                st.markdown("### 📤 Email Sent")
+                st.markdown(f"- **From:** `{email['sender']}`")
                 st.markdown(f"- **Subject:** {email['subject']}")
                 st.markdown("**Content:**")
-                st.text_area("Email Content", email['content'], height=150, key=f"sent_{idx}", disabled=True, label_visibility="collapsed")
+                st.text_area("Email Content", email['content'], height=200, key=f"sent_{idx}", disabled=True, label_visibility="collapsed")
             
             with col2:
-                st.markdown(f"**📥 Response ({email['response_type']}):**")
-                if email['response']:
-                    st.markdown(f"- **Subject:** {email['response'].get('subject', 'N/A')}")
+                st.markdown(f"### 📥 Response ({email.get('response_type', 'N/A')})")
+                if email.get('response') and not email['response'].get('error'):
+                    response = email['response']
+                    st.markdown(f"- **Subject:** {response.get('subject', 'N/A')}")
+                    if response.get('to'):
+                        st.markdown(f"- **To:** `{response.get('to', 'N/A')}`")
                     st.markdown("**Body:**")
-                    st.text_area("Response Body", email['response'].get('body', 'N/A'), height=150, key=f"resp_{idx}", disabled=True, label_visibility="collapsed")
+                    st.text_area("Response Body", response.get('body', 'N/A'), height=200, key=f"resp_{idx}", disabled=True, label_visibility="collapsed")
                 else:
-                    st.info("No response generated")
+                    st.info("ℹ️ No response generated or response has error")
+                    if email.get('response') and email['response'].get('error'):
+                        st.error(f"❌ Error: {email['response'].get('error')}")
+            
+            # Show additional information if available
+            if email.get('forwarder_assignment'):
+                st.markdown("---")
+                st.markdown("### 🚚 Forwarder Assignment")
+                forwarder_assignment = email['forwarder_assignment']
+                assigned_forwarder = forwarder_assignment.get('assigned_forwarder', {})
+                st.markdown(f"- **Forwarder:** {assigned_forwarder.get('name', 'N/A')}")
+                st.markdown(f"- **Email:** {assigned_forwarder.get('email', 'N/A')}")
+            
+            if email.get('forwarder_response'):
+                st.markdown("---")
+                st.markdown("### 📊 Forwarder Response")
+                forwarder_response = email['forwarder_response']
+                if not forwarder_response.get('error'):
+                    rate_info = forwarder_response.get('extracted_rate_info', {})
+                    if rate_info:
+                        st.markdown(f"- **Rate:** {rate_info.get('rate', 'N/A')}")
+                        st.markdown(f"- **Transit Time:** {rate_info.get('transit_time', 'N/A')}")
+            
+            if email.get('sales_notification'):
+                st.markdown("---")
+                st.markdown("### 📧 Sales Notification")
+                sales_notification = email['sales_notification']
+                if not sales_notification.get('error'):
+                    st.markdown(f"- **Subject:** {sales_notification.get('subject', 'N/A')}")
+                    with st.expander("View Sales Notification Body"):
+                        st.text_area("Sales Notification", sales_notification.get('body', 'N/A'), height=300, key=f"sales_{idx}", disabled=True, label_visibility="collapsed")
+else:
+    st.info("ℹ️ No email history yet. Process an email to see it here.")
 
