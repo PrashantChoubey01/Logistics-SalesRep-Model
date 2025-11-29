@@ -48,6 +48,7 @@ class ForwarderEmailDraftAgent(BaseAgent):
         shipment_details = input_data.get("shipment_details", {})
         origin_country = input_data.get("origin_country", "")
         destination_country = input_data.get("destination_country", "")
+        port_lookup_result = input_data.get("port_lookup_result", {})  # Get port codes
         thread_id = input_data.get("thread_id", "")
         sales_manager_id = input_data.get("sales_manager_id", "")
         customer_email_content = input_data.get("customer_email_content", "")
@@ -68,7 +69,8 @@ class ForwarderEmailDraftAgent(BaseAgent):
             destination_country, 
             thread_id, 
             sales_manager_id,
-            additional_details
+            additional_details,
+            port_lookup_result  # Pass port lookup result
         )
 
     def _extract_additional_details(self, customer_email_content: str) -> Dict[str, Any]:
@@ -132,7 +134,12 @@ Extract only logistics-related information such as:
 Ignore personal information, greetings, or non-logistics content.
 """
 
-            response = self.client.chat.completions.create(
+            # Use OpenAI client for function calling
+            client = self.get_openai_client()
+            if not client:
+                return {"error": "OpenAI client not available for function calling"}
+            
+            response = client.chat.completions.create(
                 model=self.config.get("model_name"),
                 messages=[{"role": "user", "content": prompt}],
                 tools=[{
@@ -157,7 +164,7 @@ Ignore personal information, greetings, or non-logistics content.
             self.logger.error(f"Error extracting additional details: {e}")
             return {}
 
-    def _generate_email_drafts(self, assigned_forwarders: List[Dict[str, Any]], shipment_details: Dict[str, Any], origin_country: str, destination_country: str, thread_id: str, sales_manager_id: str, additional_details: Dict[str, Any]) -> Dict[str, Any]:
+    def _generate_email_drafts(self, assigned_forwarders: List[Dict[str, Any]], shipment_details: Dict[str, Any], origin_country: str, destination_country: str, thread_id: str, sales_manager_id: str, additional_details: Dict[str, Any], port_lookup_result: Dict[str, Any] = None) -> Dict[str, Any]:
         """Generate email drafts using LLM function calling with sales manager signatures."""
         try:
             # Get sales manager signature
@@ -197,16 +204,35 @@ Ignore personal information, greetings, or non-logistics content.
                 }
             }
 
-            # Prepare shipment details for email (without customer info)
+            # Prepare shipment details for email - include ALL confirmed details
+            # Get origin and destination with port codes
+            origin_display = shipment_details.get("origin", origin_country)
+            destination_display = shipment_details.get("destination", destination_country)
+            
+            # Add port codes if available
+            if port_lookup_result:
+                if port_lookup_result.get("origin") and port_lookup_result["origin"].get("port_code"):
+                    origin_code = port_lookup_result["origin"]["port_code"]
+                    origin_name = port_lookup_result["origin"].get("port_name", origin_display)
+                    origin_display = f"{origin_name} ({origin_code})"
+                
+                if port_lookup_result.get("destination") and port_lookup_result["destination"].get("port_code"):
+                    dest_code = port_lookup_result["destination"]["port_code"]
+                    dest_name = port_lookup_result["destination"].get("port_name", destination_display)
+                    destination_display = f"{dest_name} ({dest_code})"
+            
             shipment_info = {
+                "origin": origin_display,
+                "destination": destination_display,
                 "origin_country": origin_country,
                 "destination_country": destination_country,
                 "commodity": shipment_details.get("commodity", ""),
                 "container_type": shipment_details.get("container_type", ""),
-                "quantity": shipment_details.get("quantity", ""),
+                "container_count": shipment_details.get("container_count", shipment_details.get("quantity", "")),
                 "weight": shipment_details.get("weight", ""),
                 "volume": shipment_details.get("volume", ""),
-                "shipment_date": shipment_details.get("shipment_date", ""),
+                "shipment_date": shipment_details.get("shipment_date", shipment_details.get("requested_dates", "")),
+                "incoterm": shipment_details.get("incoterm", ""),
                 "shipment_type": shipment_details.get("shipment_type", "FCL")
             }
 
@@ -240,7 +266,12 @@ Rules:
 Generate one email per forwarder with subject, body, priority, urgency, and response time.
 """
 
-            response = self.client.chat.completions.create(
+            # Use OpenAI client for function calling
+            client = self.get_openai_client()
+            if not client:
+                return {"error": "OpenAI client not available for function calling"}
+            
+            response = client.chat.completions.create(
                 model=self.config.get("model_name"),
                 messages=[{"role": "user", "content": prompt}],
                 tools=[{
@@ -311,30 +342,47 @@ Searates By DP World
 🌐 www.searates.com"""
 
     def _format_shipment_details(self, shipment_info: Dict[str, Any]) -> str:
-        """Format shipment details in a clear, structured manner."""
+        """Format shipment details in a clear, structured manner with ALL confirmed information."""
         details = []
         
-        if shipment_info.get("origin_country") and shipment_info.get("destination_country"):
-            details.append(f"Route: {shipment_info['origin_country']} → {shipment_info['destination_country']}")
+        # Origin and Destination (with port codes if available)
+        if shipment_info.get("origin"):
+            details.append(f"Origin: {shipment_info['origin']}")
+        elif shipment_info.get("origin_country"):
+            details.append(f"Origin Country: {shipment_info['origin_country']}")
         
-        if shipment_info.get("commodity"):
-            details.append(f"Commodity: {shipment_info['commodity']}")
+        if shipment_info.get("destination"):
+            details.append(f"Destination: {shipment_info['destination']}")
+        elif shipment_info.get("destination_country"):
+            details.append(f"Destination Country: {shipment_info['destination_country']}")
         
+        # Container information
         if shipment_info.get("container_type"):
             details.append(f"Container Type: {shipment_info['container_type']}")
         
+        if shipment_info.get("container_count"):
+            details.append(f"Number of Containers: {shipment_info['container_count']}")
+        
+        # Commodity
+        if shipment_info.get("commodity"):
+            details.append(f"Commodity: {shipment_info['commodity']}")
+        
+        # Weight and Volume
         if shipment_info.get("weight"):
             details.append(f"Weight: {shipment_info['weight']}")
         
         if shipment_info.get("volume"):
             details.append(f"Volume: {shipment_info['volume']}")
         
-        if shipment_info.get("quantity"):
-            details.append(f"Quantity: {shipment_info['quantity']}")
-        
+        # Dates
         if shipment_info.get("shipment_date"):
-            details.append(f"Shipment Date: {shipment_info['shipment_date']}")
+            details.append(f"Ready Date / Shipment Date: {shipment_info['shipment_date']}")
         
+        # Incoterm
+        if shipment_info.get("incoterm"):
+            details.append(f"Incoterm: {shipment_info['incoterm']}")
+        
+        # Shipment Type
         if shipment_info.get("shipment_type"):
             details.append(f"Shipment Type: {shipment_info['shipment_type']}")
         

@@ -430,6 +430,11 @@ Validate this extracted data comprehensively. Provide reasoning for your validat
             quality_breakdown = self._prepare_quality_breakdown(llm_result, quality_factors)
             
             # Extract missing fields from validation details
+            # Per Rule 3.3: missing_fields must be in priority order:
+            # 1. Origin & Destination
+            # 2. Container Type (FCL) & Shipment Date
+            # 3. Commodity, Weight/Volume
+            # 4. Contact info, special requirements
             missing_fields = []
             for category, details in validation_details.items():
                 if isinstance(details, dict) and "issues" in details:
@@ -437,6 +442,9 @@ Validate this extracted data comprehensively. Provide reasoning for your validat
                         if "Missing" in issue:
                             field_name = issue.replace("Missing ", "").strip()
                             missing_fields.append(field_name)
+            
+            # Sort missing fields by priority order (per Rule 3.3)
+            missing_fields = self._prioritize_missing_fields(missing_fields)
             
             # Enhanced result
             enhanced_result = {
@@ -491,10 +499,14 @@ Validate this extracted data comprehensively. Provide reasoning for your validat
                 }
                 
                 # Check for required fields based on shipment type
+                # Per Rule 3.3: Check in priority order:
+                # 1. Origin & Destination
+                # 2. Container Type (FCL) & Shipment Date
+                # 3. Commodity, Weight/Volume
                 container_type = shipment_details.get("container_type", "").strip()
                 is_fcl = bool(container_type)  # If container type is specified, it's FCL
                 
-                # Required for both FCL and LCL
+                # Priority 1: Origin & Destination (check first)
                 if not shipment_details.get("origin"):
                     validation_details["shipment_details"]["issues"].append("Missing origin")
                     validation_details["shipment_details"]["is_valid"] = False
@@ -503,6 +515,11 @@ Validate this extracted data comprehensively. Provide reasoning for your validat
                     validation_details["shipment_details"]["issues"].append("Missing destination")
                     validation_details["shipment_details"]["is_valid"] = False
                 
+                # Priority 2: Container Type (FCL) & Shipment Date
+                # (Container type check is below in FCL-specific section)
+                # (Shipment date check is in timeline_info section below)
+                
+                # Priority 3: Commodity, Weight/Volume
                 if not shipment_details.get("commodity"):
                     validation_details["shipment_details"]["issues"].append("Missing commodity")
                     validation_details["shipment_details"]["is_valid"] = False
@@ -732,6 +749,55 @@ Validate this extracted data comprehensively. Provide reasoning for your validat
             "reasoning": "Fallback data validation due to specialized LLM unavailability",
             "validation_method": "fallback"
         }
+
+    def _prioritize_missing_fields(self, missing_fields: List[str]) -> List[str]:
+        """
+        Prioritize missing fields according to Rule 3.3:
+        1. Origin & Destination
+        2. Container Type (FCL) & Shipment Date
+        3. Commodity, Weight/Volume
+        4. Contact info, special requirements
+        """
+        # Define priority order (lower number = higher priority)
+        priority_map = {
+            # Priority 1: Origin & Destination
+            "origin": 1,
+            "destination": 1,
+            # Priority 2: Container Type (FCL) & Shipment Date
+            "container_type": 2,
+            "container_count": 2,
+            "requested_dates": 2,
+            "shipment_date": 2,
+            # Priority 3: Commodity, Weight/Volume
+            "commodity": 3,
+            "weight": 3,
+            "volume": 3,
+            # Priority 4: Contact info, special requirements
+            "name": 4,
+            "email": 4,
+            "phone": 4,
+            "company": 4,
+            "contact_information": 4,
+            "special_requirements": 4,
+        }
+        
+        # Normalize field names for matching
+        def get_priority(field_name: str) -> int:
+            field_lower = field_name.lower()
+            # Check exact matches first
+            if field_lower in priority_map:
+                return priority_map[field_lower]
+            # Check partial matches
+            for key, priority in priority_map.items():
+                if key in field_lower or field_lower in key:
+                    return priority
+            # Default to lowest priority if not found
+            return 99
+        
+        # Sort by priority, then alphabetically for same priority
+        sorted_fields = sorted(missing_fields, key=lambda f: (get_priority(f), f.lower()))
+        
+        return sorted_fields
 
     def _generate_validation_response(self, prompt: str, function_schema: Dict) -> Dict[str, Any]:
         """

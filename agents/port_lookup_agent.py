@@ -236,9 +236,15 @@ class PortLookupAgent(BaseAgent):
         """Check for exact name match"""
         for port_code, name in self.port_data.items():
             if str(port_name).lower() == str(name).lower():
+                # Get country from embeddings if available
+                country = "Unknown"
+                if self.embeddings and port_code in self.embeddings:
+                    country = self.embeddings[port_code].get("country", "Unknown")
+                
                 return {
                     "port_code": port_code,
                     "port_name": name,
+                    "country": country,
                     "confidence": 1.0,
                     "method": "exact_name_match"
                 }
@@ -246,6 +252,7 @@ class PortLookupAgent(BaseAgent):
         return {
             "port_code": None,
             "port_name": None,
+            "country": None,
             "confidence": 0.0,
             "method": "exact_name_match"
         }
@@ -273,9 +280,15 @@ class PortLookupAgent(BaseAgent):
                     best_match = embedding_data
             
             if best_match and best_similarity >= self.confidence_threshold:
+                # Get country from match or embeddings
+                country = best_match.get("country", "Unknown")
+                if country == "Unknown" and self.embeddings and best_match.get("port_code") in self.embeddings:
+                    country = self.embeddings[best_match["port_code"]].get("country", "Unknown")
+                
                 return {
                     "port_code": best_match["port_code"],
                     "port_name": best_match["port_name"],
+                    "country": country,
                     "confidence": float(best_similarity),
                     "method": "vector_similarity",
                     "matched_text": best_match["original_text"]
@@ -287,6 +300,7 @@ class PortLookupAgent(BaseAgent):
         return {
             "port_code": None,
             "port_name": None,
+            "country": None,
             "confidence": 0.0,
             "method": "vector_similarity"
         }
@@ -308,9 +322,16 @@ class PortLookupAgent(BaseAgent):
                     best_match = (port_code, name)
             
             if best_match and best_ratio >= 0.6:
+                # Get country from embeddings if available
+                country = "Unknown"
+                port_code = best_match[0]
+                if self.embeddings and port_code in self.embeddings:
+                    country = self.embeddings[port_code].get("country", "Unknown")
+                
                 return {
-                    "port_code": best_match[0],
+                    "port_code": port_code,
                     "port_name": best_match[1],
+                    "country": country,
                     "confidence": best_ratio,
                     "method": "fuzzy_string_match"
                 }
@@ -321,6 +342,7 @@ class PortLookupAgent(BaseAgent):
         return {
             "port_code": None,
             "port_name": None,
+            "country": None,
             "confidence": 0.0,
             "method": "fuzzy_string_match"
         }
@@ -334,9 +356,15 @@ class PortLookupAgent(BaseAgent):
             if port_name_lower in str(name).lower() or str(name).lower() in port_name_lower:
                 confidence = min(len(port_name_lower), len(str(name).lower())) / max(len(port_name_lower), len(str(name).lower()))
                 
+                # Get country from embeddings if available
+                country = "Unknown"
+                if self.embeddings and port_code in self.embeddings:
+                    country = self.embeddings[port_code].get("country", "Unknown")
+                
                 return {
                     "port_code": port_code,
                     "port_name": name,
+                    "country": country,
                     "confidence": confidence * 0.8,  # Reduce confidence for partial match
                     "method": "partial_match"
                 }
@@ -345,6 +373,7 @@ class PortLookupAgent(BaseAgent):
         return {
             "port_code": None,
             "port_name": None,
+            "country": None,
             "confidence": 0.0,
             "method": "no_match",
             "error": f"No match found for '{port_name}'"
