@@ -64,36 +64,89 @@ class ThreadManager:
         logger.info(f"ThreadManager initialized with storage directory: {storage_dir}")
 
     def _merge_shipment_details(self, new_data: Dict[str, Any], cumulative_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Merge shipment details with recency priority"""
-        merged = cumulative_data.copy()
+        """Merge shipment details with recency priority and handle shipment_type conflicts"""
+        # Start with a copy of cumulative_data to preserve all existing keys
+        merged = cumulative_data.copy() if cumulative_data else {}
         
+        # Log initial state for debugging
+        logger.debug(f"🔍 Merge shipment_details - Cumulative keys: {list(cumulative_data.keys()) if cumulative_data else []}, New keys: {list(new_data.keys())}")
+        
+        # CRITICAL: Check if shipment_type is being set in new data
+        new_shipment_type = new_data.get("shipment_type", "").strip().upper() if new_data.get("shipment_type") else ""
+        
+        # If shipment_type is explicitly set, handle conflicts
+        if new_shipment_type:
+            merged["shipment_type"] = new_shipment_type
+            
+            # If shipment_type is LCL, clear FCL-specific fields
+            if new_shipment_type == "LCL":
+                # Clear container_type and container_count for LCL shipments
+                if "container_type" in merged:
+                    del merged["container_type"]
+                if "container_count" in merged:
+                    del merged["container_count"]
+                logger.debug(f"Cleared container_type and container_count for LCL shipment")
+            
+            # If shipment_type is FCL, clear LCL-specific fields
+            elif new_shipment_type == "FCL":
+                # Clear weight and volume for FCL shipments (they're not required)
+                # But only if they're not explicitly provided in new data
+                if "weight" not in new_data or not new_data.get("weight", "").strip():
+                    if "weight" in merged:
+                        del merged["weight"]
+                if "volume" not in new_data or not new_data.get("volume", "").strip():
+                    if "volume" in merged:
+                        del merged["volume"]
+                logger.debug(f"Cleared weight/volume for FCL shipment (if not in new data)")
+        
+        # Merge all other fields with recency priority
+        # CRITICAL: Empty strings MUST be treated as "no update" (per Rule 4)
+        # Do NOT delete existing values when new_value is empty string
         for key, new_value in new_data.items():
-            if new_value and new_value.strip():  # Only update if new value is not empty
+            if key == "shipment_type":
+                # Already handled above
+                continue
+            elif new_value and str(new_value).strip():  # Only update if new value is not empty
                 merged[key] = new_value
                 logger.debug(f"Updated shipment detail {key}: {new_value}")
+            # CRITICAL: Do NOT delete keys when new_value is empty string
+            # Empty strings are treated as "no update" - preserve existing value
+            # If key is missing from new_data entirely, it's also preserved (handled by starting with cumulative_data.copy())
         
+        # Log final state to verify all keys are preserved
+        logger.debug(f"✅ Merge shipment_details complete - Final keys: {list(merged.keys())}")
         return merged
 
     def _merge_contact_info(self, new_data: Dict[str, Any], cumulative_data: Dict[str, Any]) -> Dict[str, Any]:
         """Merge contact information with recency priority"""
-        merged = cumulative_data.copy()
+        # Start with a copy of cumulative_data to preserve all existing keys
+        merged = cumulative_data.copy() if cumulative_data else {}
         
+        # CRITICAL: Empty strings MUST be treated as "no update" (per Rule 4)
+        # Only update if new value is non-empty
         for key, new_value in new_data.items():
-            if new_value and new_value.strip():
+            if new_value and str(new_value).strip():
                 merged[key] = new_value
                 logger.debug(f"Updated contact info {key}: {new_value}")
+            # Empty strings are treated as "no update" - preserve existing value
         
+        logger.debug(f"✅ Merge contact_info complete - Final keys: {list(merged.keys())}")
         return merged
 
     def _merge_timeline_info(self, new_data: Dict[str, Any], cumulative_data: Dict[str, Any]) -> Dict[str, Any]:
         """Merge timeline information with recency priority"""
-        merged = cumulative_data.copy()
+        # Start with a copy of cumulative_data to preserve all existing keys
+        merged = cumulative_data.copy() if cumulative_data else {}
         
+        # CRITICAL: Empty strings MUST be treated as "no update" (per Rule 4)
+        # Only update if new value is non-empty
         for key, new_value in new_data.items():
-            if new_value and new_value.strip():
+            if new_value and str(new_value).strip():
                 merged[key] = new_value
                 logger.debug(f"Updated timeline info {key}: {new_value}")
+            # Empty strings are treated as "no update" - preserve existing value
         
+        logger.debug(f"✅ Merge timeline_info complete - Final keys: {list(merged.keys())}")
         return merged
 
     def _merge_special_requirements(self, new_data: List[str], cumulative_data: List[str]) -> List[str]:
@@ -111,13 +164,18 @@ class ThreadManager:
 
     def _merge_rate_info(self, new_data: Dict[str, Any], cumulative_data: Dict[str, Any]) -> Dict[str, Any]:
         """Merge rate information with recency priority"""
-        merged = cumulative_data.copy()
+        # Start with a copy of cumulative_data to preserve all existing keys
+        merged = cumulative_data.copy() if cumulative_data else {}
         
+        # CRITICAL: Empty strings MUST be treated as "no update" (per Rule 4)
+        # Only update if new value is non-empty
         for key, new_value in new_data.items():
-            if new_value and new_value.strip():
+            if new_value and str(new_value).strip():
                 merged[key] = new_value
                 logger.debug(f"Updated rate info {key}: {new_value}")
+            # Empty strings are treated as "no update" - preserve existing value
         
+        logger.debug(f"✅ Merge rate_info complete - Final keys: {list(merged.keys())}")
         return merged
 
     def _merge_additional_notes(self, new_data: str, cumulative_data: str) -> str:
@@ -194,9 +252,26 @@ class ThreadManager:
                     merged_data[category] = new_category_data
         
         # Add any categories from cumulative data that weren't in new data
+        # CRITICAL: This ensures all categories from cumulative_data are preserved
         for category, cumulative_category_data in cumulative_data.items():
             if category not in merged_data:
-                merged_data[category] = cumulative_category_data
+                # Deep copy to avoid modifying the original
+                if isinstance(cumulative_category_data, dict):
+                    merged_data[category] = cumulative_category_data.copy()
+                elif isinstance(cumulative_category_data, list):
+                    merged_data[category] = cumulative_category_data.copy()
+                else:
+                    merged_data[category] = cumulative_category_data
+                logger.debug(f"Preserved category from cumulative data: {category}")
+        
+        # Verify all keys are preserved
+        cumulative_keys = set(cumulative_data.keys())
+        merged_keys = set(merged_data.keys())
+        missing_keys = cumulative_keys - merged_keys
+        if missing_keys:
+            logger.warning(f"⚠️ Missing keys in merged data: {missing_keys}")
+        else:
+            logger.debug(f"✅ All cumulative keys preserved: {list(cumulative_keys)}")
         
         logger.info(f"Merge completed. Final data keys: {list(merged_data.keys())}")
         return merged_data
