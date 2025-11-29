@@ -143,7 +143,10 @@ Searates By DP World
                     forwarder_name=forwarder_name,
                     origin="your origin",
                     destination="your destination",
-                    agent_name=assigned_sales_person.get('name', 'Digital Sales Specialist')
+                    sales_person_name=assigned_sales_person.get('name', 'Digital Sales Specialist'),
+                    sales_person_title=assigned_sales_person.get('title', 'Digital Sales Specialist'),
+                    sales_person_email=assigned_sales_person.get('email', 'sales@searates.com'),
+                    sales_person_phone=assigned_sales_person.get('phone', '+1-555-0123')
                 )
             else:
                 response_body = f"""Dear {forwarder_name},
@@ -167,6 +170,7 @@ Searates By DP World
                 "response_type": "forwarder_acknowledgment",
                 "subject": f"Re: {subject or 'Your Inquiry'}",
                 "body": response_body,
+                "to": sender_email,  # Add 'to' field for UI display
                 "sender_type": "forwarder",
                 "sender_email": sender_email,
                 "sender_name": forwarder_name,
