@@ -194,6 +194,7 @@ class InformationExtractionAgent(BaseAgent):
                             "transit_time": {"type": "string", "description": "Transit time requirements"},
                             "urgency": {"type": "string", "description": "Urgency level"},
                             "deadline": {"type": "string", "description": "Deadline requirements"},
+                            "incoterm": {"type": "string", "description": "Incoterm (FOB, CIF, EXW, etc.)"},
                             "special_requirements": {"type": "array", "items": {"type": "string"}, "description": "Special handling requirements"},
                             "additional_notes": {"type": "string", "description": "Additional notes or comments"}
                         },
@@ -202,8 +203,12 @@ class InformationExtractionAgent(BaseAgent):
                 }
             }
             
-            # Make LLM call
-            response = self.client.chat.completions.create(
+            # Make LLM call using OpenAI client for function calling
+            client = self.get_openai_client()
+            if not client:
+                return {"error": "OpenAI client not available for function calling"}
+            
+            response = client.chat.completions.create(
                 model=self.config.get("model_name"),
                 messages=[{"role": "user", "content": prompt}],
                 tools=[function_schema],
@@ -257,7 +262,8 @@ class InformationExtractionAgent(BaseAgent):
                         "container_count": extracted_data.get("container_count", ""),
                         "commodity": extracted_data.get("commodity", ""),
                         "weight": extracted_data.get("weight", ""),
-                        "volume": extracted_data.get("volume", "")
+                        "volume": extracted_data.get("volume", ""),
+                        "incoterm": extracted_data.get("incoterm", "")
                     },
                     "contact_information": {
                         "name": extracted_data.get("contact_name", ""),
@@ -289,7 +295,8 @@ class InformationExtractionAgent(BaseAgent):
                         "container_count": "",
                         "commodity": "",
                         "weight": "",
-                        "volume": ""
+                        "volume": "",
+                        "incoterm": ""
                     },
                     "contact_information": {
                         "name": "",
@@ -320,7 +327,8 @@ class InformationExtractionAgent(BaseAgent):
                     "container_count": "",
                     "commodity": "",
                     "weight": "",
-                    "volume": ""
+                    "volume": "",
+                    "incoterm": ""
                 },
                 "contact_information": {
                     "name": "",
@@ -369,6 +377,7 @@ EXTRACTION SECTIONS:
    - Commodity: Type of goods being shipped
    - Weight: Weight of shipment (include units)
    - Volume: Volume of shipment (include units)
+   - Incoterm: Incoterms (FOB, CIF, EXW, etc.)
 
 2. CONTACT INFORMATION:
    - Name: Contact person name
@@ -404,6 +413,7 @@ STRUCTURED RESPONSE PATTERNS:
 - "Weight: [value]" → Extract as weight
 - "Volume: [value]" → Extract as volume
 - "Container Type: [value]" → Extract as container_type
+- "Incoterm: [value]" → Extract as incoterm
 
 CONTAINER TYPE DETECTION:
 - If customer mentions "containers" or "container" → This indicates FCL shipment

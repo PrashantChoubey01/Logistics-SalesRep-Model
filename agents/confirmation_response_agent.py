@@ -8,6 +8,7 @@ extracted information before proceeding with the quote.
 """
 
 import json
+import re
 from typing import Dict, Any, List, Optional
 from agents.base_agent import BaseAgent
 import logging
@@ -47,16 +48,20 @@ class ConfirmationResponseAgent(BaseAgent):
                                     customer_name: str = "Valued Customer",
                                     agent_info: Dict[str, str] = None,
                                     tone: str = "professional",
-                                    rate_info: Dict[str, Any] = None) -> Dict[str, Any]:
+                                    rate_info: Dict[str, Any] = None,
+                                    container_standardization_result: Dict[str, Any] = None,
+                                    port_lookup_result: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Generate a human-like confirmation response
         
         Args:
-            extracted_data: Information extracted from customer email
+            extracted_data: Information extracted from customer email (should contain standardized container type)
             customer_name: Customer's name
             agent_info: Sales agent information
             tone: Response tone (professional/friendly)
             rate_info: Rate information if available
+            container_standardization_result: Container standardization result (for reference, standardized type should already be in extracted_data)
+            port_lookup_result: Port lookup result for human-friendly port formatting (per spec: show "Shanghai, China" not "Shanghai (CNSHG)")
         
         Returns:
             Dictionary containing response details
@@ -67,11 +72,11 @@ class ConfirmationResponseAgent(BaseAgent):
             # Get template based on tone
             template = self.response_templates.get(tone, self.response_templates["professional"])
             
-            # Format extracted information for confirmation
-            confirmation_info = self._format_confirmation_info(extracted_data)
+            # Format extracted information for confirmation (with human-friendly ports)
+            confirmation_info = self._format_confirmation_info(extracted_data, port_lookup_result)
             
-            # Generate subject line
-            subject = self._generate_subject_line(extracted_data)
+            # Generate subject line (with human-friendly ports)
+            subject = self._generate_subject_line(extracted_data, port_lookup_result)
             
             # Build response body
             response_body = self._build_response_body(
@@ -98,8 +103,11 @@ class ConfirmationResponseAgent(BaseAgent):
             logger.error(f"Error generating confirmation response: {e}")
             return self._generate_fallback_response(extracted_data, customer_name)
     
-    def _format_confirmation_info(self, extracted_data: Dict[str, Any]) -> str:
-        """Format extracted information for confirmation display"""
+    def _format_confirmation_info(self, extracted_data: Dict[str, Any], port_lookup_result: Dict[str, Any] = None) -> str:
+        """
+        Format extracted information for confirmation display.
+        Per spec: Shows human-friendly ports (e.g., "Shanghai, China") NOT with port codes.
+        """
         formatted_sections = []
         
         # Shipment details
@@ -107,10 +115,58 @@ class ConfirmationResponseAgent(BaseAgent):
             shipment = extracted_data["shipment_details"]
             if any(shipment.values()):
                 shipment_text = "**Shipment Details:**\n"
+                
+                # Origin - format with port code for customer validation
+                # If port lookup was performed, show port code so customer can validate
                 if shipment.get("origin"):
-                    shipment_text += f"• Origin: {shipment['origin']}\n"
+                    origin_display = shipment['origin']
+                    # Use port_lookup_result to get enriched port with code for validation
+                    if port_lookup_result and port_lookup_result.get("origin"):
+                        origin_result = port_lookup_result["origin"]
+                        port_name = origin_result.get("port_name", shipment['origin'])
+                        port_code = origin_result.get("port_code", "")
+                        country = origin_result.get("country", "")
+                        logger.debug(f"🔍 Origin formatting: port_name={port_name}, port_code={port_code}, country={country}")
+                        # Show port code for customer validation (e.g., "Shanghai (CNSHG), China")
+                        if port_code:
+                            if country and country != "Unknown" and country:
+                                origin_display = f"{port_name} ({port_code}), {country}"
+                            else:
+                                origin_display = f"{port_name} ({port_code})"
+                        elif country and country != "Unknown" and country:
+                            origin_display = f"{port_name}, {country}"
+                        else:
+                            origin_display = port_name
+                            logger.debug(f"⚠️ No port code or country available for origin, using port_name only: {origin_display}")
+                    else:
+                        logger.debug(f"⚠️ No port_lookup_result for origin, using raw value: {origin_display}")
+                    shipment_text += f"• Origin: {origin_display}\n"
+                
+                # Destination - format with port code for customer validation
+                # If port lookup was performed, show port code so customer can validate
                 if shipment.get("destination"):
-                    shipment_text += f"• Destination: {shipment['destination']}\n"
+                    destination_display = shipment['destination']
+                    # Use port_lookup_result to get enriched port with code for validation
+                    if port_lookup_result and port_lookup_result.get("destination"):
+                        destination_result = port_lookup_result["destination"]
+                        port_name = destination_result.get("port_name", shipment['destination'])
+                        port_code = destination_result.get("port_code", "")
+                        country = destination_result.get("country", "")
+                        logger.debug(f"🔍 Destination formatting: port_name={port_name}, port_code={port_code}, country={country}")
+                        # Show port code for customer validation (e.g., "Los Angeles (USLAX), USA")
+                        if port_code:
+                            if country and country != "Unknown" and country:
+                                destination_display = f"{port_name} ({port_code}), {country}"
+                            else:
+                                destination_display = f"{port_name} ({port_code})"
+                        elif country and country != "Unknown" and country:
+                            destination_display = f"{port_name}, {country}"
+                        else:
+                            destination_display = port_name
+                            logger.debug(f"⚠️ No port code or country available for destination, using port_name only: {destination_display}")
+                    else:
+                        logger.debug(f"⚠️ No port_lookup_result for destination, using raw value: {destination_display}")
+                    shipment_text += f"• Destination: {destination_display}\n"
                 if shipment.get("container_type"):
                     shipment_text += f"• Container Type: {shipment['container_type']}\n"
                 if shipment.get("container_count"):
@@ -170,21 +226,138 @@ class ConfirmationResponseAgent(BaseAgent):
                         requirements_text += f"• {req}\n"
                 formatted_sections.append(requirements_text)
         
-        # Additional notes
-        if "additional_notes" in extracted_data:
-            notes = extracted_data["additional_notes"]
-            if notes and notes.strip():
-                notes_text = "**Additional Notes:**\n"
-                notes_text += f"• {notes}\n"
-                formatted_sections.append(notes_text)
+        # Additional notes - REMOVED per user request (too confusing)
+        # if "additional_notes" in extracted_data:
+        #     notes = extracted_data["additional_notes"]
+        #     if notes and notes.strip():
+        #         # Clean up additional notes - remove redundant information
+        #         cleaned_notes = self._clean_additional_notes(notes)
+        #         if cleaned_notes:  # Only add if there's meaningful content after cleaning
+        #             notes_text = "**Additional Notes:**\n"
+        #             notes_text += f"• {cleaned_notes}\n"
+        #             formatted_sections.append(notes_text)
         
         return "\n".join(formatted_sections) if formatted_sections else "No specific details to confirm."
     
-    def _generate_subject_line(self, extracted_data: Dict[str, Any]) -> str:
-        """Generate appropriate subject line"""
+    def _clean_additional_notes(self, notes: str) -> str:
+        """
+        Clean additional notes by removing:
+        - Signature text (job titles, names repeated)
+        - Redundant phrases
+        - Information already shown in other sections
+        - Common email closings and greetings
+        """
+        if not notes or not notes.strip():
+            return ""
+        
+        cleaned = notes.strip()
+        
+        # Split by newlines and process each line
+        lines = cleaned.split('\n')
+        meaningful_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Skip common signature/closing patterns
+            skip_patterns = [
+                r'^Logistics Manager[;,]?\s*$',
+                r'^Best regards[;,]?\s*$',
+                r'^Regards[;,]?\s*$',
+                r'^Sincerely[;,]?\s*$',
+                r'^Thank you[;,]?\s*$',
+                r'^Please provide rates and transit time[;,]?\s*$',
+                r'^Please provide[;,]?\s*$',
+                r'^rates and transit time[;,]?\s*$',
+                r'^Manager[;,]?\s*$',
+                r'^Director[;,]?\s*$',
+                r'^Coordinator[;,]?\s*$',
+            ]
+            
+            should_skip = False
+            for pattern in skip_patterns:
+                if re.match(pattern, line, re.IGNORECASE):
+                    should_skip = True
+                    break
+            
+            if should_skip:
+                continue
+            
+            # Remove these phrases from the line (but keep the line if other content remains)
+            line = re.sub(r'Logistics Manager[;,]?\s*', '', line, flags=re.IGNORECASE)
+            line = re.sub(r'Please provide rates and transit time[;,]?\s*', '', line, flags=re.IGNORECASE)
+            line = re.sub(r'Please provide[;,]?\s*', '', line, flags=re.IGNORECASE)
+            line = re.sub(r'rates and transit time[;,]?\s*', '', line, flags=re.IGNORECASE)
+            line = line.strip(' .,;:')
+            
+            # Only add if line has meaningful content (at least 5 chars after cleaning)
+            if line and len(line) >= 5:
+                meaningful_lines.append(line)
+        
+        # Join meaningful lines
+        cleaned = ' '.join(meaningful_lines)
+        
+        # Remove if it's just job titles or common email closings
+        job_titles = ['logistics manager', 'manager', 'director', 'coordinator', 'executive']
+        cleaned_lower = cleaned.lower().strip()
+        if cleaned_lower in job_titles or cleaned_lower in ['best regards', 'regards', 'sincerely', 'thank you']:
+            return ""
+        
+        # Remove if note is too short or just punctuation
+        if len(cleaned.strip()) < 5:
+            return ""
+        
+        # Remove trailing/leading punctuation and whitespace
+        cleaned = cleaned.strip(' .,;:')
+        
+        # If after cleaning there's nothing meaningful, return empty
+        if not cleaned or len(cleaned.strip()) < 3:
+            return ""
+        
+        return cleaned.strip()
+    
+    def _generate_subject_line(self, extracted_data: Dict[str, Any], port_lookup_result: Dict[str, Any] = None) -> str:
+        """
+        Generate appropriate subject line with port names and codes for validation.
+        Shows port codes if available from port lookup.
+        """
         shipment = extracted_data.get("shipment_details", {})
         origin = shipment.get("origin", "origin")
         destination = shipment.get("destination", "destination")
+        
+        # Format with port codes if available (for customer validation)
+        if port_lookup_result:
+            if port_lookup_result.get("origin"):
+                origin_result = port_lookup_result["origin"]
+                port_name = origin_result.get("port_name", origin)
+                port_code = origin_result.get("port_code", "")
+                country = origin_result.get("country", "")
+                if port_code:
+                    if country and country != "Unknown":
+                        origin = f"{port_name} ({port_code}), {country}"
+                    else:
+                        origin = f"{port_name} ({port_code})"
+                elif country and country != "Unknown":
+                    origin = f"{port_name}, {country}"
+                else:
+                    origin = port_name
+            
+            if port_lookup_result.get("destination"):
+                destination_result = port_lookup_result["destination"]
+                port_name = destination_result.get("port_name", destination)
+                port_code = destination_result.get("port_code", "")
+                country = destination_result.get("country", "")
+                if port_code:
+                    if country and country != "Unknown":
+                        destination = f"{port_name} ({port_code}), {country}"
+                    else:
+                        destination = f"{port_name} ({port_code})"
+                elif country and country != "Unknown":
+                    destination = f"{port_name}, {country}"
+                else:
+                    destination = port_name
         
         return f"Please Confirm Your Shipment Details - {origin} to {destination}"
     
@@ -293,13 +466,24 @@ sales@searates.com""",
             agent_info = data.get("agent_info")
             tone = data.get("tone", "professional")
             rate_info = data.get("rate_info")
+            container_standardization_result = data.get("container_standardization_result")
+            
+            # Ensure standardized container type is used (per spec: confirmation shows standardized container types)
+            if container_standardization_result and isinstance(container_standardization_result, dict):
+                standardized_type = container_standardization_result.get("standardized_type")
+                if standardized_type and "shipment_details" in extracted_data:
+                    extracted_data["shipment_details"]["container_type"] = standardized_type
+            
+            port_lookup_result = data.get("port_lookup_result")
             
             return self.generate_confirmation_response(
                 extracted_data=extracted_data,
                 customer_name=customer_name,
                 agent_info=agent_info,
                 tone=tone,
-                rate_info=rate_info
+                rate_info=rate_info,
+                container_standardization_result=container_standardization_result,
+                port_lookup_result=port_lookup_result
             )
             
         except Exception as e:

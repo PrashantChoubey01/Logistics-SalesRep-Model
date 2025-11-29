@@ -302,7 +302,12 @@ SALES HANDOFF RULES:
 Determine the next action, priority, and whether escalation or sales handoff is needed based on ALL available context.
 """
 
-            response = self.client.chat.completions.create(
+            # Use OpenAI client for function calling
+            client = self.get_openai_client()
+            if not client:
+                raise Exception("OpenAI client not available for function calling")
+            
+            response = client.chat.completions.create(
                 model=self.config.get("model_name"),
                 messages=[{"role": "user", "content": prompt}],
                 tools=[{

@@ -505,7 +505,12 @@ Analyze this forwarder response comprehensively, considering all the above facto
                 "function": {"name": function_schema["name"]}
             }
             
-            response = self.client.chat.completions.create(
+            # Use OpenAI client for function calling
+            client = self.get_openai_client()
+            if not client:
+                return {"error": "OpenAI client not available for function calling"}
+            
+            response = client.chat.completions.create(
                 model=self.forwarder_analysis_model,  # Use specialized model
                 messages=[{"role": "user", "content": prompt}],
                 tools=tools,

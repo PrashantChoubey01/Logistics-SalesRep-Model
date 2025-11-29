@@ -53,7 +53,8 @@ class ConfirmationAcknowledgmentAgent(BaseAgent):
                                           agent_info: Dict[str, str] = None,
                                           tone: str = "professional",
                                           quote_timeline: str = "24 hours",
-                                          include_forwarder_info: bool = True) -> Dict[str, Any]:
+                                          include_forwarder_info: bool = True,
+                                          port_lookup_result: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Generate a human-like confirmation acknowledgment response
         
@@ -75,12 +76,12 @@ class ConfirmationAcknowledgmentAgent(BaseAgent):
             template = self.response_templates.get(tone, self.response_templates["professional"])
             
             # Generate subject line
-            subject = self._generate_subject_line(extracted_data)
+            subject = self._generate_subject_line(extracted_data, port_lookup_result)
             
             # Build response body
             response_body = self._build_response_body(
                 template, customer_name, extracted_data, 
-                agent_info, quote_timeline, include_forwarder_info
+                agent_info, quote_timeline, include_forwarder_info, port_lookup_result
             )
             
             response = {
@@ -103,12 +104,24 @@ class ConfirmationAcknowledgmentAgent(BaseAgent):
             logger.error(f"Error generating confirmation acknowledgment: {e}")
             return self._generate_fallback_response(extracted_data, customer_name)
     
-    def _generate_subject_line(self, extracted_data: Dict[str, Any]) -> str:
-        """Generate appropriate subject line for confirmation acknowledgment"""
+    def _generate_subject_line(self, extracted_data: Dict[str, Any], port_lookup_result: Dict[str, Any] = None) -> str:
+        """Generate appropriate subject line for confirmation acknowledgment with port codes"""
         try:
             shipment = extracted_data.get("shipment_details", {})
             origin = shipment.get("origin", "your origin")
             destination = shipment.get("destination", "your destination")
+            
+            # Add port codes if available
+            if port_lookup_result:
+                if port_lookup_result.get("origin") and port_lookup_result["origin"].get("port_code"):
+                    origin_code = port_lookup_result["origin"]["port_code"]
+                    origin_name = port_lookup_result["origin"].get("port_name", origin)
+                    origin = f"{origin_name} ({origin_code})"
+                
+                if port_lookup_result.get("destination") and port_lookup_result["destination"].get("port_code"):
+                    dest_code = port_lookup_result["destination"]["port_code"]
+                    dest_name = port_lookup_result["destination"].get("port_name", destination)
+                    destination = f"{dest_name} ({dest_code})"
             
             if origin and destination and origin != "your origin" and destination != "your destination":
                 return f"Confirmation Received - Quote in Progress for {origin} to {destination}"
@@ -121,8 +134,9 @@ class ConfirmationAcknowledgmentAgent(BaseAgent):
     
     def _build_response_body(self, template: Dict[str, str], customer_name: str, 
                            extracted_data: Dict[str, Any], agent_info: Dict[str, str], 
-                           quote_timeline: str, include_forwarder_info: bool = True) -> str:
-        """Build the complete response body"""
+                           quote_timeline: str, include_forwarder_info: bool = True,
+                           port_lookup_result: Dict[str, Any] = None) -> str:
+        """Build the complete response body - per spec: shows confirmed shipment details"""
         
         # Default agent info
         default_agent = {
@@ -139,13 +153,18 @@ class ConfirmationAcknowledgmentAgent(BaseAgent):
         origin = shipment.get("origin", "your origin")
         destination = shipment.get("destination", "your destination")
         
+        # Format confirmed shipment details (per spec: confirmation acknowledgment shows confirmed details with port codes)
+        confirmed_details = self._format_confirmed_details(extracted_data, port_lookup_result)
+        
         # Build response parts
         response_parts = [
             template["greeting"].format(customer_name=customer_name),
             "",
             template["acknowledgment"].format(origin=origin, destination=destination),
             "",
-            template["confirmation_received"],
+            "I've received your confirmation for:",
+            "",
+            confirmed_details,
             ""
         ]
         
@@ -173,6 +192,65 @@ class ConfirmationAcknowledgmentAgent(BaseAgent):
         ])
         
         return "\n".join(response_parts)
+    
+    def _format_confirmed_details(self, extracted_data: Dict[str, Any], port_lookup_result: Dict[str, Any] = None) -> str:
+        """Format confirmed shipment details for display with port codes (per spec)"""
+        formatted_sections = []
+        
+        # Shipment details
+        if "shipment_details" in extracted_data:
+            shipment = extracted_data["shipment_details"]
+            if any(shipment.values()):
+                shipment_text = "**Confirmed Shipment Details:**\n"
+                
+                # Origin with port code
+                if shipment.get("origin"):
+                    origin_display = shipment['origin']
+                    if port_lookup_result and port_lookup_result.get("origin"):
+                        origin_result = port_lookup_result["origin"]
+                        port_name = origin_result.get("port_name", shipment['origin'])
+                        port_code = origin_result.get("port_code", "")
+                        if port_code:
+                            origin_display = f"{port_name} ({port_code})"
+                        else:
+                            origin_display = port_name
+                    shipment_text += f"- Origin: {origin_display}\n"
+                
+                # Destination with port code
+                if shipment.get("destination"):
+                    destination_display = shipment['destination']
+                    if port_lookup_result and port_lookup_result.get("destination"):
+                        destination_result = port_lookup_result["destination"]
+                        port_name = destination_result.get("port_name", shipment['destination'])
+                        port_code = destination_result.get("port_code", "")
+                        if port_code:
+                            destination_display = f"{port_name} ({port_code})"
+                        else:
+                            destination_display = port_name
+                    shipment_text += f"- Destination: {destination_display}\n"
+                if shipment.get("container_type"):
+                    shipment_text += f"- Container Type: {shipment['container_type']}\n"
+                if shipment.get("container_count"):
+                    shipment_text += f"- Number of Containers: {shipment['container_count']}\n"
+                if shipment.get("commodity"):
+                    shipment_text += f"- Commodity: {shipment['commodity']}\n"
+                if shipment.get("weight"):
+                    shipment_text += f"- Weight: {shipment['weight']}\n"
+                if shipment.get("volume"):
+                    shipment_text += f"- Volume: {shipment['volume']}\n"
+                
+                # Timeline information
+                timeline_info = extracted_data.get("timeline_information", {})
+                if timeline_info.get("requested_dates"):
+                    shipment_text += f"- Ready Date: {timeline_info['requested_dates']}\n"
+                
+                # Incoterms (if in shipment_details or additional_notes)
+                if shipment.get("incoterm"):
+                    shipment_text += f"- Incoterm: {shipment['incoterm']}\n"
+                
+                formatted_sections.append(shipment_text)
+        
+        return "\n".join(formatted_sections) if formatted_sections else "Confirmed shipment details."
     
     def _generate_fallback_response(self, extracted_data: Dict[str, Any], customer_name: str) -> Dict[str, Any]:
         """Generate a fallback response if the main generation fails"""
@@ -210,6 +288,14 @@ sales@searates.com
             tone = data.get("tone", "professional")
             quote_timeline = data.get("quote_timeline", "24 hours")
             include_forwarder_info = data.get("include_forwarder_info", True)
+            container_standardization_result = data.get("container_standardization_result")
+            port_lookup_result = data.get("port_lookup_result")
+            
+            # Ensure standardized container type is used (per spec: confirmation acknowledgment shows standardized container types)
+            if container_standardization_result and isinstance(container_standardization_result, dict):
+                standardized_type = container_standardization_result.get("standardized_type")
+                if standardized_type and "shipment_details" in extracted_data:
+                    extracted_data["shipment_details"]["container_type"] = standardized_type
             
             return self.generate_confirmation_acknowledgment(
                 extracted_data=extracted_data,
@@ -217,7 +303,8 @@ sales@searates.com
                 agent_info=agent_info,
                 tone=tone,
                 quote_timeline=quote_timeline,
-                include_forwarder_info=include_forwarder_info
+                include_forwarder_info=include_forwarder_info,
+                port_lookup_result=port_lookup_result
             )
             
         except Exception as e:
