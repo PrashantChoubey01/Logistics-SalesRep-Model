@@ -1,0 +1,76 @@
+groups:
+  - name: email_quality_alerts
+    interval: 30s
+    rules:
+      - alert: EmailHallucinationSpike
+        expr: rate(email_hallucination_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High hallucination rate detected"
+          description: "Hallucination rate is {{ $value }} per second (threshold: 0.01)"
+      
+      - alert: LowAgentConfidence
+        expr: avg(agent_confidence) by (agent_name) < 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent confidence below threshold"
+          description: "Agent {{ $labels.agent_name }} has average confidence {{ $value }} (threshold: 0.85)"
+      
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(agent_latency_seconds_bucket[5m])) > 0.4
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent latency above threshold"
+          description: "Agent {{ $labels.agent_name }} p95 latency is {{ $value }}s (threshold: 0.4s)"
+      
+      - alert: LowGrammarScore
+        expr: avg(email_grammar_score) < 95
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Grammar score below threshold"
+          description: "Average grammar score is {{ $value }} (threshold: 95)"
+      
+      - alert: HighCostPerEmail
+        expr: avg(cost_per_email_usd) > 0.08
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cost per email above threshold"
+          description: "Average cost per email is ${{ $value }} (threshold: $0.08)"
+      
+      - alert: HighErrorRate
+        expr: rate(email_processed_total{result="error"}[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} per second (threshold: 0.01)"
+      
+      - alert: ExcessiveClarificationCycles
+        expr: avg(clarification_cycles_total) > 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Excessive clarification cycles"
+          description: "Average clarification cycles is {{ $value }} (threshold: 3)"
+      
+      - alert: HighEscalationRate
+        expr: escalation_rate > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Escalation rate above threshold"
+          description: "Escalation rate is {{ $value }}% (threshold: 5%)"
+

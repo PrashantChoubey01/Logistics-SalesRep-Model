@@ -409,8 +409,9 @@ Searates By DP World
             for pref in additional_details["rate_preferences"]:
                 details.append(f"- Rate Preference: {pref}")
         
-        if additional_details.get("additional_notes"):
-            details.append(f"- Additional Notes: {additional_details['additional_notes']}")
+        # Additional notes - REMOVED per user request
+        # if additional_details.get("additional_notes"):
+        #     details.append(f"- Additional Notes: {additional_details['additional_notes']}")
         
         if additional_details.get("confirmation_status") == "confirmed":
             details.append("- Customer has confirmed all details")

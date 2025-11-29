@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import operator
+import copy
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Annotated, TypedDict
 from dataclasses import asdict
@@ -710,8 +711,30 @@ class LangGraphWorkflowOrchestrator:
                 shipment_details = state["extraction_result"].get("extracted_data", {}).get("shipment_details", {})
                 logger.info("📊 Using current extraction data for container standardization")
             
+            # CRITICAL: Check shipment_type - skip container standardization for LCL shipments
+            shipment_type = shipment_details.get("shipment_type", "").strip().upper() if shipment_details.get("shipment_type") else ""
+            
+            if shipment_type == "LCL":
+                # LCL shipments don't need container standardization
+                logger.info("⏭️ Skipping container standardization for LCL shipment")
+                state["container_standardization_result"] = {
+                    "standardized_type": None,
+                    "reason": "LCL shipment - container standardization not applicable"
+                }
+                return state
+            
+            # Only standardize if container_type exists (FCL shipment)
+            container_type = shipment_details.get("container_type", "").strip() if shipment_details.get("container_type") else ""
+            if not container_type:
+                logger.info("⏭️ No container type to standardize")
+                state["container_standardization_result"] = {
+                    "standardized_type": None,
+                    "reason": "No container type provided"
+                }
+                return state
+            
             result = self.container_standardization_agent.process({
-                "container_type": shipment_details.get("container_type"),
+                "container_type": container_type,
                 "container_count": shipment_details.get("container_count")
             })
             
@@ -792,8 +815,14 @@ class LangGraphWorkflowOrchestrator:
         print(f"✅ Validation Status: {state['validation_result'].get('validation_status', 'unknown')}")
         
         try:
+            # CRITICAL: Use cumulative_extraction which has merged data including special_requirements
+            # This ensures FCL/LCL detection works correctly
+            extracted_data = state.get("cumulative_extraction", {})
+            if not extracted_data:
+                # Fallback to extraction_result if cumulative_extraction is not available
+                extracted_data = state["extraction_result"].get("extracted_data", {})
+            
             # Determine missing fields first using the clarification agent's logic
-            extracted_data = state["extraction_result"].get("extracted_data", {})
             missing_fields = self.clarification_agent._determine_missing_fields(extracted_data)
             
             print(f"📋 Missing Fields: {missing_fields}")
@@ -801,10 +830,14 @@ class LangGraphWorkflowOrchestrator:
             result = self.next_action_agent.process({
                 "conversation_state": state["conversation_state_result"].get("conversation_stage", "unknown"),
                 "email_classification": state["classification_result"],
-                "extracted_data": state["extraction_result"].get("extracted_data", {}),
+                "extracted_data": extracted_data,  # Use cumulative_extraction (with special_requirements)
                 "confidence_score": state["extraction_result"].get("confidence", 0.0),
                 "validation_results": state["validation_result"],
-                "enriched_data": state["rate_recommendation_result"],
+                "enriched_data": {
+                    "port_lookup": state.get("port_lookup_result", {}),
+                    "container_standardization": state.get("container_standardization_result", {}),
+                    "rate_recommendation": state.get("rate_recommendation_result", {})
+                },
                 "thread_id": state["thread_id"],
                 "missing_fields": missing_fields  # Pass missing fields to next action agent
             })
@@ -886,7 +919,27 @@ class LangGraphWorkflowOrchestrator:
         logger.info("🔄 Generating clarification response...")
         
         try:
-            extracted_data = state["extraction_result"].get("extracted_data", {})
+            # CRITICAL: Reload cumulative_extraction from thread_manager to ensure we have the latest merged data
+            # This ensures we get the most up-to-date data even if state hasn't been updated yet
+            thread_id = state.get("thread_id", "")
+            if thread_id:
+                latest_cumulative = self.thread_manager.get_cumulative_extraction(thread_id)
+                if latest_cumulative and isinstance(latest_cumulative, dict):
+                    # Use deepcopy to avoid modifying the original
+                    extracted_data = copy.deepcopy(latest_cumulative)
+                    logger.info("📊 Using latest cumulative extraction from thread manager for clarification response")
+                elif state.get("cumulative_extraction") and isinstance(state["cumulative_extraction"], dict):
+                    extracted_data = copy.deepcopy(state["cumulative_extraction"])
+                    logger.info("📊 Using cumulative extraction from state for clarification response")
+                else:
+                    extracted_data = state["extraction_result"].get("extracted_data", {})
+                    logger.info("📊 Using current extraction data for clarification response (no cumulative data available)")
+            elif state.get("cumulative_extraction") and isinstance(state["cumulative_extraction"], dict):
+                extracted_data = copy.deepcopy(state["cumulative_extraction"])
+                logger.info("📊 Using cumulative extraction from state for clarification response")
+            else:
+                extracted_data = state["extraction_result"].get("extracted_data", {})
+                logger.info("📊 Using current extraction data for clarification response (no cumulative data available)")
             
             # Debug logging
             logger.info(f"🔍 DEBUG: Raw extracted_data: {extracted_data}")
@@ -899,7 +952,18 @@ class LangGraphWorkflowOrchestrator:
             # Use standardized container type in extracted_data for display (per spec)
             # The spec says clarification responses show standardized container types
             # IMPORTANT: Use standardized_type, NOT rate_fallback_type
-            if state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
+            # CRITICAL: Only add container_type if shipment_type is NOT LCL
+            shipment_type = extracted_data.get("shipment_details", {}).get("shipment_type", "").strip().upper() if extracted_data.get("shipment_details", {}).get("shipment_type") else ""
+            
+            if shipment_type == "LCL":
+                # For LCL shipments, ensure container_type is cleared
+                logger.info(f"🔍 DEBUG: LCL shipment detected - clearing container_type and container_count")
+                if "shipment_details" in extracted_data:
+                    if "container_type" in extracted_data["shipment_details"]:
+                        del extracted_data["shipment_details"]["container_type"]
+                    if "container_count" in extracted_data["shipment_details"]:
+                        del extracted_data["shipment_details"]["container_count"]
+            elif state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
                 # Get standardized_type (the actual standardized type, e.g., "40HC")
                 standardized_type = state["container_standardization_result"].get("standardized_type")
                 # Do NOT use rate_fallback_type - that's only for pricing, not display
@@ -907,7 +971,7 @@ class LangGraphWorkflowOrchestrator:
                 logger.info(f"🔍 DEBUG: Rate fallback type (NOT used for display): {state['container_standardization_result'].get('rate_fallback_type')}")
                 
                 if standardized_type:
-                    # Update extracted_data with standardized container type for display
+                    # Update extracted_data with standardized container type for display (only for FCL)
                     if "shipment_details" in extracted_data:
                         original_type = extracted_data["shipment_details"].get("container_type", "")
                         extracted_data["shipment_details"]["container_type"] = standardized_type
@@ -954,22 +1018,226 @@ class LangGraphWorkflowOrchestrator:
         
         return state
     
+    def _validate_mandatory_fields_for_confirmation(self, extracted_data: Dict[str, Any], port_lookup_result: Dict[str, Any] = None) -> tuple:
+        """
+        Validate Priority 1-3 mandatory fields before generating confirmation.
+        Returns (is_valid, missing_fields_list)
+        """
+        missing_fields = []
+        shipment_details = extracted_data.get("shipment_details", {})
+        
+        # Priority 1: Origin & Destination (must be specific ports, not countries)
+        origin = shipment_details.get("origin", "").strip()
+        destination = shipment_details.get("destination", "").strip()
+        origin_country = shipment_details.get("origin_country", "").strip()
+        destination_country = shipment_details.get("destination_country", "").strip()
+        
+        # Only flag as missing if origin is EMPTY but origin_country is set (country-only input)
+        # If origin is set (even if origin_country is also set), it's a valid port with country info
+        if not origin and origin_country:
+            # Origin is a country, not a specific port
+            missing_fields.append("Origin (specific port required)")
+        elif not origin:
+            missing_fields.append("Origin")
+        else:
+            # Origin is set - check port_lookup_result as fallback to ensure it's not a country
+            if port_lookup_result and port_lookup_result.get("origin"):
+                origin_result = port_lookup_result.get("origin", {})
+                if origin_result.get("is_country", False):
+                    if "Origin (specific port required)" not in missing_fields:
+                        missing_fields.append("Origin (specific port required)")
+        
+        # Only flag as missing if destination is EMPTY but destination_country is set (country-only input)
+        # If destination is set (even if destination_country is also set), it's a valid port with country info
+        if not destination and destination_country:
+            # Destination is a country, not a specific port
+            missing_fields.append("Destination (specific port required)")
+        elif not destination:
+            missing_fields.append("Destination")
+        else:
+            # Destination is set - check port_lookup_result as fallback to ensure it's not a country
+            if port_lookup_result and port_lookup_result.get("destination"):
+                destination_result = port_lookup_result.get("destination", {})
+                if destination_result.get("is_country", False):
+                    if "Destination (specific port required)" not in missing_fields:
+                        missing_fields.append("Destination (specific port required)")
+        
+        # CRITICAL: Check extracted shipment_type FIRST (directly extracted from email)
+        shipment_type = shipment_details.get("shipment_type", "").strip().upper()
+        
+        # Handle container_type which might be a string or a dict (from container standardization)
+        container_type_raw = shipment_details.get("container_type", "")
+        if isinstance(container_type_raw, dict):
+            container_type = container_type_raw.get("standardized_type", "") or container_type_raw.get("standard_type", "") or container_type_raw.get("original_input", "")
+            container_type = str(container_type).strip() if container_type else ""
+        else:
+            container_type = str(container_type_raw).strip() if container_type_raw else ""
+        
+        # CRITICAL: Do NOT assume shipment type - ask for it if missing
+        # Only determine shipment type if explicitly mentioned
+        is_fcl = None
+        
+        if shipment_type == "LCL":
+            # Shipment type was directly extracted as LCL - use it directly
+            is_fcl = False
+        elif shipment_type == "FCL":
+            # Shipment type was directly extracted as FCL - use it directly
+            is_fcl = True
+        else:
+            # Check special_requirements for explicit LCL/FCL mentions
+            special_requirements = extracted_data.get("special_requirements", [])
+            is_explicitly_lcl = False
+            is_explicitly_fcl = False
+            
+            if special_requirements:
+                requirements_text = " ".join([str(req).lower() for req in special_requirements])
+                if "lcl" in requirements_text or "less than container" in requirements_text:
+                    is_explicitly_lcl = True
+                if "fcl" in requirements_text or "full container" in requirements_text:
+                    is_explicitly_fcl = True
+            
+            if is_explicitly_lcl:
+                is_fcl = False
+            elif is_explicitly_fcl:
+                is_fcl = True
+            # CRITICAL: If shipment_type is not explicitly mentioned, do NOT assume - ask for it
+            # Do NOT default to FCL based on container_type alone
+        
+        # Get shipment date from either shipment_details or timeline_information
+        timeline_info = extracted_data.get("timeline_information", {})
+        shipment_date = (
+            shipment_details.get("shipment_date", "").strip() or 
+            timeline_info.get("requested_dates", "").strip() or
+            timeline_info.get("shipment_date", "").strip()
+        )
+        
+        # CRITICAL: If shipment_type is not explicitly mentioned, ask for ALL required fields
+        if is_fcl is None:
+            # Shipment type is unknown - ask for shipment type, container type, weight, and volume
+            missing_fields.append("Shipment Type (FCL or LCL)")
+            if not container_type:
+                missing_fields.append("Container Type")
+            missing_fields.append("Weight")
+            missing_fields.append("Volume")
+            if not shipment_date:
+                missing_fields.append("Shipment Date")
+            commodity = shipment_details.get("commodity", "").strip()
+            if not commodity:
+                missing_fields.append("Commodity Name")
+            is_valid = len(missing_fields) == 0
+            return is_valid, missing_fields
+        
+        if is_fcl:
+            # FCL Priority 2: Container Type & Shipment Date
+            if not container_type:
+                missing_fields.append("Container Type")
+            
+            if not shipment_date:
+                missing_fields.append("Shipment Date")
+            
+            # FCL Priority 3: Commodity & Quantity
+            commodity = shipment_details.get("commodity", "").strip()
+            if not commodity:
+                missing_fields.append("Commodity Name")
+            
+            # CRITICAL: Container count IS required for FCL shipments
+            quantity = shipment_details.get("container_count", "").strip() or shipment_details.get("quantity", "").strip()
+            if not quantity:
+                missing_fields.append("Quantity (number of containers)")
+        else:
+            # LCL Priority 2: Weight, Volume & Shipment Date
+            weight = shipment_details.get("weight", "").strip()
+            volume = shipment_details.get("volume", "").strip()
+            
+            if not weight:
+                missing_fields.append("Weight")
+            if not volume:
+                missing_fields.append("Volume")
+            # Both weight AND volume are required for LCL
+            if weight and not volume:
+                missing_fields.append("Volume (required with weight for LCL)")
+            if volume and not weight:
+                missing_fields.append("Weight (required with volume for LCL)")
+            
+            if not shipment_date:
+                missing_fields.append("Shipment Date")
+            
+            # LCL Priority 3: Commodity
+            commodity = shipment_details.get("commodity", "").strip()
+            if not commodity:
+                missing_fields.append("Commodity Name")
+            
+            # MANDATE: Container count is NEVER required for LCL shipments - this is a hard rule
+            # CRITICAL SAFETY CHECK: Remove container_count if it was somehow added
+            # This ensures LCL shipments NEVER ask for container_count
+            missing_fields = [f for f in missing_fields if "container_count" not in f.lower() and "number of containers" not in f.lower() and "quantity (number of containers)" not in f.lower()]
+        
+        is_valid = len(missing_fields) == 0
+        return is_valid, missing_fields
+    
     async def _generate_confirmation_response(self, state: WorkflowState) -> WorkflowState:
         """Generate confirmation response - uses standardized container type per spec"""
         logger.info("🔄 Generating confirmation response...")
         
         try:
-            extracted_data = state["extraction_result"].get("extracted_data", {})
+            # CRITICAL: Reload cumulative_extraction from thread_manager to ensure we have the latest merged data
+            thread_id = state.get("thread_id", "")
+            if thread_id:
+                latest_cumulative = self.thread_manager.get_cumulative_extraction(thread_id)
+                if latest_cumulative and isinstance(latest_cumulative, dict):
+                    extracted_data = copy.deepcopy(latest_cumulative)
+                    logger.info("📊 Using latest cumulative extraction from thread manager for confirmation response")
+                elif state.get("cumulative_extraction") and isinstance(state["cumulative_extraction"], dict):
+                    extracted_data = copy.deepcopy(state["cumulative_extraction"])
+                    logger.info("📊 Using cumulative extraction from state for confirmation response")
+                else:
+                    extracted_data = state["extraction_result"].get("extracted_data", {})
+                    logger.info("📊 Using current extraction data for confirmation response (no cumulative data available)")
+            elif state.get("cumulative_extraction") and isinstance(state["cumulative_extraction"], dict):
+                extracted_data = copy.deepcopy(state["cumulative_extraction"])
+                logger.info("📊 Using cumulative extraction from state for confirmation response")
+            else:
+                extracted_data = state["extraction_result"].get("extracted_data", {})
+                logger.info("📊 Using current extraction data for confirmation response (no cumulative data available)")
+            
             rate_info = state["rate_recommendation_result"]
+            port_lookup_result = state.get("port_lookup_result", {})
+            
+            # CRITICAL: Validate Priority 1-3 mandatory fields before generating confirmation
+            is_valid, missing_fields = self._validate_mandatory_fields_for_confirmation(
+                extracted_data, port_lookup_result
+            )
+            
+            if not is_valid:
+                logger.error(f"❌ Cannot generate confirmation - mandatory fields missing: {missing_fields}")
+                logger.warning(f"⚠️ Overriding to clarification due to missing mandatory fields")
+                # Override to clarification instead of confirmation
+                state["confirmation_response_result"] = {
+                    "error": f"Cannot generate confirmation - mandatory fields missing: {', '.join(missing_fields)}",
+                    "missing_fields": missing_fields,
+                    "override_reason": "Mandatory fields (Priority 1-3) are missing"
+                }
+                # Generate clarification instead
+                return await self._generate_clarification_response(state)
             
             # Use standardized container type in extracted_data for display (per spec)
             # The spec says confirmation responses show standardized container types
-            if state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
+            # CRITICAL: Only add container_type if shipment_type is NOT LCL
+            shipment_type = extracted_data.get("shipment_details", {}).get("shipment_type", "").strip().upper() if extracted_data.get("shipment_details", {}).get("shipment_type") else ""
+            
+            if shipment_type != "LCL" and state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
                 standardized_type = state["container_standardization_result"].get("standardized_type")
                 if standardized_type:
-                    # Update extracted_data with standardized container type for display
+                    # Update extracted_data with standardized container type for display (only for FCL)
                     if "shipment_details" in extracted_data:
                         extracted_data["shipment_details"]["container_type"] = standardized_type
+            elif shipment_type == "LCL":
+                # For LCL shipments, ensure container_type is cleared
+                if "shipment_details" in extracted_data:
+                    if "container_type" in extracted_data["shipment_details"]:
+                        del extracted_data["shipment_details"]["container_type"]
+                    if "container_count" in extracted_data["shipment_details"]:
+                        del extracted_data["shipment_details"]["container_count"]
             
             result = self.confirmation_agent.process({
                 "extracted_data": extracted_data,
@@ -1100,18 +1368,66 @@ class LangGraphWorkflowOrchestrator:
         logger.info("🔄 Generating confirmation acknowledgment response...")
         
         try:
-            # Get extraction result safely
-            extraction_result = state.get("extraction_result", {})
-            extracted_data = extraction_result.get("extracted_data", {}) if extraction_result else {}
+            # CRITICAL: Reload cumulative_extraction from thread_manager to ensure we have the latest merged data
+            thread_id = state.get("thread_id", "")
+            if thread_id:
+                latest_cumulative = self.thread_manager.get_cumulative_extraction(thread_id)
+                if latest_cumulative and isinstance(latest_cumulative, dict):
+                    extracted_data = copy.deepcopy(latest_cumulative)
+                    logger.info("📊 Using latest cumulative extraction from thread manager for confirmation acknowledgment")
+                elif state.get("cumulative_extraction") and isinstance(state["cumulative_extraction"], dict):
+                    extracted_data = copy.deepcopy(state["cumulative_extraction"])
+                    logger.info("📊 Using cumulative extraction from state for confirmation acknowledgment")
+                else:
+                    extraction_result = state.get("extraction_result", {})
+                    extracted_data = extraction_result.get("extracted_data", {}) if extraction_result else {}
+                    logger.info("📊 Using current extraction data for confirmation acknowledgment (no cumulative data available)")
+            elif state.get("cumulative_extraction") and isinstance(state["cumulative_extraction"], dict):
+                extracted_data = copy.deepcopy(state["cumulative_extraction"])
+                logger.info("📊 Using cumulative extraction from state for confirmation acknowledgment")
+            else:
+                extraction_result = state.get("extraction_result", {})
+                extracted_data = extraction_result.get("extracted_data", {}) if extraction_result else {}
+                logger.info("📊 Using current extraction data for confirmation acknowledgment (no cumulative data available)")
+            
+            port_lookup_result = state.get("port_lookup_result", {})
+            
+            # CRITICAL: Validate Priority 1-3 mandatory fields before generating confirmation acknowledgment
+            # Even if customer confirmed, we must validate all mandatory fields are present
+            is_valid, missing_fields = self._validate_mandatory_fields_for_confirmation(
+                extracted_data, port_lookup_result
+            )
+            
+            if not is_valid:
+                logger.error(f"❌ Cannot generate confirmation acknowledgment - mandatory fields missing: {missing_fields}")
+                logger.warning(f"⚠️ Customer confirmed but mandatory fields are missing. Overriding to clarification.")
+                # Override to clarification instead of confirmation acknowledgment
+                state["confirmation_acknowledgment_result"] = {
+                    "error": f"Cannot proceed with confirmation acknowledgment - mandatory fields missing: {', '.join(missing_fields)}",
+                    "missing_fields": missing_fields,
+                    "override_reason": "Customer confirmed but mandatory fields (Priority 1-3) are missing"
+                }
+                # Generate clarification instead
+                return await self._generate_clarification_response(state)
             
             # Use standardized container type in extracted_data for display (per spec)
             # The spec says confirmation acknowledgment shows standardized container types
-            if state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
+            # CRITICAL: Only add container_type if shipment_type is NOT LCL
+            shipment_type = extracted_data.get("shipment_details", {}).get("shipment_type", "").strip().upper() if extracted_data.get("shipment_details", {}).get("shipment_type") else ""
+            
+            if shipment_type != "LCL" and state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
                 standardized_type = state["container_standardization_result"].get("standardized_type")
                 if standardized_type:
-                    # Update extracted_data with standardized container type for display
+                    # Update extracted_data with standardized container type for display (only for FCL)
                     if "shipment_details" in extracted_data:
                         extracted_data["shipment_details"]["container_type"] = standardized_type
+            elif shipment_type == "LCL":
+                # For LCL shipments, ensure container_type is cleared
+                if "shipment_details" in extracted_data:
+                    if "container_type" in extracted_data["shipment_details"]:
+                        del extracted_data["shipment_details"]["container_type"]
+                    if "container_count" in extracted_data["shipment_details"]:
+                        del extracted_data["shipment_details"]["container_count"]
             
             # Get email data safely
             email_data = state.get("email_data", {})
@@ -1245,31 +1561,43 @@ class LangGraphWorkflowOrchestrator:
         state["workflow_history"].append("assign_forwarders")
         
         try:
-            # Get extracted data and enriched data
-            extracted_data = state["extraction_result"].get("extracted_data", {})
+            # Use cumulative extraction data if available (has all merged/validated data), otherwise use current extraction
+            cumulative_extraction = state.get("cumulative_extraction", {})
+            if cumulative_extraction and cumulative_extraction.get("shipment_details"):
+                shipment_details = cumulative_extraction.get("shipment_details", {})
+                logger.info("📊 Using cumulative extraction data for forwarder assignment")
+            else:
+                extracted_data = state["extraction_result"].get("extracted_data", {})
+                shipment_details = extracted_data.get("shipment_details", {})
+                logger.info("📊 Using current extraction data for forwarder assignment")
+            
             enriched_data = {
                 "port_lookup": state.get("port_lookup_result", {}),
                 "container_standardization": state.get("container_standardization_result", {}),
                 "rate_recommendation": state.get("rate_recommendation_result", {})
             }
             
-            # Extract origin and destination countries from port lookup
+            # Extract origin and destination countries - prioritize extracted country fields
             origin_country = ""
             destination_country = ""
+            origin_country = shipment_details.get("origin_country", "").strip()
+            destination_country = shipment_details.get("destination_country", "").strip()
             
-            if state.get("port_lookup_result"):
-                port_lookup = state["port_lookup_result"]
-                if port_lookup and isinstance(port_lookup, dict):
-                    if port_lookup.get("origin") and isinstance(port_lookup["origin"], dict):
-                        origin_country = port_lookup["origin"].get("country", "")
-                    if port_lookup.get("destination") and isinstance(port_lookup["destination"], dict):
-                        destination_country = port_lookup["destination"].get("country", "")
+            # Fallback: Extract from port lookup if country fields are not set
+            if not origin_country or not destination_country:
+                if state.get("port_lookup_result"):
+                    port_lookup = state["port_lookup_result"]
+                    if port_lookup and isinstance(port_lookup, dict):
+                        if not origin_country and port_lookup.get("origin") and isinstance(port_lookup["origin"], dict):
+                            origin_country = port_lookup["origin"].get("country", "")
+                        if not destination_country and port_lookup.get("destination") and isinstance(port_lookup["destination"], dict):
+                            destination_country = port_lookup["destination"].get("country", "")
             
-            # If no countries from port lookup, try to extract from shipment details
+            # If still no countries, try to extract from origin/destination fields (as last resort)
             if not origin_country:
-                origin_country = extracted_data.get("shipment_details", {}).get("origin", "")
+                origin_country = shipment_details.get("origin", "").strip()
             if not destination_country:
-                destination_country = extracted_data.get("shipment_details", {}).get("destination", "")
+                destination_country = shipment_details.get("destination", "").strip()
             
             # If still no countries, use default values for testing
             if not origin_country:
@@ -1290,9 +1618,27 @@ class LangGraphWorkflowOrchestrator:
                 
                 # Generate rate request email using forwarder email draft agent
                 # Include all confirmed shipment details including port codes
+                # Use cumulative extraction to get complete shipment details
+                complete_shipment_details = shipment_details.copy() if shipment_details else {}
+                
+                # Use standardized container type if available
+                if state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
+                    standardized_type = state["container_standardization_result"].get("standardized_type")
+                    if standardized_type:
+                        complete_shipment_details["container_type"] = standardized_type
+                        logger.info(f"📦 Using standardized container type: {standardized_type}")
+                
+                # Also include timeline information from cumulative extraction for shipment_date
+                if cumulative_extraction and cumulative_extraction.get("timeline_information"):
+                    timeline_info = cumulative_extraction.get("timeline_information", {})
+                    # Add requested_dates to shipment_details if shipment_date is missing
+                    if not complete_shipment_details.get("shipment_date") and timeline_info.get("requested_dates"):
+                        complete_shipment_details["shipment_date"] = timeline_info.get("requested_dates")
+                        logger.info(f"📅 Added shipment_date from timeline_information: {timeline_info.get('requested_dates')}")
+                
                 rate_request_data = {
                     "assigned_forwarders": [assigned_forwarder],
-                    "shipment_details": extracted_data.get("shipment_details", {}),
+                    "shipment_details": complete_shipment_details,  # Use complete shipment details from cumulative extraction
                     "origin_country": origin_country,
                     "destination_country": destination_country,
                     "port_lookup_result": state.get("port_lookup_result", {}),  # Include port codes
@@ -1527,8 +1873,11 @@ class LangGraphWorkflowOrchestrator:
             if conversation_state_result and isinstance(conversation_state_result, dict):
                 conversation_state = conversation_state_result.get("conversation_stage", "unknown")
             
-            # Get forwarder email content if available
+            # Get forwarder email content if available (the email RECEIVED FROM forwarder)
             forwarder_email_content = ""
+            forwarder_email_subject = ""
+            forwarder_email_from = ""
+            forwarder_email_to = ""
             forwarder_details = {}
             if forwarder_response_result and not forwarder_response_result.get('error'):
                 # Get the original forwarder email content from email_data
@@ -1538,6 +1887,25 @@ class LangGraphWorkflowOrchestrator:
                     email_data.get("body", "") or
                     email_data.get("email_text", "")
                 )
+                # Get email metadata for complete forwarder email
+                forwarder_email_subject = email_data.get("subject", "")
+                forwarder_email_from = email_data.get("sender", "") or email_data.get("from_email", "")
+                forwarder_email_to = email_data.get("to_email", "") or email_data.get("to", "")
+                
+                # Format the complete forwarder received email
+                if forwarder_email_content:
+                    formatted_forwarder_email = f"""
+FORWARDER EMAIL RECEIVED:
+--------------------------------------------------
+Subject: {forwarder_email_subject}
+From: {forwarder_email_from}
+To: {forwarder_email_to}
+
+Body:
+{forwarder_email_content}
+--------------------------------------------------
+"""
+                    forwarder_email_content = formatted_forwarder_email
                 # Extract forwarder details from forwarder_response_result
                 forwarder_details = {
                     "name": forwarder_response_result.get("forwarder_name", ""),
@@ -1550,17 +1918,54 @@ class LangGraphWorkflowOrchestrator:
             if forwarder_detection_result and not forwarder_detection_result.get('error'):
                 forwarder_detection_details = forwarder_detection_result.get("forwarder_details", {})
                 if forwarder_detection_details:
-                    if not forwarder_details.get("name"):
+                    if not forwarder_details.get("name") or forwarder_details.get("name") == "Forwarder":
                         forwarder_details["name"] = forwarder_detection_details.get("name", "")
                     if not forwarder_details.get("email"):
                         forwarder_details["email"] = forwarder_detection_details.get("email", "")
                     if not forwarder_details.get("company"):
-                        forwarder_details["company"] = forwarder_detection_details.get("company", "")
+                        forwarder_details["company"] = forwarder_detection_details.get("company", forwarder_detection_details.get("name", ""))
+            
+            # Final fallback: Extract from email sender if still missing
+            if not forwarder_details.get("name") or forwarder_details.get("name") == "Forwarder":
+                sender_email = email_data.get("sender", "")
+                if sender_email:
+                    # Extract name from email prefix or domain
+                    forwarder_details["name"] = self._extract_name_from_email(sender_email, forwarder_email_content)
+                    if not forwarder_details.get("email"):
+                        forwarder_details["email"] = sender_email
+                    if not forwarder_details.get("company"):
+                        forwarder_details["company"] = forwarder_details.get("name", "")
             
             # Get timeline information for urgency calculation
             timeline_info = {}
             if cumulative_extraction and isinstance(cumulative_extraction, dict):
                 timeline_info = cumulative_extraction.get("timeline_information", {})
+            
+            # Get forwarder rate request email if available (from forwarder assignment)
+            forwarder_rate_request_email = ""
+            forwarder_assignment_result = state.get("forwarder_assignment_result", {})
+            if forwarder_assignment_result and not forwarder_assignment_result.get('error'):
+                rate_request = forwarder_assignment_result.get("rate_request", {})
+                if rate_request and isinstance(rate_request, dict):
+                    # Extract the email body, subject, and to/from from the rate request
+                    rate_request_body = rate_request.get("body", "")
+                    rate_request_subject = rate_request.get("subject", "")
+                    rate_request_to = rate_request.get("to", "")
+                    rate_request_from = rate_request.get("from", "")
+                    
+                    # Format the complete rate request email
+                    if rate_request_body:
+                        forwarder_rate_request_email = f"""
+RATE REQUEST EMAIL SENT TO FORWARDER:
+--------------------------------------------------
+Subject: {rate_request_subject}
+To: {rate_request_to}
+From: {rate_request_from}
+
+Body:
+{rate_request_body}
+--------------------------------------------------
+"""
             
             result = self.sales_notification_agent.process({
                 "notification_type": notification_type,
@@ -1569,6 +1974,7 @@ class LangGraphWorkflowOrchestrator:
                 "forwarder_rates": forwarder_rates,
                 "forwarder_details": forwarder_details,
                 "forwarder_email_content": forwarder_email_content,
+                "forwarder_rate_request_email": forwarder_rate_request_email,  # Add rate request email
                 "timeline_information": timeline_info,
                 "conversation_state": conversation_state,
                 "thread_id": state.get("thread_id", ""),
@@ -1915,11 +2321,30 @@ Best regards,
         extraction_confidence = state.get("extraction_result", {}).get("confidence", 0.0)
         validation_confidence = state.get("validation_result", {}).get("confidence", 0.0)
         
-        # Get missing fields from next action result
-        missing_fields = next_action_result.get("missing_fields", [])
+        # CRITICAL: Validate mandatory fields directly in routing to ensure accuracy
+        # This is the source of truth - don't rely only on next_action_result
+        # Use cumulative_extraction which has merged data including special_requirements
+        extracted_data = state.get("cumulative_extraction", {})
+        if not extracted_data:
+            # Fallback to extraction_result if cumulative_extraction is not available
+            extracted_data = state.get("extraction_result", {}).get("extracted_data", {})
+        port_lookup_result = state.get("port_lookup_result", {})
         
-        # If missing_fields is not in next_action_result, try to get it from the state
+        # Validate mandatory fields using the same validation function
+        is_valid, validated_missing_fields = self._validate_mandatory_fields_for_confirmation(
+            extracted_data, port_lookup_result
+        )
+        
+        # PRIORITY: Use validated missing fields as the source of truth
+        # Only fall back to next_action_result if validation didn't find any missing fields
+        if validated_missing_fields and len(validated_missing_fields) > 0:
+            missing_fields = validated_missing_fields
+            logger.info(f"🔍 Routing: Using validated missing fields: {missing_fields}")
+        else:
+            # Fallback: Get missing fields from next action result
+            missing_fields = next_action_result.get("missing_fields", [])
         if not missing_fields:
+                # If missing_fields is not in next_action_result, try to get it from the state
             missing_fields = state.get("missing_fields", [])
         
         # Also check if missing fields were determined in the next action step
@@ -1965,45 +2390,39 @@ Best regards,
         HIGH_CONFIDENCE_THRESHOLD = 0.7
         LOW_CONFIDENCE_THRESHOLD = 0.5
         
-        # Check for customer confirmation first
-        if customer_confirmed:
-            print(f"   ✅ CUSTOMER CONFIRMATION DETECTED")
-            print(f"   📧 Sending confirmation acknowledgment")
-            return "generate_confirmation_acknowledgment"
+        # PRIORITY ORDER (as per user requirement):
+        # 1. Clarification response (if missing fields)
+        # 2. Confirmation request (if all fields complete but not confirmed)
+        # 3. Confirmation acknowledgment (if customer confirmed and all fields complete)
         
-        # REMOVED: Low confidence escalation - now sends clarification instead
-        # Previously: Low confidence triggered escalation
-        # Now: Low confidence triggers clarification request (happy flow)
-        # if overall_confidence < LOW_CONFIDENCE_THRESHOLD:
-        #     return "generate_acknowledgment_response"  # This was causing escalation
-        
-        # Intelligent routing logic - Happy flow only
-        # Low confidence now triggers clarification, not escalation
-        if overall_confidence < LOW_CONFIDENCE_THRESHOLD:
-            print(f"   ⚠️ LOW CONFIDENCE DETECTED: {overall_confidence:.2f} < {LOW_CONFIDENCE_THRESHOLD}")
-            print(f"   📧 Sending clarification request (happy flow)")
-            # Check if we have missing fields to clarify
-            if missing_fields:
-                return "generate_clarification_response"
-            else:
-                # Even with low confidence, if no missing fields, send confirmation
-                return "generate_confirmation_response"
-        
-        # Check if next action agent explicitly chose clarification
-        elif action == "send_clarification_request" or action == "clarification":
-            print(f"   📋 NEXT ACTION AGENT CHOSE CLARIFICATION: {action}")
-            print(f"   📧 Respecting next action agent decision")
+        # PRIORITY 1: Check for missing fields FIRST - send clarification if any missing
+        if missing_fields and len(missing_fields) > 0:
+            print(f"   ❌ MISSING FIELDS DETECTED: {missing_fields}")
+            print(f"   📧 PRIORITY 1: Sending clarification request")
             return "generate_clarification_response"
         
-        elif not missing_fields:  # No missing fields
-            print(f"   ✅ NO MISSING FIELDS: {missing_fields}")
-            print(f"   📧 Sending confirmation request")
+        # PRIORITY 2: If all fields complete but customer hasn't confirmed - send confirmation request
+        if not customer_confirmed:
+            print(f"   ✅ NO MISSING FIELDS: All information is complete")
+            print(f"   📧 PRIORITY 2: Sending confirmation request (customer not yet confirmed)")
             return "generate_confirmation_response"
         
-        else:  # Has missing fields
-            print(f"   ❌ MISSING FIELDS DETECTED: {missing_fields}")
-            print(f"   📧 Sending clarification request")
+        # PRIORITY 3: Customer confirmed AND all fields complete - send confirmation acknowledgment
+        # This will trigger forwarder assignment if successful
+        if customer_confirmed:
+            print(f"   ✅ CUSTOMER CONFIRMATION DETECTED + ALL FIELDS COMPLETE")
+            print(f"   📧 PRIORITY 3: Sending confirmation acknowledgment")
+            return "generate_confirmation_acknowledgment"
+        
+        # Fallback: Low confidence or unclear state - send clarification
+        if overall_confidence < LOW_CONFIDENCE_THRESHOLD:
+            print(f"   ⚠️ LOW CONFIDENCE DETECTED: {overall_confidence:.2f} < {LOW_CONFIDENCE_THRESHOLD}")
+            print(f"   📧 FALLBACK: Sending clarification request")
             return "generate_clarification_response"
+        
+        # Final fallback: clarification
+        print(f"   📧 FINAL FALLBACK: Sending clarification request")
+        return "generate_clarification_response"
     
     def _route_after_acknowledgment(self, state: WorkflowState) -> str:
         """Route after acknowledgment response - Happy flow only, no escalation"""
@@ -2029,10 +2448,65 @@ Best regards,
         print(f"🔄 ACKNOWLEDGMENT ROUTING: Proceeding to thread update (happy flow)")
         return "update_thread"
     
+    def _extract_name_from_email(self, sender_email: str, email_content: str = "") -> str:
+        """Extract forwarder/company name from email sender or content."""
+        import re
+        
+        # Try to extract from email content signature
+        if email_content:
+            signature_patterns = [
+                r"best\s+regards,?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+                r"sincerely,?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+                r"regards,?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+            ]
+            
+            for pattern in signature_patterns:
+                matches = re.findall(pattern, email_content, re.IGNORECASE | re.MULTILINE)
+                if matches:
+                    name = matches[-1].strip()
+                    if len(name.split()) <= 3 and len(name) > 2:
+                        return name
+        
+        # Extract from sender email (before @)
+        if sender_email and "@" in sender_email:
+            email_prefix = sender_email.split("@")[0]
+            # Remove common prefixes
+            email_prefix = re.sub(r'^(info|contact|sales|quotes|rates|support|hello|hi)', '', email_prefix, flags=re.IGNORECASE)
+            email_prefix = email_prefix.replace('.', ' ').replace('_', ' ').replace('-', ' ')
+            # Capitalize words
+            name_parts = [word.capitalize() for word in email_prefix.split() if word]
+            if name_parts and len(name_parts) <= 3:
+                return ' '.join(name_parts)
+            
+            # Fallback: extract domain name
+            domain = sender_email.split("@")[1]
+            domain_parts = domain.split(".")[0].replace('-', ' ').replace('_', ' ')
+            name_parts = [word.capitalize() for word in domain_parts.split() if word]
+            if name_parts:
+                return ' '.join(name_parts)
+        
+        return "Forwarder"  # Final fallback
+    
     def _route_after_confirmation_acknowledgment(self, state: WorkflowState) -> str:
-        """Route after confirmation acknowledgment - proceed with forwarder assignment"""
-        print(f"🔄 CONFIRMATION ACKNOWLEDGMENT ROUTING: Proceeding with forwarder assignment")
-        return "assign_forwarders"
+        """Route after confirmation acknowledgment - proceed with forwarder assignment only if successful"""
+        confirmation_ack_result = state.get("confirmation_acknowledgment_result", {})
+        clarification_result = state.get("clarification_response_result", {})
+        
+        # CRITICAL: If clarification was generated (because confirmation acknowledgment failed),
+        # do NOT assign forwarders - just update thread
+        if clarification_result and not clarification_result.get('error'):
+            print(f"🔄 CONFIRMATION ACKNOWLEDGMENT ROUTING: Clarification was generated instead, skipping forwarder assignment")
+            return "update_thread"
+        
+        # Check if confirmation acknowledgment was successful (no error)
+        if confirmation_ack_result and not confirmation_ack_result.get('error'):
+            print(f"🔄 CONFIRMATION ACKNOWLEDGMENT ROUTING: Proceeding with forwarder assignment")
+            return "assign_forwarders"
+        else:
+            # If there was an error (e.g., missing mandatory fields), clarification was generated instead
+            # Don't assign forwarders - just update thread
+            print(f"🔄 CONFIRMATION ACKNOWLEDGMENT ROUTING: Error detected, skipping forwarder assignment (clarification was generated)")
+            return "update_thread"
     
     async def process_email(self, email_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process email through the complete workflow"""

@@ -1,0 +1,72 @@
+{
+  "dashboard": {
+    "title": "LangGraph Email Quality Dashboard",
+    "panels": [
+      {
+        "title": "Agent Confidence Heat-map",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "agent_confidence",
+            "legendFormat": "{{agent_name}}"
+          }
+        ]
+      },
+      {
+        "title": "Grammar vs Word Count Scatter",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "email_grammar_score",
+            "legendFormat": "Grammar Score"
+          },
+          {
+            "expr": "email_word_count",
+            "legendFormat": "Word Count"
+          }
+        ]
+      },
+      {
+        "title": "Cost per 1k Emails",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(cost_per_email_usd[1h])) * 1000",
+            "legendFormat": "Cost per 1k emails"
+          }
+        ]
+      },
+      {
+        "title": "Email Processing Results",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (result) (rate(email_processed_total[5m]))",
+            "legendFormat": "{{result}}"
+          }
+        ]
+      },
+      {
+        "title": "Hallucination Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(email_hallucination_total[5m])",
+            "legendFormat": "{{agent}}"
+          }
+        ]
+      },
+      {
+        "title": "Agent Latency",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(agent_latency_seconds_bucket[5m]))",
+            "legendFormat": "p95 {{agent_name}}"
+          }
+        ]
+      }
+    ]
+  }
+}
+

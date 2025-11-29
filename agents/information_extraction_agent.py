@@ -178,8 +178,10 @@ class InformationExtractionAgent(BaseAgent):
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "origin": {"type": "string", "description": "Origin port/city"},
-                            "destination": {"type": "string", "description": "Destination port/city"},
+                            "origin": {"type": "string", "description": "Origin port/city name ONLY (NEVER store country names here). If input is 'Los Angeles, USA', extract 'Los Angeles'. If input is just 'USA' (country only), leave this EMPTY. Only extract if it's a specific port or city name."},
+                            "origin_country": {"type": "string", "description": "Country name for origin. If input is 'Los Angeles, USA' or 'Shanghai, China', extract the country part ('United States' or 'China'). If input is just a country like 'USA', extract the full country name ('United States'). Leave empty if no country is mentioned."},
+                            "destination": {"type": "string", "description": "Destination port/city name ONLY (NEVER store country names here). If input is 'Mumbai, India', extract 'Mumbai'. If input is just 'India' (country only), leave this EMPTY. Only extract if it's a specific port or city name."},
+                            "destination_country": {"type": "string", "description": "Country name for destination. If input is 'Mumbai, India' or 'Rotterdam, Netherlands', extract the country part ('India' or 'Netherlands'). If input is just a country like 'India', extract the full country name. Leave empty if no country is mentioned."},
                             "container_type": {"type": "string", "description": "Container type (20GP, 40GP, 40HC, etc.)"},
                             "container_count": {"type": "string", "description": "Number of containers"},
                             "commodity": {"type": "string", "description": "Type of goods/commodity"},
@@ -195,6 +197,7 @@ class InformationExtractionAgent(BaseAgent):
                             "urgency": {"type": "string", "description": "Urgency level"},
                             "deadline": {"type": "string", "description": "Deadline requirements"},
                             "incoterm": {"type": "string", "description": "Incoterm (FOB, CIF, EXW, etc.)"},
+                            "shipment_type": {"type": "string", "description": "Shipment type: 'FCL' (Full Container Load) or 'LCL' (Less than Container Load). Extract directly if mentioned (e.g., 'LCL shipment', 'FCL shipment', 'full container', 'less than container'). If not explicitly mentioned, leave empty."},
                             "special_requirements": {"type": "array", "items": {"type": "string"}, "description": "Special handling requirements"},
                             "additional_notes": {"type": "string", "description": "Additional notes or comments"}
                         },
@@ -254,16 +257,27 @@ class InformationExtractionAgent(BaseAgent):
                         return None
                 
                 # Convert flattened structure to nested format
+                # Determine shipment_type: if not mentioned but container_type exists, default to FCL
+                extracted_shipment_type = extracted_data.get("shipment_type", "").strip().upper() if extracted_data.get("shipment_type") else ""
+                container_type_value = extracted_data.get("container_type", "").strip()
+                
+                # If shipment_type not mentioned but container_type exists → default to FCL
+                if not extracted_shipment_type and container_type_value:
+                    extracted_shipment_type = "FCL"
+                
                 nested_data = {
                     "shipment_details": {
                         "origin": extracted_data.get("origin", ""),
+                        "origin_country": extracted_data.get("origin_country", ""),
                         "destination": extracted_data.get("destination", ""),
-                        "container_type": extracted_data.get("container_type", ""),
+                        "destination_country": extracted_data.get("destination_country", ""),
+                        "container_type": container_type_value,
                         "container_count": extracted_data.get("container_count", ""),
                         "commodity": extracted_data.get("commodity", ""),
                         "weight": extracted_data.get("weight", ""),
                         "volume": extracted_data.get("volume", ""),
-                        "incoterm": extracted_data.get("incoterm", "")
+                        "incoterm": extracted_data.get("incoterm", ""),
+                        "shipment_type": extracted_shipment_type  # FCL if container_type exists and not mentioned
                     },
                     "contact_information": {
                         "name": extracted_data.get("contact_name", ""),
@@ -290,7 +304,9 @@ class InformationExtractionAgent(BaseAgent):
                 return {
                     "shipment_details": {
                         "origin": "",
+                        "origin_country": "",
                         "destination": "",
+                        "destination_country": "",
                         "container_type": "",
                         "container_count": "",
                         "commodity": "",
@@ -352,26 +368,28 @@ class InformationExtractionAgent(BaseAgent):
         return f"""
 You are an expert logistics information extractor. Extract shipping information from the following email with high precision.
 
-EMAIL SUBJECT: {subject}
 SENDER: {sender}
-EMAIL CONTENT:
+EMAIL BODY TEXT (ONLY - IGNORE SUBJECT):
 {email_text}
 
 EXTRACTION INSTRUCTIONS:
-1. Extract ONLY information that is explicitly mentioned in the email
-2. Do NOT infer or assume any information
-3. If a field is not mentioned, leave it empty (use empty string "")
-4. Prioritize information from the email content over the subject
+1. Extract ONLY information that is explicitly mentioned in the EMAIL BODY TEXT
+2. IGNORE the email subject completely - do NOT extract any information from the subject line
+3. Do NOT infer or assume any information
+4. If a field is not mentioned in the email body, leave it empty (use empty string "")
 5. Be precise with port names, container types, and measurements
 6. Return ONLY valid JSON format - no additional text or explanations
 7. Use empty strings for missing values, not null or undefined
 8. Pay special attention to structured responses with "Field: Value" format
+9. CRITICAL: For origin_country/destination_country - ONLY set if you are 100% CERTAIN it's a country name. If unsure, leave EMPTY. Port names like "Jebel Ali", "Mundra", "Shanghai", "Los Angeles" are NOT countries - leave origin_country/destination_country empty for these.
 
 EXTRACTION SECTIONS:
 
 1. SHIPMENT DETAILS:
-   - Origin: Port/city/country where shipment originates
-   - Destination: Port/city/country where shipment is going
+   - Origin: Extract ONLY the port/city name (NEVER store country names here). If input is "Los Angeles, USA", extract "Los Angeles". If input is just "USA" (country only), leave this EMPTY. Only extract if it's a specific port or city name.
+   - Origin Country: Extract ONLY the country name. If input is "Los Angeles, USA" or "Shanghai, China", extract the country part ("United States" or "China"). If input is just a country like "USA", extract the full country name ("United States"). Leave empty if no country is mentioned.
+   - Destination: Extract ONLY the port/city name (NEVER store country names here). If input is "Mumbai, India", extract "Mumbai". If input is just "India" (country only), leave this EMPTY. Only extract if it's a specific port or city name.
+   - Destination Country: Extract ONLY the country name. If input is "Mumbai, India" or "Rotterdam, Netherlands", extract the country part ("India" or "Netherlands"). If input is just a country like "India", extract the full country name. Leave empty if no country is mentioned.
    - Container Type: Type of container (20GP, 40GP, 40HC, etc.)
    - Container Count: Number of containers
    - Commodity: Type of goods being shipped
@@ -397,13 +415,71 @@ EXTRACTION SECTIONS:
 5. ADDITIONAL NOTES:
    - Any other relevant information
 
-EXAMPLES:
-- "I need to ship 2 containers from Shanghai to Los Angeles" → Origin: Shanghai, Destination: Los Angeles, Container Count: 2
+EXAMPLES (PORT/CITY AND COUNTRY SEPARATION):
+- "I need to ship 2 containers from Shanghai to Los Angeles" → Origin: Shanghai, Origin Country: "", Destination: Los Angeles, Destination Country: "", Container Count: 2
+- "Ship from Los Angeles, USA to Shanghai, China" → Origin: Los Angeles, Origin Country: "United States", Destination: Shanghai, Destination Country: "China"
+- "from Mumbai, India to Rotterdam, Netherlands" → Origin: Mumbai, Origin Country: "India", Destination: Rotterdam, Destination Country: "Netherlands"
+- "from New York, USA to London, UK" → Origin: New York, Origin Country: "United States", Destination: London, Destination Country: "United Kingdom"
+- "I want to ship from china to india" → Origin: "", Origin Country: "China", Destination: "", Destination Country: "India" (country-only: leave origin/destination EMPTY)
+- "Ship from USA to Shanghai" → Origin: "", Origin Country: "United States", Destination: Shanghai, Destination Country: "" (country-only for origin: leave origin EMPTY)
+- "from UAE to India" → Origin: "", Origin Country: "United Arab Emirates", Destination: "", Destination Country: "India" (both are countries: leave origin/destination EMPTY)
+- "jebel ali to mundra" → Origin: jebel ali, Origin Country: "", Destination: mundra, Destination Country: "" (both are ports, no country mentioned)
+- "from Dubai to Mumbai" → Origin: Dubai, Origin Country: "", Destination: Mumbai, Destination Country: "" (both are cities/ports, no country mentioned)
+- "Destination: Los Angeles, USA" → Destination: Los Angeles, Destination Country: "United States" (parse combined input)
+- "Origin: Shanghai (CNSHG), China" → Origin: Shanghai, Origin Country: "China" (extract port name, ignore port code)
 - "40HC container with 15,000 kg" → Container Type: 40HC, Weight: 15,000 kg
 - "Need it by August 25th" → Requested Dates: August 25th
-- "Destination: Los Angeles, USA" → Destination: Los Angeles, USA
 - "Commodity: Electronics" → Commodity: Electronics
 - "Quantity: 2 containers" → Container Count: 2
+
+NEGATIVE EXAMPLES (WHAT NOT TO DO):
+- "jebel ali" → WRONG: origin_country: "Tanzania" ❌ | CORRECT: origin_country: "" ✅ (Jebel Ali is a port in UAE, not Tanzania)
+- "mundra" → WRONG: destination_country: "Africa" ❌ | CORRECT: destination_country: "" ✅ (Mundra is a port in India, not Africa)
+- "Singapore" → WRONG: origin_country: "Singapore" ❌ | CORRECT: origin_country: "" ✅ (Singapore can be a city/port, only set country if explicitly stated as country)
+
+PORT/CITY AND COUNTRY SEPARATION RULES (CRITICAL - READ CAREFULLY):
+
+PARSING COMBINED INPUTS (e.g., "Los Angeles, USA"):
+- If input contains both port/city AND country (separated by comma, parentheses, or "in"):
+  - Extract port/city name into origin/destination field
+  - Extract country name into origin_country/destination_country field
+  - Examples:
+    * "Los Angeles, USA" → origin: "Los Angeles", origin_country: "United States"
+    * "Shanghai, China" → origin: "Shanghai", origin_country: "China"
+    * "Mumbai (India)" → origin: "Mumbai", origin_country: "India"
+    * "Rotterdam in Netherlands" → origin: "Rotterdam", origin_country: "Netherlands"
+
+PARSING COUNTRY-ONLY INPUTS:
+- If input is ONLY a country name (e.g., "USA", "China", "India"):
+  - Leave origin/destination EMPTY (countries are NOT ports/cities)
+  - Extract country name into origin_country/destination_country ONLY
+  - Examples:
+    * "from USA" → origin: "", origin_country: "United States"
+    * "to China" → destination: "", destination_country: "China"
+    * "from India" → origin: "", origin_country: "India"
+
+PARSING PORT/CITY-ONLY INPUTS:
+- If input is ONLY a port/city name (e.g., "Shanghai", "Los Angeles", "Jebel Ali"):
+  - Extract port/city name into origin/destination field
+  - Leave origin_country/destination_country EMPTY
+  - Examples:
+    * "from Shanghai" → origin: "Shanghai", origin_country: ""
+    * "to Los Angeles" → destination: "Los Angeles", destination_country: ""
+    * "jebel ali to mundra" → origin: "jebel ali", origin_country: "", destination: "mundra", destination_country: ""
+
+COUNTRY NAME STANDARDIZATION:
+- "USA" or "US" → "United States"
+- "UK" or "U.K." → "United Kingdom"
+- "UAE" → "United Arab Emirates"
+- Use full country names when possible (e.g., "United States" not "USA" in country field)
+
+COMMON PORT/CITY NAMES (NEVER treat as countries):
+- Jebel Ali, Mundra, Shanghai, Los Angeles, Mumbai, Dubai, Singapore (city), Rotterdam, Hamburg, etc.
+- If you see these names WITHOUT a country mentioned → Leave origin_country/destination_country EMPTY
+
+IMPORTANT: 
+- When in doubt, leave origin_country/destination_country EMPTY. It's better to leave it empty than to incorrectly identify a port as a country.
+- Always parse combined inputs (e.g., "City, Country") to extract port/city and country separately.
 
 STRUCTURED RESPONSE PATTERNS:
 - "Destination: [value]" → Extract as destination
@@ -415,16 +491,29 @@ STRUCTURED RESPONSE PATTERNS:
 - "Container Type: [value]" → Extract as container_type
 - "Incoterm: [value]" → Extract as incoterm
 
-CONTAINER TYPE DETECTION:
+SHIPMENT TYPE EXTRACTION (CRITICAL - EXTRACT DIRECTLY):
+- Extract shipment_type directly if mentioned in the email:
+  * "LCL shipment" → shipment_type: "LCL"
+  * "FCL shipment" → shipment_type: "FCL"
+  * "less than container" → shipment_type: "LCL"
+  * "full container" → shipment_type: "FCL"
+  * "LCL" → shipment_type: "LCL"
+  * "FCL" → shipment_type: "FCL"
+- If shipment_type is explicitly mentioned, use it directly - do NOT infer from other fields
+- If shipment_type is NOT mentioned, leave it empty (use empty string "")
+
+CONTAINER TYPE DETECTION (ONLY IF shipment_type IS NOT MENTIONED):
 - If customer mentions "containers" or "container" → This indicates FCL shipment
 - If customer provides quantity (e.g., "2 containers") → This is FCL shipment
 - If no specific container type is mentioned but "containers" is used → Set container_type to "Standard" or leave empty
 - If customer mentions weight and volume without containers → This is LCL shipment
 
 EXAMPLES:
-- "Quantity: 2 containers" → container_count: "2", container_type: "" (FCL shipment)
-- "2x40ft containers" → container_count: "2", container_type: "40GP" (FCL shipment)
-- "Weight: 5000 kg, Volume: 20 CBM" → weight: "5000 kg", volume: "20 CBM" (LCL shipment)
+- "I need a quote for LCL shipment" → shipment_type: "LCL" (extract directly)
+- "FCL shipment from Shanghai" → shipment_type: "FCL" (extract directly)
+- "Quantity: 2 containers" → container_count: "2", container_type: "" (FCL shipment, but shipment_type empty if not mentioned)
+- "2x40ft containers" → container_count: "2", container_type: "40GP" (FCL shipment, but shipment_type empty if not mentioned)
+- "Weight: 5000 kg, Volume: 20 CBM" → weight: "5000 kg", volume: "20 CBM" (LCL shipment, but shipment_type empty if not mentioned)
 
 Extract the information accurately and return it in the specified format.
 """

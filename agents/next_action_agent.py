@@ -143,11 +143,64 @@ class NextActionAgent(BaseAgent):
             # Format extracted data for analysis
             missing_fields = validation_results.get("overall_validation", {}).get("missing_fields", [])
             
+            # CRITICAL: Check if ports are countries (not specific ports) - this is also a missing field
+            # This check MUST happen before applying FCL/LCL rules
+            # First check extracted_data for origin_country/destination_country fields
+            shipment_details = extracted_data.get("shipment_details", {})
+            origin = shipment_details.get("origin", "").strip()
+            destination = shipment_details.get("destination", "").strip()
+            origin_country = shipment_details.get("origin_country", "").strip()
+            destination_country = shipment_details.get("destination_country", "").strip()
+            
+            # Only flag as missing if origin is EMPTY but origin_country is set (country-only input)
+            # If origin is set (even if origin_country is also set), it's a valid port with country info
+            if not origin and origin_country:
+                if "Origin (specific port required)" not in missing_fields:
+                    missing_fields.append("Origin (specific port required)")
+                    self.logger.warning(f"⚠️ Origin is a country ({origin_country}), not a specific port. Adding to missing fields.")
+            elif not origin:
+                # Origin is empty and no country set - just missing origin
+                if "Origin" not in missing_fields:
+                    missing_fields.append("Origin")
+            
+            # Only flag as missing if destination is EMPTY but destination_country is set (country-only input)
+            # If destination is set (even if destination_country is also set), it's a valid port with country info
+            if not destination and destination_country:
+                if "Destination (specific port required)" not in missing_fields:
+                    missing_fields.append("Destination (specific port required)")
+                    self.logger.warning(f"⚠️ Destination is a country ({destination_country}), not a specific port. Adding to missing fields.")
+            elif not destination:
+                # Destination is empty and no country set - just missing destination
+                if "Destination" not in missing_fields:
+                    missing_fields.append("Destination")
+            
+            # Fallback: Also check port_lookup_result if country fields are not extracted
+            port_lookup_result = enriched_data.get("port_lookup", {})
+            if port_lookup_result and not origin_country and not destination_country:
+                # Check origin - if it's a country (not a specific port), add to missing fields
+                origin_result = port_lookup_result.get("origin", {})
+                if origin_result and origin_result.get("is_country", False):
+                    if "Origin (specific port required)" not in missing_fields:
+                        missing_fields.append("Origin (specific port required)")
+                        self.logger.warning(f"⚠️ Origin is a country ({origin_result.get('country', 'unknown')}), not a specific port. Adding to missing fields.")
+                
+                # Check destination - if it's a country (not a specific port), add to missing fields
+                destination_result = port_lookup_result.get("destination", {})
+                if destination_result and destination_result.get("is_country", False):
+                    if "Destination (specific port required)" not in missing_fields:
+                        missing_fields.append("Destination (specific port required)")
+                        self.logger.warning(f"⚠️ Destination is a country ({destination_result.get('country', 'unknown')}), not a specific port. Adding to missing fields.")
+            
             # Apply FCL/LCL business rules to missing fields
             missing_fields = self._apply_fcl_lcl_rules_to_missing_fields(missing_fields, extracted_data)
             
             # Check if customer has confirmed the details
             customer_confirmed = self._check_customer_confirmation(conversation_state, email_classification)
+            
+            # CRITICAL: Even if customer confirmed, if mandatory fields are missing (including country-only ports), require clarification
+            if customer_confirmed and missing_fields and len(missing_fields) > 0:
+                self.logger.warning(f"⚠️ Customer confirmed but mandatory fields missing: {missing_fields}. Requiring clarification first - customer confirmation cannot override missing mandatory information.")
+                # Force clarification - customer confirmation is ignored if mandatory fields are missing
             
             data_summary = self._format_data_summary(extracted_data, missing_fields)
 
@@ -170,9 +223,15 @@ EXTRACTED DATA SUMMARY:
 
 MISSING FIELDS: {missing_fields}
 
-**CRITICAL DECISION RULE - READ THIS FIRST:**
-If missing_fields list is empty ([]), you MUST choose send_confirmation_request regardless of any validation issues.
-Do NOT choose send_clarification_request if missing_fields is empty.
+**CRITICAL DECISION RULE - READ THIS FIRST (MANDATORY - NO EXCEPTIONS):**
+- **IF missing_fields list contains ANY items (is NOT empty)**: You MUST choose send_clarification_request
+- **ONLY if missing_fields list is completely empty ([])**: You may choose send_confirmation_request
+- **NEVER choose send_confirmation_request if there are ANY missing mandatory fields**
+- **ALL mandatory fields MUST be populated before confirmation can be triggered**
+- **SPECIFIC PORTS REQUIRED**: Origin and Destination must be SPECIFIC PORTS (e.g., "Los Angeles", "Shanghai"), NOT countries (e.g., "USA", "China")
+- **If country names are provided instead of ports**: This counts as a missing field ("Origin (specific port required)" or "Destination (specific port required)")
+- **This rule takes absolute priority over ALL other considerations, including customer confirmation**
+- **Customer confirmation is IGNORED if mandatory fields are missing - clarification is required first**
 
 AVAILABLE ACTIONS:
 1. send_clarification_request: Ask customer for missing information
@@ -190,9 +249,12 @@ AVAILABLE ACTIONS:
 
 INTELLIGENT ANALYSIS INSTRUCTIONS:
 
-**PRIORITY DECISION RULE:**
-- **FIRST**: Check the missing_fields list - if it's empty, choose send_confirmation_request regardless of validation issues
-- **SECOND**: Only if missing_fields has items, then analyze validation results for clarification needs
+**PRIORITY DECISION RULE (STRICT ENFORCEMENT):**
+- **FIRST AND MANDATORY**: Check the missing_fields list
+  - **IF missing_fields has ANY items**: You MUST choose send_clarification_request (NO EXCEPTIONS)
+  - **IF missing_fields is empty ([])**: Then proceed to check if confirmation is appropriate
+- **SECOND**: Only if missing_fields is empty, analyze validation results and data completeness
+- **THIRD**: Only if ALL mandatory fields are present AND missing_fields is empty, consider send_confirmation_request
 
 **DATA QUALITY ANALYSIS:**
 - Analyze the validation results to understand data completeness and quality
@@ -210,11 +272,16 @@ INTELLIGENT ANALYSIS INSTRUCTIONS:
 - **Null/Empty Values** → send_clarification_request (ask for missing info)
 - **No Origin/Destination** → send_clarification_request (critical for routing)
 
-**CONFIRMATION FLOW LOGIC:**
-- **Complete Data + No Customer Confirmation** → send_confirmation_request (ask customer to confirm)
-- **Complete Data + Customer Confirmed** → booking_details_confirmed_assign_forwarders (proceed to forwarder assignment)
-- **Customer Confirmation Received** → booking_details_confirmed_assign_forwarders (assign forwarder)
-- **No Missing Required Fields** → send_confirmation_request (present data for confirmation)
+**CONFIRMATION FLOW LOGIC (STRICT REQUIREMENTS):**
+- **MANDATORY PREREQUISITE**: missing_fields list MUST be empty ([]) before considering confirmation
+- **MANDATORY PREREQUISITE**: Origin and Destination MUST be specific ports (not countries)
+- **Complete Data + No Customer Confirmation + missing_fields is empty + specific ports provided** → send_confirmation_request (ask customer to confirm)
+- **Complete Data + Customer Confirmed + missing_fields is empty + specific ports provided** → booking_details_confirmed_assign_forwarders (proceed to forwarder assignment)
+- **Customer Confirmation Received BUT missing_fields has items OR country-only ports** → send_clarification_request (MUST ask for missing information first, including specific ports)
+- **If ANY mandatory field is missing OR if ports are countries instead of specific ports** → send_clarification_request (MUST ask for missing information first)
+- **NEVER send confirmation if missing_fields contains ANY items, even if customer confirmed**
+- **NEVER send confirmation if origin/destination are countries instead of specific ports**
+- **Customer confirmation is IGNORED when mandatory fields are missing**
 
 **FCL SHIPMENT LOGIC:**
 - **Mandatory Fields**: Port names, shipment type, container type, shipment date
@@ -230,8 +297,10 @@ INTELLIGENT ANALYSIS INSTRUCTIONS:
 - **Mandatory Fields**: Port names, shipment type, weight, volume, shipment date
 - **Both weight AND volume** are required for LCL
 - **No Container Type**: LCL shipments do NOT have container types
+- **No Container Count**: LCL shipments do NOT require number of containers (only weight and volume)
 - **Don't proceed** without both weight and volume
 - **Ask for missing weight/volume** even if customer confirms
+- **NEVER ask for container count** for LCL shipments
 
 **FORWARDER EMAIL HANDLING:**
 - **forwarder_response**: When forwarder provides rates/quote → collate_rates_and_send_to_sales
@@ -245,12 +314,17 @@ INTELLIGENT ANALYSIS INSTRUCTIONS:
 
 **GENERAL DECISION RULES:**
 - **Container Type Logic**: If container type is provided (20GP, 40GP, 40HC, etc.) → automatically set shipment_type to FCL
+- **Container Count Logic**: 
+  - **FCL**: Container count (number of containers) IS REQUIRED
+  - **LCL**: Container count is NOT REQUIRED (only weight and volume are needed)
+  - **NEVER ask for container count for LCL shipments**
 - **Port Information**: If specific port names are provided (Shanghai, Los Angeles, etc.) → do NOT ask for port clarification
 - **Data Completeness**: Only ask for missing critical fields, not for information already provided
-- **CRITICAL**: If missing_fields list is empty → send_confirmation_request (data is complete)
+- **CRITICAL**: If missing_fields list contains ANY items → send_clarification_request (MANDATORY - no confirmation allowed)
+- **CRITICAL**: If missing_fields list is empty → then consider send_confirmation_request (only if all mandatory fields present)
+- **CRITICAL**: Missing fields list takes ABSOLUTE priority - if missing_fields has ANY items, clarification is REQUIRED
 - **CRITICAL**: Do NOT ask customers for rate information or transit time - these are what customers request, not provide
-- **CRITICAL**: Missing fields list takes priority over validation results - if missing_fields is empty, choose confirmation
-- **CRITICAL**: Date format issues in validation should NOT trigger clarification if the date is present
+- **CRITICAL**: Date format issues in validation should NOT trigger clarification if the date is present (but missing date should be in missing_fields)
 - If validation shows invalid port codes but country names are provided → send_clarification_request for specific ports
 - If validation shows missing critical fields (ports, date, etc.) → send_clarification_request
 - If extracted data has null/empty values for critical fields → send_clarification_request
@@ -333,6 +407,18 @@ Determine the next action, priority, and whether escalation or sales handoff is 
             result["conversation_state"] = conversation_state
             result["confidence_score"] = confidence_score
             
+            # CRITICAL: Enforce rule - NO confirmation if ANY mandatory fields are missing
+            # This applies EVEN IF customer has confirmed - all mandatory fields must be present first
+            next_action = result.get("next_action", "")
+            if missing_fields and len(missing_fields) > 0:
+                # If there are missing fields, override confirmation actions - EVEN if customer confirmed
+                if next_action in ["send_confirmation_request", "booking_details_confirmed_assign_forwarders"]:
+                    self.logger.warning(f"⚠️ LLM attempted to send confirmation with missing fields: {missing_fields}. Overriding to clarification (customer_confirmed={customer_confirmed}). Customer confirmation cannot override missing mandatory information.")
+                    result["next_action"] = "send_clarification_request"
+                    result["response_type"] = "clarification"
+                    result["reasoning"] = f"OVERRIDE: Mandatory fields missing ({', '.join(missing_fields)}). Confirmation requires ALL mandatory fields, including specific ports (not countries). Customer confirmation cannot override missing mandatory information. " + result.get("reasoning", "")
+                    result["decision_method"] = "llm_function_call_with_override"
+            
             # Validate and correct result if needed
             if result.get("next_action") not in self.available_actions:
                 self.logger.warning(f"Invalid next_action: {result.get('next_action')}, defaulting to escalate_to_human")
@@ -377,17 +463,68 @@ Determine the next action, priority, and whether escalation or sales handoff is 
 
     def _apply_fcl_lcl_rules_to_missing_fields(self, missing_fields: List[str], extracted_data: Dict[str, Any]) -> List[str]:
         """Apply FCL/LCL business rules to filter missing fields."""
-        # Check if this is an FCL shipment (has container type)
-        container_type = extracted_data.get("container_type", "")
-        has_container_type = container_type and str(container_type).strip().upper() in [
-            "20GP", "40GP", "40HC", "20RF", "40RF", "20DC", "40DC", "20FT", "40FT"
-        ]
+        shipment_details = extracted_data.get("shipment_details", {})
         
-        if has_container_type:
+        # CRITICAL: Check extracted shipment_type FIRST (directly extracted from email)
+        shipment_type = shipment_details.get("shipment_type", "").strip().upper()
+        
+        # Get container type from nested structure
+        container_type = shipment_details.get("container_type", "")
+        if isinstance(container_type, dict):
+            container_type = container_type.get("standardized_type", "") or container_type.get("standard_type", "")
+        container_type = str(container_type).strip() if container_type else ""
+        
+        # Determine shipment type with priority: extracted shipment_type > special_requirements > container_type
+        is_fcl = None
+        
+        if shipment_type == "LCL":
+            # Shipment type was directly extracted as LCL - use it directly
+            is_fcl = False
+            # CRITICAL: Remove container_count from missing_fields for LCL shipments
+            if "container_count" in missing_fields or "Number of containers" in " ".join(missing_fields) or "Quantity (number of containers)" in " ".join(missing_fields):
+                missing_fields = [f for f in missing_fields if "container_count" not in f.lower() and "number of containers" not in f.lower() and "quantity (number of containers)" not in f.lower()]
+                print(f"✅ NEXT_ACTION: Removed container_count from missing fields (LCL shipment - extracted shipment_type: {shipment_type})")
+        elif shipment_type == "FCL":
+            # Shipment type was directly extracted as FCL - use it directly
+            is_fcl = True
+        else:
+            # Fallback: Check special_requirements for explicit LCL/FCL mentions
+            special_requirements = extracted_data.get("special_requirements", [])
+            is_explicitly_lcl = False
+            is_explicitly_fcl = False
+            
+            if special_requirements:
+                requirements_text = " ".join([str(req).lower() for req in special_requirements])
+                if "lcl" in requirements_text or "less than container" in requirements_text:
+                    is_explicitly_lcl = True
+                if "fcl" in requirements_text or "full container" in requirements_text:
+                    is_explicitly_fcl = True
+            
+            if is_explicitly_lcl:
+                is_fcl = False
+                # CRITICAL: Remove container_count from missing_fields for LCL shipments
+                if "container_count" in missing_fields or "Number of containers" in " ".join(missing_fields) or "Quantity (number of containers)" in " ".join(missing_fields):
+                    missing_fields = [f for f in missing_fields if "container_count" not in f.lower() and "number of containers" not in f.lower() and "quantity (number of containers)" not in f.lower()]
+                    print(f"✅ NEXT_ACTION: Removed container_count from missing fields (LCL shipment with special_requirements: {special_requirements})")
+            elif is_explicitly_fcl:
+                is_fcl = True
+            elif container_type and container_type.upper() in ["20GP", "40GP", "40HC", "20RF", "40RF", "20DC", "40DC", "20FT", "40FT", "20HC", "40FT HC"]:
+                # Has container type but no shipment_type - assume FCL
+                is_fcl = True
+            else:
+                # Default: not FCL (could be LCL or unknown)
+                is_fcl = False
+        
+        if is_fcl:
             # This is an FCL shipment - volume should NOT be required
             if "volume" in missing_fields:
                 missing_fields.remove("volume")
                 print(f"✅ NEXT_ACTION: Removed volume from missing fields (FCL shipment with container type: {container_type})")
+        else:
+            # This is an LCL shipment - container_count should NOT be required
+            if "container_count" in missing_fields or "Number of containers" in " ".join(missing_fields) or "Quantity (number of containers)" in " ".join(missing_fields):
+                missing_fields = [f for f in missing_fields if "container_count" not in f.lower() and "number of containers" not in f.lower() and "quantity (number of containers)" not in f.lower()]
+                print(f"✅ NEXT_ACTION: Removed container_count from missing fields (LCL shipment)")
         
         return missing_fields
 

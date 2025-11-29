@@ -141,6 +141,154 @@ class PortLookupAgent(BaseAgent):
         else:
             return {"error": "No port_name or port_names provided"}
 
+    def _check_if_country_name(self, port_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Check if input is a country name (not a port) using LLM with country_converter fallback.
+        Returns country detection result if input is a country, None otherwise.
+        """
+        if not port_name or not isinstance(port_name, str):
+            return None
+        
+        cleaned_name = port_name.strip()
+        self.logger.debug(f"🔍 Checking if '{cleaned_name}' is a country name...")
+        
+        # Try LLM detection first if available
+        if self.client:
+            try:
+                llm_result = self._llm_country_detection(cleaned_name)
+                if llm_result and llm_result.get("is_country", False):
+                    self.logger.info(f"✅ LLM detected '{cleaned_name}' as country: {llm_result.get('country')}")
+                    return llm_result
+            except Exception as e:
+                self.logger.warning(f"LLM country detection failed: {e}, using fallback")
+        
+        # Fallback to country_converter
+        try:
+            import country_converter as coco
+            
+            # Also try common country aliases FIRST (before coco.convert)
+            country_aliases = {
+                "usa": "United States",
+                "us": "United States",
+                "u.s.": "United States",
+                "u.s.a.": "United States",
+                "uk": "United Kingdom",
+                "u.k.": "United Kingdom",
+                "uae": "United Arab Emirates",
+                "china": "China"
+            }
+            
+            cleaned_lower = cleaned_name.lower()
+            alias_match = country_aliases.get(cleaned_lower)
+            if alias_match:
+                self.logger.info(f"✅ Alias match: '{cleaned_name}' → '{alias_match}'")
+                return {
+                    "port_code": None,
+                    "port_name": None,
+                    "country": alias_match,
+                    "is_country": True,
+                    "confidence": 0.95,
+                    "method": "country_name_detection_alias",
+                    "original_input": cleaned_name,
+                    "suggestion": f"Please specify a port in {alias_match} (e.g., 'Los Angeles' or 'New York' for USA)"
+                }
+            
+            # Try various country name formats with country_converter
+            country_name = coco.convert(names=cleaned_name, to='name_short', not_found=None)
+            
+            # Also try with lowercase
+            if not country_name or country_name == cleaned_name:
+                country_name = coco.convert(names=cleaned_lower, to='name_short', not_found=None)
+            
+            if country_name and country_name != cleaned_name and country_name != cleaned_lower:
+                # Found a country match
+                self.logger.info(f"✅ Country converter detected '{cleaned_name}' as country: {country_name}")
+                return {
+                    "port_code": None,
+                    "port_name": None,
+                    "country": country_name,
+                    "is_country": True,
+                    "confidence": 0.9,
+                    "method": "country_name_detection",
+                    "original_input": cleaned_name,
+                    "suggestion": f"Please specify a port in {country_name} (e.g., 'Los Angeles' or 'New York' for USA)"
+                }
+            else:
+                self.logger.debug(f"❌ '{cleaned_name}' not recognized as a country")
+        except ImportError:
+            self.logger.warning("country_converter not available for country detection")
+        except Exception as e:
+            self.logger.warning(f"Country detection fallback failed: {e}")
+        
+        return None
+
+    def _llm_country_detection(self, input_text: str) -> Optional[Dict[str, Any]]:
+        """
+        Use LLM to determine if input is a country name.
+        Returns detection result if country, None otherwise.
+        """
+        try:
+            prompt = f"""You are an expert in geography and international shipping. Determine if the following input is a COUNTRY NAME or a PORT/CITY NAME.
+
+INPUT: "{input_text}"
+
+Analyze the input and determine:
+1. Is this a country name? (e.g., "USA", "China", "United States", "United Kingdom")
+2. Is this a port/city name? (e.g., "Shanghai", "Los Angeles", "Rotterdam")
+
+Examples:
+- "USA" → COUNTRY
+- "United States" → COUNTRY  
+- "China" → COUNTRY
+- "Shanghai" → PORT/CITY
+- "Los Angeles" → PORT/CITY
+- "New York" → PORT/CITY
+
+Respond with JSON:
+{{
+    "is_country": true/false,
+    "country_name": "Full country name if is_country=true, else null",
+    "confidence": 0.0-1.0,
+    "reasoning": "Brief explanation"
+}}"""
+
+            if not self.client:
+                return None
+            
+            response = self.client.invoke(prompt)
+            
+            # Parse response
+            if hasattr(response, 'content'):
+                content = response.content
+            else:
+                content = str(response)
+            
+            # Extract JSON from response
+            import json
+            import re
+            
+            # Try to find JSON in response
+            json_match = re.search(r'\{[^{}]*"is_country"[^{}]*\}', content, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                
+                if result.get("is_country", False):
+                    country_name = result.get("country_name", input_text)
+                    return {
+                        "port_code": None,
+                        "port_name": None,
+                        "country": country_name,
+                        "is_country": True,
+                        "confidence": result.get("confidence", 0.85),
+                        "method": "llm_country_detection",
+                        "original_input": input_text,
+                        "suggestion": f"Please specify a port in {country_name} (e.g., 'Los Angeles' or 'New York' for USA)"
+                    }
+        except Exception as e:
+            self.logger.error(f"LLM country detection error: {e}")
+        
+        return None
+
     def _lookup_single_port(self, port_name: str) -> Dict[str, Any]:
         """Lookup a single port and return code, name, confidence"""
         
@@ -152,6 +300,11 @@ class PortLookupAgent(BaseAgent):
                 "method": "invalid_input",
                 "error": "Invalid port name"
             }
+        
+        # FIRST: Check if input is a country name (not a port)
+        country_result = self._check_if_country_name(port_name)
+        if country_result:
+            return country_result
         
         # Clean input
         cleaned_name = self._clean_port_name(port_name)

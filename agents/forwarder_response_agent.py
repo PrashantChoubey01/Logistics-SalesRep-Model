@@ -31,9 +31,28 @@ class ForwarderResponseAgent(BaseAgent):
             conversation_state = input_data.get("conversation_state", {})
             
             # Get forwarder details
-            forwarder_details = forwarder_detection.get("forwarder_details", {})
-            forwarder_name = forwarder_details.get("name", "Forwarder")
+            forwarder_details = forwarder_detection.get("forwarder_details", {}) or {}
+            forwarder_name = forwarder_details.get("name", "")
             forwarder_email = forwarder_details.get("email", "")
+            
+            # If forwarder details are missing, extract from email
+            if not forwarder_name or forwarder_name == "Forwarder":
+                forwarder_name = self._extract_forwarder_name_from_email(email_data, forwarder_email)
+            
+            if not forwarder_email:
+                forwarder_email = email_data.get("sender", "")
+            
+            # Extract company name if not present
+            if not forwarder_details.get("company"):
+                company_name = self._extract_company_name_from_email(email_data)
+                if company_name:
+                    forwarder_details["company"] = company_name
+                elif forwarder_name:
+                    forwarder_details["company"] = forwarder_name
+            
+            # Update forwarder_details with extracted information
+            forwarder_details["name"] = forwarder_name
+            forwarder_details["email"] = forwarder_email
             
             # Extract rate information from email (try multiple possible field names)
             email_text = (

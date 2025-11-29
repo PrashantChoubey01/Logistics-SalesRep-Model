@@ -1,0 +1,21 @@
+# Monitoring and Observability Dependencies
+
+# Evidently for offline evaluation
+evidently>=0.4.0
+evidently[llm]>=0.4.0
+
+# Prometheus client
+prometheus-client>=0.19.0
+
+# OpenTelemetry
+opentelemetry-api>=1.21.0
+opentelemetry-sdk>=1.21.0
+opentelemetry-exporter-prometheus>=1.21.0
+opentelemetry-instrumentation-langgraph>=0.1.0
+
+# For state diff
+deepdiff>=6.7.0
+
+# For data analysis
+pandas>=2.0.0
+

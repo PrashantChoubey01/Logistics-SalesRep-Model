@@ -79,3 +79,11 @@ secrets.*
 # Configuration files - exclude sensitive ones
 config/sales_team.json
 config/forwarders.json
+
+# Thread data files (keep structure but ignore actual thread data)
+data/threads/*.json
+!data/threads/.gitkeep
+
+# Keep embeddings metadata but ignore large binary files
+data/embeddings/*.pkl
+data/embeddings/*.faiss

@@ -167,14 +167,37 @@ class ConfirmationResponseAgent(BaseAgent):
                     else:
                         logger.debug(f"⚠️ No port_lookup_result for destination, using raw value: {destination_display}")
                     shipment_text += f"• Destination: {destination_display}\n"
-                if shipment.get("container_type"):
-                    shipment_text += f"• Container Type: {shipment['container_type']}\n"
-                if shipment.get("container_count"):
-                    shipment_text += f"• Number of Containers: {shipment['container_count']}\n"
-                if shipment.get("weight"):
-                    shipment_text += f"• Weight: {shipment['weight']}\n"
-                if shipment.get("volume"):
-                    shipment_text += f"• Volume: {shipment['volume']}\n"
+                
+                # CRITICAL: Check shipment_type to determine which fields to display
+                shipment_type = shipment.get("shipment_type", "").strip().upper() if shipment.get("shipment_type") else ""
+                
+                # If shipment_type is LCL, don't display container_type or container_count
+                # If shipment_type is FCL, display container_type and container_count
+                # If shipment_type is not set, check if container_type exists (defaults to FCL)
+                is_lcl = shipment_type == "LCL"
+                is_fcl = shipment_type == "FCL" or (not shipment_type and shipment.get("container_type"))
+                
+                # FCL-specific fields (only show for FCL shipments)
+                if is_fcl and not is_lcl:
+                    if shipment.get("container_type"):
+                        shipment_text += f"• Container Type: {shipment['container_type']}\n"
+                    if shipment.get("container_count"):
+                        shipment_text += f"• Number of Containers: {shipment['container_count']}\n"
+                
+                # LCL-specific fields (only show for LCL shipments)
+                if is_lcl:
+                    if shipment.get("weight"):
+                        shipment_text += f"• Weight: {shipment['weight']}\n"
+                    if shipment.get("volume"):
+                        shipment_text += f"• Volume: {shipment['volume']}\n"
+                elif not is_fcl:
+                    # If shipment type is unknown, show both (but this shouldn't happen)
+                    if shipment.get("weight"):
+                        shipment_text += f"• Weight: {shipment['weight']}\n"
+                    if shipment.get("volume"):
+                        shipment_text += f"• Volume: {shipment['volume']}\n"
+                
+                # Common fields (always show)
                 if shipment.get("commodity"):
                     shipment_text += f"• Commodity: {shipment['commodity']}\n"
                 formatted_sections.append(shipment_text)
