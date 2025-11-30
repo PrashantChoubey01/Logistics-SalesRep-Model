@@ -10,9 +10,9 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Environment files
-.env
-.env.*
-*.env
+# .env
+# .env.*
+# *.env
 
 # Databricks local artifacts
 .dbfs/
@@ -77,8 +77,8 @@ secrets.*
 *.csv
 
 # Configuration files - exclude sensitive ones
-config/sales_team.json
-config/forwarders.json
+# config/sales_team.json
+# config/forwarders.json
 
 # Thread data files (keep structure but ignore actual thread data)
 data/threads/*.json
@@ -87,3 +87,6 @@ data/threads/*.json
 # Keep embeddings metadata but ignore large binary files
 data/embeddings/*.pkl
 data/embeddings/*.faiss
+
+cursor_rules.md
+CUSTOMER_EMAIL_INPUT_OUTPUT_SPEC.md

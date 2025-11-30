@@ -8,7 +8,8 @@ This document lists all customer email templates from `demo_app.py` and their ex
 **All customer emails go through data enrichment and validation before response generation:**
 
 1. **Port Information Enrichment:**
-   - Customer input: "Shanghai, China" or "Los Angeles, USA"
+   - Customer input: "Shanghai, C
+   hina" or "Los Angeles, USA"
    - System enriches: "Shanghai (CNSHG)" or "Los Angeles (USLAX)"
    - **Enriched data with port codes is shown to customer for validation**
 

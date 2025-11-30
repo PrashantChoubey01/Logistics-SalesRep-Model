@@ -1,0 +1,55 @@
+{
+  "forwarders": [
+    {
+      "id": "FWD001",
+      "name": "Pacific Bridge Logistics",
+      "email": "ops@pacificbridgelogistics.com",
+      "country": "China",
+      "operator": "Ocean",
+      "company": "Pacific Bridge Logistics",
+      "specialization": "Trans Pacific",
+      "contact_person": "Grace Liu",
+      "phone": "+86-21-5555-1001"
+    },
+    {
+      "id": "FWD002",
+      "name": "Atlantic Freight Partners",
+      "email": "quotes@atlanticfreightpartners.com",
+      "country": "United States",
+      "operator": "Ocean",
+      "company": "Atlantic Freight Partners",
+      "specialization": "US West Coast",
+      "contact_person": "Martin Hayes",
+      "phone": "+1-310-555-2200"
+    },
+    {
+      "id": "FWD003",
+      "name": "EuroTrans Logistics",
+      "email": "sales@eurotranslogistics.eu",
+      "country": "Netherlands",
+      "operator": "Ocean",
+      "company": "EuroTrans Logistics BV",
+      "specialization": "Europe Hub",
+      "contact_person": "Anouk Van Dijk",
+      "phone": "+31-10-555-3300"
+    },
+    {
+      "id": "FWD004",
+      "name": "Gulf Connect Freight",
+      "email": "support@gulfconnectfreight.com",
+      "country": "United Arab Emirates",
+      "operator": "Ocean",
+      "company": "Gulf Connect Freight LLC",
+      "specialization": "Middle East",
+      "contact_person": "Imran Siddiqui",
+      "phone": "+971-4-555-4400"
+    }
+  ],
+  "metadata": {
+    "total_forwarders": 4,
+    "last_updated": "2025-11-27",
+    "version": "1.0",
+    "description": "Forwarder database for logistics AI response system"
+  }
+}
+
