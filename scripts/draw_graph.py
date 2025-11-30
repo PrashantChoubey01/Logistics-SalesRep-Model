@@ -33,55 +33,88 @@ def draw_graph(output_path: str = None, view: bool = True, check_compile: bool =
         
         print("📊 Generating graph visualization...")
         
-        # Try to use graphviz if available
+        # Get the graph structure
+        graph = orchestrator.workflow.get_graph()
+        print(f"📊 Graph structure: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
+        
+        # Print ASCII representation
+        print("\n" + "=" * 80)
+        print("📋 WORKFLOW NODES")
+        print("=" * 80)
+        for i, node in enumerate(graph.nodes, 1):
+            node_id = node.id if hasattr(node, 'id') else str(node)
+            print(f"  {i:2d}. {node_id}")
+        
+        print("\n" + "=" * 80)
+        print("🔗 WORKFLOW EDGES")
+        print("=" * 80)
+        for i, edge in enumerate(graph.edges, 1):
+            source = edge.source if hasattr(edge, 'source') else edge[0]
+            target = edge.target if hasattr(edge, 'target') else edge[1]
+            print(f"  {i:2d}. {source} → {target}")
+        
+        # Try to use graphviz for PNG visualization
         try:
             import graphviz
-            from langgraph.graph.graph import draw_ascii
             
-            # Generate ASCII representation
-            ascii_graph = draw_ascii(orchestrator.workflow)
-            print("\n" + ascii_graph)
+            graphviz_graph = graphviz.Digraph(
+                name='LangGraph Workflow',
+                format='png',
+                graph_attr={'rankdir': 'LR', 'size': '12,8', 'dpi': '300'},
+                node_attr={'shape': 'box', 'style': 'rounded,filled', 'fillcolor': 'lightblue'}
+            )
             
-            # Try to generate PNG if graphviz is available
-            try:
-                graph = orchestrator.workflow.get_graph()
-                graphviz_graph = graphviz.Digraph()
+            # Add nodes
+            for node in graph.nodes:
+                node_id = node.id if hasattr(node, 'id') else str(node)
+                graphviz_graph.node(node_id, label=node_id.replace('_', '\n'))
+            
+            # Add edges
+            for edge in graph.edges:
+                source = edge.source if hasattr(edge, 'source') else edge[0]
+                target = edge.target if hasattr(edge, 'target') else edge[1]
+                graphviz_graph.edge(source, target)
+            
+            if output_path:
+                output_file = graphviz_graph.render(output_path, format='png', cleanup=True)
+                print(f"\n✅ Graph saved to: {output_file}")
                 
-                # Add nodes
-                for node in graph.nodes:
-                    graphviz_graph.node(node.id, label=node.id)
-                
-                # Add edges
-                for edge in graph.edges:
-                    graphviz_graph.edge(edge.source, edge.target)
-                
-                if output_path:
-                    graphviz_graph.render(output_path, format='png', cleanup=True)
-                    print(f"✅ Graph saved to: {output_path}.png")
+                if view:
+                    import subprocess
+                    import platform
                     
-                    if view:
-                        import subprocess
-                        import platform
-                        
-                        if platform.system() == 'Darwin':  # macOS
-                            subprocess.run(['open', f"{output_path}.png"])
-                        elif platform.system() == 'Windows':
-                            subprocess.run(['start', f"{output_path}.png"], shell=True)
-                        else:  # Linux
-                            subprocess.run(['xdg-open', f"{output_path}.png"])
-                else:
-                    print("💡 Use --output <path> to save PNG file")
+                    if platform.system() == 'Darwin':  # macOS
+                        subprocess.run(['open', output_file])
+                    elif platform.system() == 'Windows':
+                        subprocess.run(['start', output_file], shell=True)
+                    else:  # Linux
+                        subprocess.run(['xdg-open', output_file])
+            else:
+                # Save to default location
+                default_path = "workflow_graph"
+                output_file = graphviz_graph.render(default_path, format='png', cleanup=True)
+                print(f"\n✅ Graph saved to: {output_file}")
+                print("💡 Use --output <path> to specify custom output path")
+                
+                if view:
+                    import subprocess
+                    import platform
                     
-            except Exception as e:
-                print(f"⚠️  Could not generate PNG (graphviz may not be installed): {e}")
-                print("   Install with: pip install graphviz")
-        
+                    if platform.system() == 'Darwin':  # macOS
+                        subprocess.run(['open', output_file])
+                    elif platform.system() == 'Windows':
+                        subprocess.run(['start', output_file], shell=True)
+                    else:  # Linux
+                        subprocess.run(['xdg-open', output_file])
+                    
         except ImportError:
-            # Fallback to ASCII only
-            from langgraph.graph.graph import draw_ascii
-            ascii_graph = draw_ascii(orchestrator.workflow)
-            print("\n" + ascii_graph)
-            print("\n💡 Install graphviz for PNG output: pip install graphviz")
+            print("\n⚠️  graphviz not installed - cannot generate PNG")
+            print("   Install with: pip install graphviz")
+            print("   Also install system package: brew install graphviz (macOS) or apt-get install graphviz (Linux)")
+        except Exception as e:
+            print(f"\n⚠️  Could not generate PNG: {e}")
+            print("   Make sure graphviz is installed: pip install graphviz")
+            print("   And system package: brew install graphviz (macOS)")
         
     except Exception as e:
         print(f"❌ Error generating graph: {e}")
