@@ -205,6 +205,18 @@ if selected_template != "-- Select a template --" and selected_template in EMAIL
         st.session_state.form_subject = template["subject"]
         st.session_state.form_content = template["content"]
         st.session_state.selected_template_key = selected_template
+        
+        # Clear widget state keys so widgets use new session state values on rerun
+        # Streamlit widgets with keys maintain their own state, so we need to clear them
+        if 'sender_email_input' in st.session_state:
+            del st.session_state.sender_email_input
+        if 'subject_input' in st.session_state:
+            del st.session_state.subject_input
+        if 'content_textarea' in st.session_state:
+            del st.session_state.content_textarea
+        if 'email_type_selectbox' in st.session_state:
+            del st.session_state.email_type_selectbox
+        
         st.success(f"✅ Loaded template: {selected_template}")
         st.rerun()
 
