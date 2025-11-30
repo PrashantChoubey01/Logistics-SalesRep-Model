@@ -112,21 +112,30 @@ class ClarificationResponseAgent(BaseAgent):
                     if origin_result.get("is_country", False):
                         country_name = origin_result.get("country", origin)
                         origin_display = f"{country_name} (Please specify a port)"
-                    elif origin_result.get('port_code'):
-                        # Valid port found - use port lookup result (more reliable than extracted country field)
+                    else:
                         port_name = origin_result.get('port_name', origin)
                         port_code = origin_result.get('port_code', '')
+                        confidence = origin_result.get("confidence", 0.0)
                         country = origin_result.get('country', '')
+                        use_port_name = origin_result.get("use_port_name", False)
+                        original_port_name = origin_result.get("original_port_name", origin)
                         
-                        # Format: "Port Name (Port Code), Country" or "Port Name (Port Code)"
-                        if port_code:
+                        # If port code not found OR confidence < 0.6, use port name instead
+                        if use_port_name or not port_code or confidence < 0.6:
+                            # Use original port name (from extraction) - no port code shown
+                            if country and country != "Unknown" and country:
+                                origin_display = f"{original_port_name}, {country}"
+                            else:
+                                origin_display = original_port_name
+                        elif port_code:
+                            # Port code found with high confidence - show with port code
                             if country and country != "Unknown" and country.lower() != port_name.lower():
                                 origin_display = f"{port_name} ({port_code}), {country}"
                             else:
                                 origin_display = f"{port_name} ({port_code})"
                         elif country and country != "Unknown" and country.lower() != port_name.lower():
                             origin_display = f"{port_name}, {country}"
-                    else:
+                        else:
                             origin_display = port_name if port_name else origin
                 # PRIORITY 2: If no valid port lookup result, check extracted origin_country field
                 elif origin_country:
@@ -148,21 +157,30 @@ class ClarificationResponseAgent(BaseAgent):
                     if destination_result.get("is_country", False):
                         country_name = destination_result.get("country", destination)
                         destination_display = f"{country_name} (Please specify a port)"
-                    elif destination_result.get('port_code'):
-                        # Valid port found - use port lookup result (more reliable than extracted country field)
+                    else:
                         port_name = destination_result.get('port_name', destination)
                         port_code = destination_result.get('port_code', '')
+                        confidence = destination_result.get("confidence", 0.0)
                         country = destination_result.get('country', '')
+                        use_port_name = destination_result.get("use_port_name", False)
+                        original_port_name = destination_result.get("original_port_name", destination)
                         
-                        # Format: "Port Name (Port Code), Country" or "Port Name (Port Code)"
-                        if port_code:
+                        # If port code not found OR confidence < 0.6, use port name instead
+                        if use_port_name or not port_code or confidence < 0.6:
+                            # Use original port name (from extraction) - no port code shown
+                            if country and country != "Unknown" and country:
+                                destination_display = f"{original_port_name}, {country}"
+                            else:
+                                destination_display = original_port_name
+                        elif port_code:
+                            # Port code found with high confidence - show with port code
                             if country and country != "Unknown" and country.lower() != port_name.lower():
                                 destination_display = f"{port_name} ({port_code}), {country}"
                             else:
                                 destination_display = f"{port_name} ({port_code})"
                         elif country and country != "Unknown" and country.lower() != port_name.lower():
                             destination_display = f"{port_name}, {country}"
-                    else:
+                        else:
                             destination_display = port_name if port_name else destination
                 # PRIORITY 2: If no valid port lookup result, check extracted destination_country field
                 elif destination_country:
