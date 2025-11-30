@@ -111,17 +111,35 @@ class ConfirmationAcknowledgmentAgent(BaseAgent):
             origin = shipment.get("origin", "your origin")
             destination = shipment.get("destination", "your destination")
             
-            # Add port codes if available
+            # Add port codes if available (unless confidence < 0.5 or use_port_name is True)
             if port_lookup_result:
-                if port_lookup_result.get("origin") and port_lookup_result["origin"].get("port_code"):
-                    origin_code = port_lookup_result["origin"]["port_code"]
-                    origin_name = port_lookup_result["origin"].get("port_name", origin)
-                    origin = f"{origin_name} ({origin_code})"
+                if port_lookup_result.get("origin"):
+                    origin_result = port_lookup_result["origin"]
+                    origin_code = origin_result.get("port_code", "")
+                    # CRITICAL: Use original_port_name if port_name is None, otherwise use port_name, fallback to origin
+                    original_origin_name = origin_result.get("original_port_name", origin)
+                    origin_name = origin_result.get("port_name") or original_origin_name or origin
+                    confidence = origin_result.get("confidence", 0.0)
+                    use_port_name = origin_result.get("use_port_name", False)
+                    # Show port code if available and conditions met
+                    if origin_code and origin_code.strip() and confidence >= 0.5 and not use_port_name:
+                        origin = f"{origin_name} ({origin_code})"
+                    else:
+                        origin = origin_name
                 
-                if port_lookup_result.get("destination") and port_lookup_result["destination"].get("port_code"):
-                    dest_code = port_lookup_result["destination"]["port_code"]
-                    dest_name = port_lookup_result["destination"].get("port_name", destination)
-                    destination = f"{dest_name} ({dest_code})"
+                if port_lookup_result.get("destination"):
+                    dest_result = port_lookup_result["destination"]
+                    dest_code = dest_result.get("port_code", "")
+                    # CRITICAL: Use original_port_name if port_name is None, otherwise use port_name, fallback to destination
+                    original_dest_name = dest_result.get("original_port_name", destination)
+                    dest_name = dest_result.get("port_name") or original_dest_name or destination
+                    confidence = dest_result.get("confidence", 0.0)
+                    use_port_name = dest_result.get("use_port_name", False)
+                    # Show port code if available and conditions met
+                    if dest_code and dest_code.strip() and confidence >= 0.5 and not use_port_name:
+                        destination = f"{dest_name} ({dest_code})"
+                    else:
+                        destination = dest_name
             
             if origin and destination and origin != "your origin" and destination != "your destination":
                 return f"Confirmation Received - Quote in Progress for {origin} to {destination}"
@@ -204,26 +222,38 @@ class ConfirmationAcknowledgmentAgent(BaseAgent):
                 shipment_text = "**Confirmed Shipment Details:**\n"
                 
                 # Origin with port code
+                # Show port codes when available (unless confidence < 0.5 or use_port_name is True)
                 if shipment.get("origin"):
                     origin_display = shipment['origin']
                     if port_lookup_result and port_lookup_result.get("origin"):
                         origin_result = port_lookup_result["origin"]
-                        port_name = origin_result.get("port_name", shipment['origin'])
+                        # CRITICAL: Use original_port_name if port_name is None, otherwise use port_name, fallback to shipment origin
+                        original_port_name = origin_result.get("original_port_name", shipment['origin'])
+                        port_name = origin_result.get("port_name") or original_port_name or shipment['origin']
                         port_code = origin_result.get("port_code", "")
-                        if port_code:
+                        confidence = origin_result.get("confidence", 0.0)
+                        use_port_name = origin_result.get("use_port_name", False)
+                        # Show port code if available and conditions met
+                        if port_code and port_code.strip() and confidence >= 0.5 and not use_port_name:
                             origin_display = f"{port_name} ({port_code})"
                         else:
                             origin_display = port_name
                     shipment_text += f"- Origin: {origin_display}\n"
                 
                 # Destination with port code
+                # Show port codes when available (unless confidence < 0.5 or use_port_name is True)
                 if shipment.get("destination"):
                     destination_display = shipment['destination']
                     if port_lookup_result and port_lookup_result.get("destination"):
                         destination_result = port_lookup_result["destination"]
-                        port_name = destination_result.get("port_name", shipment['destination'])
+                        # CRITICAL: Use original_port_name if port_name is None, otherwise use port_name, fallback to shipment destination
+                        original_port_name = destination_result.get("original_port_name", shipment['destination'])
+                        port_name = destination_result.get("port_name") or original_port_name or shipment['destination']
                         port_code = destination_result.get("port_code", "")
-                        if port_code:
+                        confidence = destination_result.get("confidence", 0.0)
+                        use_port_name = destination_result.get("use_port_name", False)
+                        # Show port code if available and conditions met
+                        if port_code and port_code.strip() and confidence >= 0.5 and not use_port_name:
                             destination_display = f"{port_name} ({port_code})"
                         else:
                             destination_display = port_name

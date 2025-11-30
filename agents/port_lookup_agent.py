@@ -91,25 +91,32 @@ class PortLookupAgent(BaseAgent):
             "HKHKG": "Hong Kong",
             "USNYC": "New York",
             "GBFXT": "Felixstowe",
-            "BEANR": "Antwerp"
+            "BEANR": "Antwerp",
+            "AEJEA": "Jebel Ali",  # Jebel Ali, UAE
+            "INMUN": "Mundra",     # Mundra, India
+            "PKKHI": "Karachi"     # Karachi, Pakistan
         }
         self.embeddings = {}
         self.logger.info("✅ Using fallback port data")
 
     def load_context(self) -> bool:
-        """Load embedding model for runtime use"""
+        """Load embedding model and LLM client for runtime use"""
         try:
-            # Only load embedding model if we have embeddings
+            # Load embedding model if we have embeddings
             if self.embeddings:
                 from sentence_transformers import SentenceTransformer
                 self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
                 self.logger.info("✅ Embedding model loaded for vector search")
             else:
                 self.logger.info("✅ Agent loaded without vector search (using fallback methods)")
+            
+            # Load LLM client for fallback lookup (call parent method)
+            super().load_context()
+            
             return True
         except Exception as e:
-            self.logger.error(f"Error loading embedding model: {e}")
-            return True  # Continue without vector search
+            self.logger.error(f"Error loading context: {e}")
+            return True  # Continue without vector search or LLM
 
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -334,6 +341,14 @@ Respond with JSON:
         
         # Method 5: Partial matching
         result = self._partial_match(cleaned_name)
+        if result["confidence"] >= 0.5:
+            return result
+        
+        # Method 6: LLM fallback (if confidence is low and LLM is available)
+        if self.client and result["confidence"] < 0.7:
+            llm_result = self._llm_port_lookup(cleaned_name)
+            if llm_result and llm_result.get("confidence", 0) > result["confidence"]:
+                return llm_result
         
         return result
 
@@ -444,7 +459,7 @@ Respond with JSON:
                     "country": country,
                     "confidence": float(best_similarity),
                     "method": "vector_similarity",
-                    "matched_text": best_match["original_text"]
+                    "matched_text": best_match.get("port_name", port_name)
                 }
         
         except Exception as e:
@@ -531,6 +546,177 @@ Respond with JSON:
             "method": "no_match",
             "error": f"No match found for '{port_name}'"
         }
+
+    def _get_vector_candidates(self, port_name: str, top_k: int = 10) -> List[Dict[str, Any]]:
+        """Get top K candidate ports using vector similarity for LLM context"""
+        candidates = []
+        
+        if not self.embedding_model or not self.embeddings:
+            # Fallback: use fuzzy matching to get candidates
+            try:
+                from difflib import SequenceMatcher
+                scored = []
+                for port_code, name in self.port_data.items():
+                    ratio = SequenceMatcher(None, port_name.lower(), name.lower()).ratio()
+                    scored.append({
+                        "port_code": port_code,
+                        "port_name": name,
+                        "score": ratio
+                    })
+                scored.sort(key=lambda x: x["score"], reverse=True)
+                return scored[:top_k]
+            except Exception:
+                return []
+        
+        try:
+            # Use vector similarity
+            query_embedding = self.embedding_model.encode([port_name])[0]
+            
+            scored = []
+            for text_key, embedding_data in self.embeddings.items():
+                # Skip variation keys, only use main port codes
+                if "_" in text_key:
+                    continue
+                    
+                stored_embedding = np.array(embedding_data["embedding"])
+                similarity = np.dot(query_embedding, stored_embedding) / (
+                    np.linalg.norm(query_embedding) * np.linalg.norm(stored_embedding)
+                )
+                
+                scored.append({
+                    "port_code": embedding_data["port_code"],
+                    "port_name": embedding_data["port_name"],
+                    "score": float(similarity)
+                })
+            
+            scored.sort(key=lambda x: x["score"], reverse=True)
+            return scored[:top_k]
+        except Exception as e:
+            self.logger.warning(f"Error getting vector candidates: {e}")
+            return []
+
+    def _format_port_context(self, candidates: List[Dict[str, Any]]) -> str:
+        """Format candidate ports for LLM context"""
+        if not candidates:
+            # Fallback: provide a sample of ports
+            sample_ports = list(self.port_data.items())[:20]
+            context = "Sample ports:\n"
+            for code, name in sample_ports:
+                context += f"  - {code}: {name}\n"
+            return context
+        
+        context = "Candidate ports (most similar first):\n"
+        for i, candidate in enumerate(candidates[:10], 1):
+            context += f"  {i}. {candidate['port_code']}: {candidate['port_name']} (similarity: {candidate['score']:.3f})\n"
+        
+        return context
+
+    def _llm_port_lookup(self, port_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Use LLM to find port code when other methods have low confidence.
+        Returns port lookup result or None if LLM is unavailable.
+        """
+        if not self.client:
+            return None
+        
+        try:
+            # Get candidate ports for context
+            candidates = self._get_vector_candidates(port_name, top_k=10)
+            port_context = self._format_port_context(candidates)
+            
+            # Build prompt
+            prompt = f"""You are an expert in international shipping and port codes (UN/LOCODE format).
+
+Given the port name: "{port_name}"
+
+Find the matching port code from the candidate list below. Port codes are 5-character UN/LOCODE format (e.g., CNSHA, USLAX, SGSIN).
+
+{port_context}
+
+Instructions:
+1. Match the input port name to the most likely port code
+2. Consider common variations, abbreviations, and alternative names
+3. If the port name matches a candidate, return that port code
+4. If no good match exists, return null for port_code
+5. Provide confidence score (0.0 to 1.0) based on how certain you are
+
+Return your response as valid JSON in this exact format:
+{{
+    "port_code": "CNSHA" or null,
+    "port_name": "Full port name",
+    "confidence": 0.95,
+    "reasoning": "Brief explanation of why this port code was chosen"
+}}
+
+Examples:
+- Input: "Shanghai" → {{"port_code": "CNSHA", "port_name": "Shanghai", "confidence": 0.95, "reasoning": "Exact match"}}
+- Input: "LA" → {{"port_code": "USLAX", "port_name": "Los Angeles", "confidence": 0.85, "reasoning": "Common abbreviation for Los Angeles"}}
+- Input: "UnknownPort" → {{"port_code": null, "port_name": null, "confidence": 0.0, "reasoning": "No matching port found"}}
+
+Now analyze the input and return the JSON response:"""
+
+            # Call LLM using ChatOpenAI format
+            from langchain_core.messages import HumanMessage
+            messages = [HumanMessage(content=prompt)]
+            response = self.client.invoke(messages)
+            content = response.content if hasattr(response, 'content') else str(response)
+            
+            # Parse JSON response
+            import re
+            # Extract JSON from response (handle markdown code blocks)
+            json_match = re.search(r'\{[^{}]*"port_code"[^{}]*\}', content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                # Try to find JSON in the response
+                json_str = content.strip()
+                if json_str.startswith('```'):
+                    # Remove markdown code blocks
+                    json_str = re.sub(r'```json\s*', '', json_str)
+                    json_str = re.sub(r'```\s*', '', json_str)
+                    json_str = json_str.strip()
+            
+            result = json.loads(json_str)
+            
+            # Validate and format result
+            port_code = result.get("port_code")
+            if port_code:
+                # Get port name from our data if available
+                port_name_found = self.port_data.get(port_code, result.get("port_name", port_name))
+                confidence = float(result.get("confidence", 0.7))
+                
+                # Get country from embeddings if available
+                country = "Unknown"
+                if self.embeddings and port_code in self.embeddings:
+                    country = self.embeddings[port_code].get("country", "Unknown")
+                
+                return {
+                    "port_code": port_code,
+                    "port_name": port_name_found,
+                    "country": country,
+                    "confidence": confidence,
+                    "method": "llm_lookup",
+                    "reasoning": result.get("reasoning", ""),
+                    "original_port_name": port_name
+                }
+            else:
+                # LLM couldn't find a match
+                return {
+                    "port_code": None,
+                    "port_name": None,
+                    "country": None,
+                    "confidence": 0.0,
+                    "method": "llm_lookup",
+                    "reasoning": result.get("reasoning", "No matching port found"),
+                    "error": f"LLM could not find port code for '{port_name}'"
+                }
+        
+        except json.JSONDecodeError as e:
+            self.logger.warning(f"Failed to parse LLM JSON response: {e}")
+            return None
+        except Exception as e:
+            self.logger.warning(f"LLM port lookup failed: {e}")
+            return None
 
     def bulk_lookup(self, port_names: List[str]) -> List[Dict[str, Any]]:
         """Lookup multiple ports efficiently"""

@@ -435,6 +435,7 @@ EXAMPLES (PORT/CITY AND COUNTRY SEPARATION):
 NEGATIVE EXAMPLES (WHAT NOT TO DO):
 - "jebel ali" → WRONG: origin_country: "Tanzania" ❌ | CORRECT: origin_country: "" ✅ (Jebel Ali is a port in UAE, not Tanzania)
 - "mundra" → WRONG: destination_country: "Africa" ❌ | CORRECT: destination_country: "" ✅ (Mundra is a port in India, not Africa)
+- "karachi" → WRONG: destination_country: "Pakistan" ❌ | CORRECT: destination_country: "" ✅ (Karachi is a port in Pakistan, but only set country if explicitly mentioned like "Karachi, Pakistan")
 - "Singapore" → WRONG: origin_country: "Singapore" ❌ | CORRECT: origin_country: "" ✅ (Singapore can be a city/port, only set country if explicitly stated as country)
 
 PORT/CITY AND COUNTRY SEPARATION RULES (CRITICAL - READ CAREFULLY):
@@ -466,6 +467,7 @@ PARSING PORT/CITY-ONLY INPUTS:
     * "from Shanghai" → origin: "Shanghai", origin_country: ""
     * "to Los Angeles" → destination: "Los Angeles", destination_country: ""
     * "jebel ali to mundra" → origin: "jebel ali", origin_country: "", destination: "mundra", destination_country: ""
+    * "shanghai to karachi" → origin: "shanghai", origin_country: "", destination: "karachi", destination_country: ""
 
 COUNTRY NAME STANDARDIZATION:
 - "USA" or "US" → "United States"
@@ -474,8 +476,9 @@ COUNTRY NAME STANDARDIZATION:
 - Use full country names when possible (e.g., "United States" not "USA" in country field)
 
 COMMON PORT/CITY NAMES (NEVER treat as countries):
-- Jebel Ali, Mundra, Shanghai, Los Angeles, Mumbai, Dubai, Singapore (city), Rotterdam, Hamburg, etc.
+- Jebel Ali, Mundra, Karachi, Shanghai, Los Angeles, Mumbai, Dubai, Singapore (city), Rotterdam, Hamburg, etc.
 - If you see these names WITHOUT a country mentioned → Leave origin_country/destination_country EMPTY
+- Examples: "karachi" alone → destination_country: "" (empty), "Karachi, Pakistan" → destination_country: "Pakistan"
 
 IMPORTANT: 
 - When in doubt, leave origin_country/destination_country EMPTY. It's better to leave it empty than to incorrectly identify a port as a country.
