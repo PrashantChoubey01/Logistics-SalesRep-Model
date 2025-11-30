@@ -102,7 +102,7 @@ def main():
     parser = argparse.ArgumentParser(description="Estimate LLM API costs")
     parser.add_argument("--threads", type=int, help="Number of threads to process")
     parser.add_argument("--thread-id", type=str, help="Specific thread ID to analyze")
-    parser.add_argument("--model", type=str, default="gpt-4o", help="Model name for pricing")
+    parser.add_argument("--model", type=str, default="databricks-claude-3-7-sonnet", help="Model name for pricing")
     
     args = parser.parse_args()
     
