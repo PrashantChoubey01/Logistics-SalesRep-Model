@@ -678,8 +678,8 @@ class LangGraphWorkflowOrchestrator:
                 logger.info("📊 Using current extraction data for port lookup")
             
             # Store original port names for fallback
-            original_origin = shipment_details.get("origin", "").strip()
-            original_destination = shipment_details.get("destination", "").strip()
+            original_origin = (shipment_details.get("origin") or "").strip()
+            original_destination = (shipment_details.get("destination") or "").strip()
             
             # Lookup origin port
             origin_result = None
@@ -690,8 +690,8 @@ class LangGraphWorkflowOrchestrator:
                 
                 # Check for country mismatch and nullify if needed
                 if origin_result:
-                    port_country = origin_result.get("country", "").strip()
-                    origin_country = shipment_details.get("origin_country", "").strip()
+                    port_country = (origin_result.get("country") or "").strip()
+                    origin_country = (shipment_details.get("origin_country") or "").strip()
                     
                     # If country mismatch detected, nullify origin_country
                     if origin_country and port_country and origin_country.upper() != port_country.upper():
@@ -713,6 +713,9 @@ class LangGraphWorkflowOrchestrator:
                         # Mark in result that port name should be used instead of port code
                         origin_result["use_port_name"] = True
                         origin_result["original_port_name"] = original_origin
+                        # CRITICAL: Set port_name to original if it's None (port lookup failed)
+                        if not origin_result.get("port_name") or origin_result.get("port_name") is None:
+                            origin_result["port_name"] = original_origin
             
             # Lookup destination port
             destination_result = None
@@ -723,8 +726,8 @@ class LangGraphWorkflowOrchestrator:
                 
                 # Check for country mismatch and nullify if needed
                 if destination_result:
-                    port_country = destination_result.get("country", "").strip()
-                    destination_country = shipment_details.get("destination_country", "").strip()
+                    port_country = (destination_result.get("country") or "").strip()
+                    destination_country = (shipment_details.get("destination_country") or "").strip()
                     
                     # If country mismatch detected, nullify destination_country
                     if destination_country and port_country and destination_country.upper() != port_country.upper():
@@ -746,6 +749,9 @@ class LangGraphWorkflowOrchestrator:
                         # Mark in result that port name should be used instead of port code
                         destination_result["use_port_name"] = True
                         destination_result["original_port_name"] = original_destination
+                        # CRITICAL: Set port_name to original if it's None (port lookup failed)
+                        if not destination_result.get("port_name") or destination_result.get("port_name") is None:
+                            destination_result["port_name"] = original_destination
             
             # Combine results
             result = {

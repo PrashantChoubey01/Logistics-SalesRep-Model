@@ -118,25 +118,20 @@ class ClarificationResponseAgent(BaseAgent):
                         confidence = origin_result.get("confidence", 0.0)
                         country = origin_result.get('country', '')
                         use_port_name = origin_result.get("use_port_name", False)
-                        original_port_name = origin_result.get("original_port_name", origin)
                         
-                        # If port code not found OR confidence < 0.6, use port name instead
-                        if use_port_name or not port_code or confidence < 0.6:
-                            # Use original port name (from extraction) - no port code shown
-                            if country and country != "Unknown" and country:
-                                origin_display = f"{original_port_name}, {country}"
-                            else:
-                                origin_display = original_port_name
-                        elif port_code:
-                            # Port code found with high confidence - show with port code
+                        # Show port code if available and conditions met, otherwise just port name
+                        if port_code and port_code.strip() and confidence >= 0.5 and not use_port_name:
+                            # Port code found with sufficient confidence - show with port code
                             if country and country != "Unknown" and country.lower() != port_name.lower():
                                 origin_display = f"{port_name} ({port_code}), {country}"
                             else:
                                 origin_display = f"{port_name} ({port_code})"
-                        elif country and country != "Unknown" and country.lower() != port_name.lower():
-                            origin_display = f"{port_name}, {country}"
                         else:
-                            origin_display = port_name if port_name else origin
+                            # No port code or low confidence or use_port_name - show just port name
+                            if country and country != "Unknown" and country.lower() != port_name.lower():
+                                origin_display = f"{port_name}, {country}"
+                            else:
+                                origin_display = port_name if port_name else origin
                 # PRIORITY 2: If no valid port lookup result, check extracted origin_country field
                 elif origin_country:
                     # Origin is a country, not a specific port (only use if port lookup didn't find a valid port)
@@ -158,30 +153,27 @@ class ClarificationResponseAgent(BaseAgent):
                         country_name = destination_result.get("country", destination)
                         destination_display = f"{country_name} (Please specify a port)"
                     else:
-                        port_name = destination_result.get('port_name', destination)
+                        # CRITICAL: Use original_port_name if port_name is None, otherwise use port_name, fallback to destination
+                        original_port_name = destination_result.get("original_port_name", destination)
+                        port_name = destination_result.get('port_name') or original_port_name or destination
                         port_code = destination_result.get('port_code', '')
                         confidence = destination_result.get("confidence", 0.0)
                         country = destination_result.get('country', '')
                         use_port_name = destination_result.get("use_port_name", False)
-                        original_port_name = destination_result.get("original_port_name", destination)
                         
-                        # If port code not found OR confidence < 0.6, use port name instead
-                        if use_port_name or not port_code or confidence < 0.6:
-                            # Use original port name (from extraction) - no port code shown
-                            if country and country != "Unknown" and country:
-                                destination_display = f"{original_port_name}, {country}"
-                            else:
-                                destination_display = original_port_name
-                        elif port_code:
-                            # Port code found with high confidence - show with port code
+                        # Show port code if available and conditions met, otherwise just port name
+                        if port_code and port_code.strip() and confidence >= 0.5 and not use_port_name:
+                            # Port code found with sufficient confidence - show with port code
                             if country and country != "Unknown" and country.lower() != port_name.lower():
                                 destination_display = f"{port_name} ({port_code}), {country}"
                             else:
                                 destination_display = f"{port_name} ({port_code})"
-                        elif country and country != "Unknown" and country.lower() != port_name.lower():
-                            destination_display = f"{port_name}, {country}"
                         else:
-                            destination_display = port_name if port_name else destination
+                            # No port code or low confidence or use_port_name - show just port name
+                            if country and country != "Unknown" and country.lower() != port_name.lower():
+                                destination_display = f"{port_name}, {country}"
+                            else:
+                                destination_display = port_name
                 # PRIORITY 2: If no valid port lookup result, check extracted destination_country field
                 elif destination_country:
                     # Destination is a country, not a specific port (only use if port lookup didn't find a valid port)
@@ -514,16 +506,24 @@ Generate ONLY the email body text (greeting, explanation of missing info, closin
                 origin_result = port_lookup_result["origin"]
                 port_name = origin_result.get("port_name", origin)
                 port_code = origin_result.get("port_code", "")
-                if port_code:
+                confidence = origin_result.get("confidence", 0.0)
+                use_port_name = origin_result.get("use_port_name", False)
+                # Show port code if available and conditions met
+                if port_code and port_code.strip() and confidence >= 0.5 and not use_port_name:
                     origin = f"{port_name} ({port_code})"  # Show with code per spec
                 else:
                     origin = port_name
             
             if port_lookup_result.get("destination"):
                 destination_result = port_lookup_result["destination"]
-                port_name = destination_result.get("port_name", destination)
+                # CRITICAL: Use original_port_name if port_name is None, otherwise use port_name, fallback to destination
+                original_port_name = destination_result.get("original_port_name", destination)
+                port_name = destination_result.get("port_name") or original_port_name or destination
                 port_code = destination_result.get("port_code", "")
-                if port_code:
+                confidence = destination_result.get("confidence", 0.0)
+                use_port_name = destination_result.get("use_port_name", False)
+                # Show port code if available and conditions met
+                if port_code and port_code.strip() and confidence >= 0.5 and not use_port_name:
                     destination = f"{port_name} ({port_code})"  # Show with code per spec
                 else:
                     destination = port_name
