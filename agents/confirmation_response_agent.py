@@ -125,10 +125,23 @@ class ConfirmationResponseAgent(BaseAgent):
                         origin_result = port_lookup_result["origin"]
                         port_name = origin_result.get("port_name", shipment['origin'])
                         port_code = origin_result.get("port_code", "")
+                        confidence = origin_result.get("confidence", 0.0)
                         country = origin_result.get("country", "")
-                        logger.debug(f"🔍 Origin formatting: port_name={port_name}, port_code={port_code}, country={country}")
-                        # Show port code for customer validation (e.g., "Shanghai (CNSHG), China")
-                        if port_code:
+                        use_port_name = origin_result.get("use_port_name", False)
+                        original_port_name = origin_result.get("original_port_name", shipment['origin'])
+                        
+                        logger.debug(f"🔍 Origin formatting: port_name={port_name}, port_code={port_code}, confidence={confidence:.2f}, country={country}")
+                        
+                        # If port code not found OR confidence < 0.6, use port name instead
+                        if use_port_name or not port_code or confidence < 0.6:
+                            # Use original port name (from extraction) instead of port code
+                            if country and country != "Unknown" and country:
+                                origin_display = f"{original_port_name}, {country}"
+                            else:
+                                origin_display = original_port_name
+                            logger.debug(f"⚠️ Using port name instead of port code (confidence: {confidence:.2f}): {origin_display}")
+                        elif port_code:
+                            # Port code found with high confidence - show with port code
                             if country and country != "Unknown" and country:
                                 origin_display = f"{port_name} ({port_code}), {country}"
                             else:
@@ -137,7 +150,6 @@ class ConfirmationResponseAgent(BaseAgent):
                             origin_display = f"{port_name}, {country}"
                         else:
                             origin_display = port_name
-                            logger.debug(f"⚠️ No port code or country available for origin, using port_name only: {origin_display}")
                     else:
                         logger.debug(f"⚠️ No port_lookup_result for origin, using raw value: {origin_display}")
                     shipment_text += f"• Origin: {origin_display}\n"
@@ -151,10 +163,23 @@ class ConfirmationResponseAgent(BaseAgent):
                         destination_result = port_lookup_result["destination"]
                         port_name = destination_result.get("port_name", shipment['destination'])
                         port_code = destination_result.get("port_code", "")
+                        confidence = destination_result.get("confidence", 0.0)
                         country = destination_result.get("country", "")
-                        logger.debug(f"🔍 Destination formatting: port_name={port_name}, port_code={port_code}, country={country}")
-                        # Show port code for customer validation (e.g., "Los Angeles (USLAX), USA")
-                        if port_code:
+                        use_port_name = destination_result.get("use_port_name", False)
+                        original_port_name = destination_result.get("original_port_name", shipment['destination'])
+                        
+                        logger.debug(f"🔍 Destination formatting: port_name={port_name}, port_code={port_code}, confidence={confidence:.2f}, country={country}")
+                        
+                        # If port code not found OR confidence < 0.6, use port name instead
+                        if use_port_name or not port_code or confidence < 0.6:
+                            # Use original port name (from extraction) instead of port code
+                            if country and country != "Unknown" and country:
+                                destination_display = f"{original_port_name}, {country}"
+                            else:
+                                destination_display = original_port_name
+                            logger.debug(f"⚠️ Using port name instead of port code (confidence: {confidence:.2f}): {destination_display}")
+                        elif port_code:
+                            # Port code found with high confidence - show with port code
                             if country and country != "Unknown" and country:
                                 destination_display = f"{port_name} ({port_code}), {country}"
                             else:
@@ -163,7 +188,6 @@ class ConfirmationResponseAgent(BaseAgent):
                             destination_display = f"{port_name}, {country}"
                         else:
                             destination_display = port_name
-                            logger.debug(f"⚠️ No port code or country available for destination, using port_name only: {destination_display}")
                     else:
                         logger.debug(f"⚠️ No port_lookup_result for destination, using raw value: {destination_display}")
                     shipment_text += f"• Destination: {destination_display}\n"

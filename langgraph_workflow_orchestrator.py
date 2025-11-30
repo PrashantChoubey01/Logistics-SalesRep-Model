@@ -650,7 +650,7 @@ class LangGraphWorkflowOrchestrator:
         return state
     
     async def _lookup_ports(self, state: WorkflowState) -> WorkflowState:
-        """Step 6: Lookup port information"""
+        """Step 6: Lookup port information with country mismatch detection and confidence checking"""
         logger.info("🔄 Step 6: Looking up port information...")
         
         try:
@@ -662,19 +662,75 @@ class LangGraphWorkflowOrchestrator:
                 shipment_details = state["extraction_result"].get("extracted_data", {}).get("shipment_details", {})
                 logger.info("📊 Using current extraction data for port lookup")
             
+            # Store original port names for fallback
+            original_origin = shipment_details.get("origin", "").strip()
+            original_destination = shipment_details.get("destination", "").strip()
+            
             # Lookup origin port
             origin_result = None
-            if shipment_details.get("origin"):
+            if original_origin:
                 origin_result = self.port_lookup_agent.process({
-                    "port_name": shipment_details.get("origin")
+                    "port_name": original_origin
                 })
+                
+                # Check for country mismatch and nullify if needed
+                if origin_result:
+                    port_country = origin_result.get("country", "").strip()
+                    origin_country = shipment_details.get("origin_country", "").strip()
+                    
+                    # If country mismatch detected, nullify origin_country
+                    if origin_country and port_country and origin_country.upper() != port_country.upper():
+                        logger.warning(f"⚠️ COUNTRY MISMATCH: origin_country='{origin_country}' but port '{original_origin}' is in '{port_country}' - nullifying origin_country")
+                        shipment_details["origin_country"] = ""
+                        if state["cumulative_extraction"]:
+                            state["cumulative_extraction"]["shipment_details"]["origin_country"] = ""
+                        logger.info(f"✅ Nullified origin_country due to mismatch")
+                    
+                    # Check confidence and port code - if low confidence or no port code, ensure port name is preserved
+                    confidence = origin_result.get("confidence", 0.0)
+                    port_code = origin_result.get("port_code")
+                    
+                    if not port_code or confidence < 0.6:
+                        logger.warning(f"⚠️ Port code not found or low confidence ({confidence:.2f}) for origin '{original_origin}' - preserving port name")
+                        # Ensure port name is preserved in cumulative extraction
+                        if state["cumulative_extraction"]:
+                            state["cumulative_extraction"]["shipment_details"]["origin"] = original_origin
+                        # Mark in result that port name should be used instead of port code
+                        origin_result["use_port_name"] = True
+                        origin_result["original_port_name"] = original_origin
             
             # Lookup destination port
             destination_result = None
-            if shipment_details.get("destination"):
+            if original_destination:
                 destination_result = self.port_lookup_agent.process({
-                    "port_name": shipment_details.get("destination")
+                    "port_name": original_destination
                 })
+                
+                # Check for country mismatch and nullify if needed
+                if destination_result:
+                    port_country = destination_result.get("country", "").strip()
+                    destination_country = shipment_details.get("destination_country", "").strip()
+                    
+                    # If country mismatch detected, nullify destination_country
+                    if destination_country and port_country and destination_country.upper() != port_country.upper():
+                        logger.warning(f"⚠️ COUNTRY MISMATCH: destination_country='{destination_country}' but port '{original_destination}' is in '{port_country}' - nullifying destination_country")
+                        shipment_details["destination_country"] = ""
+                        if state["cumulative_extraction"]:
+                            state["cumulative_extraction"]["shipment_details"]["destination_country"] = ""
+                        logger.info(f"✅ Nullified destination_country due to mismatch")
+                    
+                    # Check confidence and port code - if low confidence or no port code, ensure port name is preserved
+                    confidence = destination_result.get("confidence", 0.0)
+                    port_code = destination_result.get("port_code")
+                    
+                    if not port_code or confidence < 0.6:
+                        logger.warning(f"⚠️ Port code not found or low confidence ({confidence:.2f}) for destination '{original_destination}' - preserving port name")
+                        # Ensure port name is preserved in cumulative extraction
+                        if state["cumulative_extraction"]:
+                            state["cumulative_extraction"]["shipment_details"]["destination"] = original_destination
+                        # Mark in result that port name should be used instead of port code
+                        destination_result["use_port_name"] = True
+                        destination_result["original_port_name"] = original_destination
             
             # Combine results
             result = {
@@ -683,11 +739,16 @@ class LangGraphWorkflowOrchestrator:
                 "port_codes": {}
             }
             
-            # Extract port codes for rate recommendation
-            if origin_result and origin_result.get("port_code"):
+            # Extract port codes ONLY if confidence >= 0.6 and port_code exists
+            if origin_result and origin_result.get("port_code") and origin_result.get("confidence", 0.0) >= 0.6:
                 result["port_codes"]["origin"] = origin_result["port_code"]
-            if destination_result and destination_result.get("port_code"):
+            elif origin_result and (not origin_result.get("port_code") or origin_result.get("confidence", 0.0) < 0.6):
+                logger.info(f"⚠️ Origin port code not added to port_codes (confidence: {origin_result.get('confidence', 0.0):.2f})")
+            
+            if destination_result and destination_result.get("port_code") and destination_result.get("confidence", 0.0) >= 0.6:
                 result["port_codes"]["destination"] = destination_result["port_code"]
+            elif destination_result and (not destination_result.get("port_code") or destination_result.get("confidence", 0.0) < 0.6):
+                logger.info(f"⚠️ Destination port code not added to port_codes (confidence: {destination_result.get('confidence', 0.0):.2f})")
             
             state["port_lookup_result"] = result
             logger.info(f"✅ Port lookup completed: {len(result.get('port_codes', {}))} port codes found")
