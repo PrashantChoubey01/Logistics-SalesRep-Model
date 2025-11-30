@@ -595,12 +595,27 @@ class LangGraphWorkflowOrchestrator:
             # Get the new extraction result
             new_extraction = state["extraction_result"].get("extracted_data", {})
             
+            # DEBUG: Log what new extraction contains
+            if new_extraction.get("shipment_details"):
+                new_shipment = new_extraction["shipment_details"]
+                logger.info(f"🔍 DEBUG: New extraction - Origin={new_shipment.get('origin')}, Destination={new_shipment.get('destination')}, Container={new_shipment.get('container_type')}, Commodity={new_shipment.get('commodity')}")
+            
+            # DEBUG: Log what cumulative extraction contains before merge
+            if state.get("cumulative_extraction") and state["cumulative_extraction"].get("shipment_details"):
+                old_shipment = state["cumulative_extraction"]["shipment_details"]
+                logger.info(f"🔍 DEBUG: Old cumulative - Origin={old_shipment.get('origin')}, Destination={old_shipment.get('destination')}, Container={old_shipment.get('container_type')}, Commodity={old_shipment.get('commodity')}")
+            
             if new_extraction:
                 # Update cumulative extraction using thread manager's merge function
                 updated_cumulative = self.thread_manager.merge_with_recency_priority(
                     new_extraction, 
                     state["cumulative_extraction"]
                 )
+                
+                # DEBUG: Log what merged result contains
+                if updated_cumulative.get("shipment_details"):
+                    merged_shipment = updated_cumulative["shipment_details"]
+                    logger.info(f"🔍 DEBUG: Merged result - Origin={merged_shipment.get('origin')}, Destination={merged_shipment.get('destination')}, Container={merged_shipment.get('container_type')}, Commodity={merged_shipment.get('commodity')}")
                 
                 # Update the state
                 state["cumulative_extraction"] = updated_cumulative
@@ -1241,25 +1256,34 @@ class LangGraphWorkflowOrchestrator:
         logger.info("🔄 Generating confirmation response...")
         
         try:
-            # CRITICAL: Reload cumulative_extraction from thread_manager to ensure we have the latest merged data
-            thread_id = state.get("thread_id", "")
-            if thread_id:
-                latest_cumulative = self.thread_manager.get_cumulative_extraction(thread_id)
-                if latest_cumulative and isinstance(latest_cumulative, dict):
-                    extracted_data = copy.deepcopy(latest_cumulative)
-                    logger.info("📊 Using latest cumulative extraction from thread manager for confirmation response")
-                elif state.get("cumulative_extraction") and isinstance(state["cumulative_extraction"], dict):
-                    extracted_data = copy.deepcopy(state["cumulative_extraction"])
-                    logger.info("📊 Using cumulative extraction from state for confirmation response")
-                else:
-                    extracted_data = state["extraction_result"].get("extracted_data", {})
-                    logger.info("📊 Using current extraction data for confirmation response (no cumulative data available)")
-            elif state.get("cumulative_extraction") and isinstance(state["cumulative_extraction"], dict):
+            # PRIORITY 1: Use state["cumulative_extraction"] (just updated, most recent)
+            if state.get("cumulative_extraction") and isinstance(state["cumulative_extraction"], dict):
                 extracted_data = copy.deepcopy(state["cumulative_extraction"])
-                logger.info("📊 Using cumulative extraction from state for confirmation response")
+                logger.info("📊 Using cumulative extraction from state for confirmation response (most recent)")
+            # PRIORITY 2: Use current extraction result (if cumulative not available)
+            elif state.get("extraction_result") and state["extraction_result"].get("extracted_data"):
+                extracted_data = copy.deepcopy(state["extraction_result"]["extracted_data"])
+                logger.info("📊 Using current extraction data for confirmation response")
+            # PRIORITY 3: Fallback to thread_manager (may be stale, but better than nothing)
             else:
-                extracted_data = state["extraction_result"].get("extracted_data", {})
-                logger.info("📊 Using current extraction data for confirmation response (no cumulative data available)")
+                thread_id = state.get("thread_id", "")
+                if thread_id:
+                    latest_cumulative = self.thread_manager.get_cumulative_extraction(thread_id)
+                    if latest_cumulative and isinstance(latest_cumulative, dict):
+                        extracted_data = copy.deepcopy(latest_cumulative)
+                        logger.info("📊 Using cumulative extraction from thread manager (fallback)")
+                    else:
+                        extracted_data = {}
+                        logger.warning("⚠️ No extraction data available for confirmation response")
+                else:
+                    extracted_data = {}
+                    logger.warning("⚠️ No thread_id and no extraction data available")
+            
+            # DEBUG: Log what data we're using
+            logger.info(f"🔍 DEBUG: Confirmation response using extracted_data keys: {list(extracted_data.keys())}")
+            if extracted_data.get("shipment_details"):
+                shipment = extracted_data["shipment_details"]
+                logger.info(f"🔍 DEBUG: Origin={shipment.get('origin')}, Destination={shipment.get('destination')}, Container={shipment.get('container_type')}, Commodity={shipment.get('commodity')}")
             
             rate_info = state["rate_recommendation_result"]
             port_lookup_result = state.get("port_lookup_result", {})
