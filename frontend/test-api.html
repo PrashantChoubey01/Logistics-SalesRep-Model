@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Connection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background: #d4edda; border-color: #c3e6cb; }
+        .error { background: #f8d7da; border-color: #f5c6cb; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 API Connection Test</h1>
+    
+    <div class="test">
+        <h3>Test 1: Health Check</h3>
+        <button onclick="testHealth()">Test /health</button>
+        <div id="health-result"></div>
+    </div>
+    
+    <div class="test">
+        <h3>Test 2: Process Email</h3>
+        <button onclick="testProcessEmail()">Test /api/process-email</button>
+        <div id="email-result"></div>
+    </div>
+    
+    <div class="test">
+        <h3>Console Output</h3>
+        <pre id="console-output"></pre>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5001';
+        const log = (msg) => {
+            const output = document.getElementById('console-output');
+            output.textContent += new Date().toLocaleTimeString() + ': ' + msg + '\n';
+            console.log(msg);
+        };
+
+        async function testHealth() {
+            log('Testing /health endpoint...');
+            const resultDiv = document.getElementById('health-result');
+            resultDiv.innerHTML = 'Testing...';
+            
+            try {
+                const response = await fetch(`${API_URL}/health`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `<div class="success">✅ SUCCESS<br><pre>${JSON.stringify(data, null, 2)}</pre></div>`;
+                    log('Health check: SUCCESS');
+                } else {
+                    resultDiv.innerHTML = `<div class="error">❌ FAILED: ${response.status}</div>`;
+                    log(`Health check: FAILED (${response.status})`);
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ ERROR: ${error.message}<br><br>Make sure the API server is running:<br><code>python3 api_server.py</code></div>`;
+                log(`Health check: ERROR - ${error.message}`);
+            }
+        }
+
+        async function testProcessEmail() {
+            log('Testing /api/process-email endpoint...');
+            const resultDiv = document.getElementById('email-result');
+            resultDiv.innerHTML = 'Testing...';
+            
+            try {
+                const response = await fetch(`${API_URL}/api/process-email`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        sender: 'test@example.com',
+                        subject: 'Test Email',
+                        content: 'This is a test email to verify the API is working.',
+                        thread_id: 'test_thread_' + Date.now()
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    resultDiv.innerHTML = `<div class="success">✅ SUCCESS<br><pre>${JSON.stringify(data, null, 2).substring(0, 500)}...</pre></div>`;
+                    log('Process email: SUCCESS');
+                } else {
+                    resultDiv.innerHTML = `<div class="error">❌ FAILED<br><pre>${JSON.stringify(data, null, 2)}</pre></div>`;
+                    log(`Process email: FAILED - ${data.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ ERROR: ${error.message}<br><br>Possible issues:<br>1. API server not running<br>2. CORS blocking request<br>3. Network error</div>`;
+                log(`Process email: ERROR - ${error.message}`);
+            }
+        }
+
+        // Auto-test health on load
+        window.onload = () => {
+            log('Page loaded. Click buttons to test API connection.');
+            testHealth();
+        };
+    </script>
+</body>
+</html>
+
