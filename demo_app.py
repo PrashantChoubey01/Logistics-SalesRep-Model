@@ -567,9 +567,9 @@ Best regards,
                             "forwarder_response": None,
                             "sales_notification": None
                         })
-                        
-                        st.success("✅ Forwarder response processed!")
-                        st.rerun()
+
+                            st.success("✅ Forwarder response processed!")
+                            st.rerun()
                         
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
