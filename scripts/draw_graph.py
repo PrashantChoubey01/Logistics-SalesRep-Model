@@ -63,33 +63,33 @@ def draw_graph(output_path: str = None, view: bool = True, check_compile: bool =
                 graph_attr={'rankdir': 'LR', 'size': '12,8', 'dpi': '300'},
                 node_attr={'shape': 'box', 'style': 'rounded,filled', 'fillcolor': 'lightblue'}
             )
-            
-            # Add nodes
-            for node in graph.nodes:
+                
+                # Add nodes
+                for node in graph.nodes:
                 node_id = node.id if hasattr(node, 'id') else str(node)
                 graphviz_graph.node(node_id, label=node_id.replace('_', '\n'))
-            
-            # Add edges
-            for edge in graph.edges:
+                
+                # Add edges
+                for edge in graph.edges:
                 source = edge.source if hasattr(edge, 'source') else edge[0]
                 target = edge.target if hasattr(edge, 'target') else edge[1]
                 graphviz_graph.edge(source, target)
-            
-            if output_path:
+                
+                if output_path:
                 output_file = graphviz_graph.render(output_path, format='png', cleanup=True)
                 print(f"\n✅ Graph saved to: {output_file}")
-                
-                if view:
-                    import subprocess
-                    import platform
                     
-                    if platform.system() == 'Darwin':  # macOS
+                    if view:
+                        import subprocess
+                        import platform
+                        
+                        if platform.system() == 'Darwin':  # macOS
                         subprocess.run(['open', output_file])
-                    elif platform.system() == 'Windows':
+                        elif platform.system() == 'Windows':
                         subprocess.run(['start', output_file], shell=True)
-                    else:  # Linux
+                        else:  # Linux
                         subprocess.run(['xdg-open', output_file])
-            else:
+                else:
                 # Save to default location
                 default_path = "workflow_graph"
                 output_file = graphviz_graph.render(default_path, format='png', cleanup=True)
@@ -106,7 +106,7 @@ def draw_graph(output_path: str = None, view: bool = True, check_compile: bool =
                         subprocess.run(['start', output_file], shell=True)
                     else:  # Linux
                         subprocess.run(['xdg-open', output_file])
-                    
+        
         except ImportError:
             print("\n⚠️  graphviz not installed - cannot generate PNG")
             print("   Install with: pip install graphviz")

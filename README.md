@@ -14,8 +14,26 @@ pip install -r requirements.txt
 ```
 
 ### Run Demo UI
+
+**Option 1: Streamlit (Original)**
 ```bash
 streamlit run demo_app.py
+```
+
+**Option 2: JavaScript Frontend (New)**
+```bash
+# Terminal 1: Start API server
+python api_server.py
+
+# Terminal 2: Open frontend (choose one)
+# Option A: Direct file open
+open frontend/index.html  # macOS
+# or just double-click frontend/index.html
+
+# Option B: Local web server
+cd frontend
+python -m http.server 8080
+# Then open http://localhost:8080 in browser
 ```
 
 ## 🏗️ Architecture
