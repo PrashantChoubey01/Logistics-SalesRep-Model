@@ -225,7 +225,24 @@ function setupEventListeners() {
         console.error('❌ Email form not found');
     }
     
-    // Forwarder form removed - forwarder emails now sent through main form
+    // Sidebar toggle
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', toggleSidebar);
+        console.log('✅ Sidebar toggle listener added');
+    }
+    
+    const sidebarClose = document.getElementById('sidebar-close');
+    if (sidebarClose) {
+        sidebarClose.addEventListener('click', toggleSidebar);
+        console.log('✅ Sidebar close listener added');
+    }
+    
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    if (sidebarOverlay) {
+        sidebarOverlay.addEventListener('click', toggleSidebar);
+        console.log('✅ Sidebar overlay listener added');
+    }
     
     console.log('✅ All event listeners set up');
 }
@@ -491,6 +508,9 @@ function processWorkflowResponse(data, emailType, sender, subject, content, proc
     showStatus('📤', 'Displaying response...');
     displayResponse(response, responseType, forwarderAssignment, forwarderResponse, 
                     salesNotification, customerQuote, workflowState, emailType);
+    
+    // Display agent performance in sidebar
+    displayAgentPerformance(workflowState);
     
     // Hide loading immediately after displaying response
     showLoading(false);
@@ -973,6 +993,9 @@ async function handleForwarderSubmit(e) {
         // Display both responses IMMEDIATELY (optimized - show first)
         displayForwarderResponses(forwarderAcknowledgment, salesNotification);
         
+        // Display agent performance in sidebar
+        displayAgentPerformance(workflowState);
+        
         // Hide loading immediately after displaying responses
         showLoading(false);
         showStatus('✅', 'Forwarder response processed successfully!');
@@ -1153,6 +1176,203 @@ function resetThread() {
         updateUI();
         hideResponse();
         showMessage('✅ Thread reset! Email history cleared.', 'success');
+    }
+}
+
+// Toggle sidebar
+function toggleSidebar() {
+    const sidebar = document.getElementById('agent-sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    
+    if (sidebar && overlay) {
+        sidebar.classList.toggle('open');
+        overlay.classList.toggle('active');
+    }
+}
+
+// Get agent status
+function getAgentStatus(agentResult) {
+    if (!agentResult) {
+        return { status: 'not-executed', icon: '⏳', color: '#9E9E9E', label: 'Not Executed' };
+    }
+    if (agentResult.error) {
+        return { status: 'error', icon: '❌', color: '#f44336', label: 'Error' };
+    }
+    if (agentResult.warning) {
+        return { status: 'warning', icon: '⚠️', color: '#FF9800', label: 'Warning' };
+    }
+    return { status: 'success', icon: '✅', color: '#4CAF50', label: 'Success' };
+}
+
+// Extract agent summary
+function extractAgentSummary(agentKey, agentResult) {
+    if (!agentResult || agentResult.error) {
+        return agentResult?.error || 'No result';
+    }
+    
+    // Extract key information based on agent type
+    switch (agentKey) {
+        case 'classification_result':
+            return `Email Type: ${agentResult.email_type || 'N/A'}`;
+        case 'conversation_state_result':
+            return `State: ${agentResult.conversation_state || 'N/A'}`;
+        case 'extraction_result':
+            const extracted = agentResult.extracted_data || {};
+            const count = Object.keys(extracted).length;
+            return `Extracted ${count} categories`;
+        case 'validation_result':
+            const missing = agentResult.missing_fields || [];
+            return missing.length > 0 ? `${missing.length} missing fields` : 'All fields valid';
+        case 'port_lookup_result':
+            return `Ports: ${agentResult.origin_port?.port_code || 'N/A'} → ${agentResult.destination_port?.port_code || 'N/A'}`;
+        case 'next_action_result':
+            return `Action: ${agentResult.next_action || 'N/A'}`;
+        case 'forwarder_assignment_result':
+            return `Forwarder: ${agentResult.assigned_forwarder?.name || 'N/A'}`;
+        case 'sales_notification_result':
+            return `Notification Type: ${agentResult.notification_type || 'N/A'}`;
+        default:
+            return 'Completed successfully';
+    }
+}
+
+// Display agent performance
+function displayAgentPerformance(workflowState) {
+    const agents = [
+        { key: 'classification_result', name: 'Email Classifier', icon: '📧', category: 'core' },
+        { key: 'conversation_state_result', name: 'Conversation State', icon: '💬', category: 'core' },
+        { key: 'thread_analysis_result', name: 'Thread Analysis', icon: '🔍', category: 'core' },
+        { key: 'extraction_result', name: 'Information Extraction', icon: '📝', category: 'core' },
+        { key: 'validation_result', name: 'Data Validation', icon: '✅', category: 'core' },
+        { key: 'port_lookup_result', name: 'Port Lookup', icon: '🌍', category: 'core' },
+        { key: 'container_standardization_result', name: 'Container Standardization', icon: '📦', category: 'core' },
+        { key: 'rate_recommendation_result', name: 'Rate Recommendation', icon: '💰', category: 'core' },
+        { key: 'next_action_result', name: 'Next Action', icon: '🎯', category: 'core' },
+        { key: 'clarification_response_result', name: 'Clarification Response', icon: '❓', category: 'response' },
+        { key: 'confirmation_response_result', name: 'Confirmation Response', icon: '✓', category: 'response' },
+        { key: 'acknowledgment_response_result', name: 'Acknowledgment', icon: '👋', category: 'response' },
+        { key: 'confirmation_acknowledgment_result', name: 'Confirmation Acknowledgment', icon: '✅', category: 'response' },
+        { key: 'customer_quote_result', name: 'Customer Quote', icon: '📨', category: 'response' },
+        { key: 'forwarder_detection_result', name: 'Forwarder Detection', icon: '🚚', category: 'forwarder' },
+        { key: 'forwarder_response_result', name: 'Forwarder Response', icon: '📧', category: 'forwarder' },
+        { key: 'forwarder_email_draft_result', name: 'Forwarder Email Draft', icon: '✍️', category: 'forwarder' },
+        { key: 'forwarder_assignment_result', name: 'Forwarder Assignment', icon: '📋', category: 'forwarder' },
+        { key: 'escalation_result', name: 'Escalation', icon: '⚠️', category: 'other' },
+        { key: 'sales_notification_result', name: 'Sales Notification', icon: '📧', category: 'other' },
+    ];
+    
+    const timeline = document.getElementById('agent-timeline');
+    if (!timeline) return;
+    
+    // Count executed agents
+    let executedCount = 0;
+    let successCount = 0;
+    let errorCount = 0;
+    let warningCount = 0;
+    
+    // Generate agent cards
+    const agentCards = agents.map((agent, index) => {
+        const agentResult = workflowState[agent.key];
+        const status = getAgentStatus(agentResult);
+        
+        if (agentResult) {
+            executedCount++;
+            if (status.status === 'success') successCount++;
+            else if (status.status === 'error') errorCount++;
+            else if (status.status === 'warning') warningCount++;
+        }
+        
+        const summary = extractAgentSummary(agent.key, agentResult);
+        const confidence = agentResult?.confidence || agentResult?.confidence_score || null;
+        
+        return `
+            <div class="agent-card ${status.status}" data-agent="${agent.key}" onclick="toggleAgentDetails('${agent.key}')">
+                <div class="agent-card-header">
+                    <div class="agent-name">
+                        <span>${agent.icon}</span>
+                        <span>${agent.name}</span>
+                    </div>
+                    <span class="agent-status-badge">${status.icon}</span>
+                </div>
+                <div class="agent-summary-text">${summary}</div>
+                ${confidence ? `<div class="agent-confidence">Confidence: ${(confidence * 100).toFixed(0)}%</div>` : ''}
+                <div class="agent-details-toggle" onclick="event.stopPropagation(); toggleAgentDetails('${agent.key}')">
+                    <span id="toggle-${agent.key}">▼</span> View Details
+                </div>
+                <div class="agent-details" id="details-${agent.key}">
+                    <pre>${JSON.stringify(agentResult || { status: 'not_executed' }, null, 2)}</pre>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    timeline.innerHTML = agentCards;
+    
+    // Update execution status
+    const statusBadge = document.getElementById('status-badge');
+    const agentCount = document.getElementById('agent-count');
+    
+    if (statusBadge && agentCount) {
+        if (errorCount > 0) {
+            statusBadge.textContent = `❌ ${errorCount} Error(s)`;
+            statusBadge.style.color = '#f44336';
+        } else if (warningCount > 0) {
+            statusBadge.textContent = `⚠️ ${warningCount} Warning(s)`;
+            statusBadge.style.color = '#FF9800';
+        } else if (executedCount > 0) {
+            statusBadge.textContent = '✅ Complete';
+            statusBadge.style.color = '#4CAF50';
+        } else {
+            statusBadge.textContent = '⏳ Waiting...';
+            statusBadge.style.color = '#666';
+        }
+        
+        agentCount.textContent = `${executedCount}/20 Agents Executed`;
+    }
+    
+    // Update summary
+    const summaryDiv = document.getElementById('agent-summary');
+    const summaryStats = document.getElementById('summary-stats');
+    
+    if (summaryDiv && summaryStats && executedCount > 0) {
+        summaryDiv.style.display = 'block';
+        const successRate = executedCount > 0 ? ((successCount / executedCount) * 100).toFixed(0) : 0;
+        
+        summaryStats.innerHTML = `
+            <div class="summary-stat">
+                <span class="summary-stat-label">Success Rate:</span>
+                <span class="summary-stat-value">${successRate}%</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-stat-label">Successful:</span>
+                <span class="summary-stat-value" style="color: #4CAF50;">${successCount}</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-stat-label">Errors:</span>
+                <span class="summary-stat-value" style="color: #f44336;">${errorCount}</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-stat-label">Warnings:</span>
+                <span class="summary-stat-value" style="color: #FF9800;">${warningCount}</span>
+            </div>
+        `;
+    }
+}
+
+// Toggle agent details
+function toggleAgentDetails(agentKey) {
+    const details = document.getElementById(`details-${agentKey}`);
+    const toggle = document.getElementById(`toggle-${agentKey}`);
+    
+    if (details && toggle) {
+        const isExpanded = details.classList.contains('expanded');
+        if (isExpanded) {
+            details.classList.remove('expanded');
+            toggle.textContent = '▼';
+        } else {
+            details.classList.add('expanded');
+            toggle.textContent = '▲';
+        }
     }
 }
 
