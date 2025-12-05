@@ -13,7 +13,41 @@
             <h1>🚢 SeaRates AI</h1>
             <p>Logistics Sales Assistant</p>
         </div>
+        <button id="sidebar-toggle" class="sidebar-toggle">
+            <span id="toggle-icon">🤖</span>
+            <span id="toggle-text">Agents</span>
+        </button>
     </header>
+    
+    <!-- Sidebar Overlay -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+    
+    <!-- Agent Performance Sidebar -->
+    <aside id="agent-sidebar" class="agent-sidebar">
+        <div class="sidebar-header">
+            <h3>🤖 Agent Performance</h3>
+            <button id="sidebar-close" class="sidebar-close">×</button>
+        </div>
+        
+        <div class="sidebar-content">
+            <!-- Execution Status -->
+            <div id="execution-status" class="execution-status">
+                <div class="status-badge" id="status-badge">⏳ Waiting...</div>
+                <div class="agent-count" id="agent-count">0/20 Agents</div>
+            </div>
+            
+            <!-- Agent Timeline -->
+            <div id="agent-timeline" class="agent-timeline">
+                <div class="message message-info">No agents executed yet. Process an email to see agent performance.</div>
+            </div>
+            
+            <!-- Summary Section -->
+            <div id="agent-summary" class="agent-summary" style="display: none;">
+                <h4>Summary</h4>
+                <div id="summary-stats"></div>
+            </div>
+        </div>
+    </aside>
 
     <div class="container">
         <!-- Thread Management -->
