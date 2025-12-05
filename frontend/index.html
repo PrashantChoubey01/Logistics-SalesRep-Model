@@ -71,15 +71,24 @@
                     <textarea id="content" class="form-control" rows="10" required></textarea>
                 </div>
                 <button type="submit" id="process-btn" class="btn btn-primary">
-                    🚀 Process Email
+                    <span id="process-btn-text">🚀 Process Email</span>
+                    <span id="process-btn-spinner" style="display: none;">⏳ Processing...</span>
                 </button>
             </form>
+            
+            <!-- Status Indicator -->
+            <div id="status-indicator" class="status-indicator" style="display: none;">
+                <div class="status-content">
+                    <span id="status-icon">⏳</span>
+                    <span id="status-text">Initializing...</span>
+                </div>
+            </div>
         </section>
 
         <!-- Loading Spinner -->
         <div id="loading-spinner" class="loading-spinner" style="display: none;">
             <div class="spinner"></div>
-            <p>Processing email through workflow...</p>
+            <p id="loading-text">Processing email through workflow...</p>
         </div>
 
         <!-- Response Display -->
