@@ -152,10 +152,32 @@ function saveState() {
     }
 }
 
+// Get current time in Abu Dhabi timezone (UTC+4)
+function getAbuDhabiTime() {
+    const now = new Date();
+    // Abu Dhabi is UTC+4
+    const abuDhabiOffset = 4 * 60; // 4 hours in minutes
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const abuDhabiTime = new Date(utc + (abuDhabiOffset * 60000));
+    return abuDhabiTime;
+}
+
+// Format timestamp in Abu Dhabi timezone
+function formatAbuDhabiTimestamp() {
+    const abuDhabiTime = getAbuDhabiTime();
+    const year = abuDhabiTime.getFullYear();
+    const month = String(abuDhabiTime.getMonth() + 1).padStart(2, '0');
+    const day = String(abuDhabiTime.getDate()).padStart(2, '0');
+    const hours = String(abuDhabiTime.getHours()).padStart(2, '0');
+    const minutes = String(abuDhabiTime.getMinutes()).padStart(2, '0');
+    const seconds = String(abuDhabiTime.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
 // Generate new thread ID
 function generateThreadId() {
-    const now = new Date();
-    const timestamp = now.toISOString()
+    const abuDhabiTime = getAbuDhabiTime();
+    const timestamp = abuDhabiTime.toISOString()
         .replace(/[-:]/g, '')
         .replace(/\..+/, '')
         .replace('T', '_');
@@ -203,14 +225,7 @@ function setupEventListeners() {
         console.error('❌ Email form not found');
     }
     
-    // Forwarder form submission
-    const forwarderForm = document.getElementById('forwarder-form');
-    if (forwarderForm) {
-        forwarderForm.addEventListener('submit', handleForwarderSubmit);
-        console.log('✅ Forwarder form listener added');
-    } else {
-        console.log('ℹ️ Forwarder form not found (this is OK if not shown yet)');
-    }
+    // Forwarder form removed - forwarder emails now sent through main form
     
     console.log('✅ All event listeners set up');
 }
@@ -231,9 +246,6 @@ function updateUI() {
     
     // Update history
     updateHistoryDisplay();
-    
-    // Check for forwarder form
-    checkForwarderForm();
 }
 
 // Update sender email label based on type
@@ -458,7 +470,7 @@ function processWorkflowResponse(data, emailType, sender, subject, content, proc
     
     // Create history entry
     const historyEntry = {
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        timestamp: formatAbuDhabiTimestamp(),
         type: emailType,
         sender: sender,
         subject: subject,
@@ -506,8 +518,6 @@ function processWorkflowResponse(data, emailType, sender, subject, content, proc
         saveState();
         // Update history display (non-blocking)
         updateHistoryDisplay();
-        // Check for forwarder form
-        checkForwarderForm();
     });
 }
 
@@ -570,6 +580,84 @@ function displayResponse(response, responseType, forwarderAssignment, forwarderR
                 </div>
             </div>
         `;
+        
+        // Auto-populate main form for forwarder response
+        const forwarderEmail = assignedForwarder.email;
+        const forwarderName = assignedForwarder.name || 'Forwarder Team';
+        const forwarderCompany = assignedForwarder.company || '';
+        
+        if (forwarderEmail) {
+            // Switch email type to Forwarder
+            const emailTypeSelect = document.getElementById('email-type');
+            if (emailTypeSelect) {
+                emailTypeSelect.value = 'Forwarder';
+                state.formState.emailType = 'Forwarder';
+            }
+            
+            // Pre-fill forwarder email
+            const senderEmailInput = document.getElementById('sender-email');
+            if (senderEmailInput) {
+                senderEmailInput.value = forwarderEmail;
+                state.formState.senderEmail = forwarderEmail;
+            }
+            
+            // Update sender email label
+            updateSenderEmailLabel();
+            
+            // Pre-fill subject with default if empty
+            const subjectInput = document.getElementById('subject');
+            if (subjectInput && !subjectInput.value.trim()) {
+                const origin = forwarderAssignment.origin_country || '';
+                const dest = forwarderAssignment.destination_country || '';
+                const defaultSubject = origin && dest 
+                    ? `Rate Quote - ${origin} to ${dest}`
+                    : 'Rate Quote - Shipping Request';
+                subjectInput.value = defaultSubject;
+            }
+            
+            // Pre-fill default email body for forwarder
+            const contentTextarea = document.getElementById('content');
+            if (contentTextarea && !contentTextarea.value.trim()) {
+                const originPort = forwarderAssignment.origin_country || 'Origin';
+                const destPort = forwarderAssignment.destination_country || 'Destination';
+                const containerType = forwarderAssignment.container_type || '40HC';
+                const validUntil = new Date();
+                validUntil.setMonth(validUntil.getMonth() + 1);
+                const validUntilStr = validUntil.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                
+                const defaultBody = `Dear Logistics Team,
+
+Please find our rate quote:
+
+Route: ${originPort} to ${destPort}
+Container: ${containerType}
+Rate: $2,850 USD
+Transit Time: 18 days
+Valid Until: ${validUntilStr}
+
+Rate provided as requested. Please confirm if you would like to proceed.
+
+Best regards,
+${forwarderName}${forwarderCompany ? '\n' + forwarderCompany : ''}`;
+                
+                contentTextarea.value = defaultBody;
+                state.formState.content = defaultBody;
+            }
+            
+            // Show info message
+            showMessage('✅ Forwarder assigned! You can now send email as forwarder using the form above.', 'info');
+            
+            // Scroll to form after a short delay to ensure UI is updated
+            setTimeout(() => {
+                const emailFormSection = document.querySelector('.email-form-section');
+                if (emailFormSection) {
+                    emailFormSection.scrollIntoView({ 
+                        behavior: 'smooth', 
+                        block: 'start' 
+                    });
+                }
+            }, 500);
+        }
     }
     
     // Forwarder Response (Rates)
@@ -643,10 +731,11 @@ function displayResponse(response, responseType, forwarderAssignment, forwarderR
         `;
     }
     
-    // Forwarder Acknowledgment
-    if (workflowState.acknowledgment_response_result) {
+    // Forwarder Acknowledgment - Only show if NOT a forwarder email (to avoid duplication)
+    // Forwarder emails are handled by displayForwarderResponses() function
+    if (workflowState.acknowledgment_response_result && emailType !== 'Forwarder') {
         const ack = workflowState.acknowledgment_response_result;
-        if ((ack.sender_type === 'forwarder' || emailType === 'Forwarder') && !ack.error) {
+        if (ack.sender_type === 'forwarder' && !ack.error) {
             const ackDiv = document.getElementById('forwarder-acknowledgment');
             ackDiv.style.display = 'block';
             ackDiv.innerHTML = `
@@ -865,7 +954,7 @@ async function handleForwarderSubmit(e) {
         
         // Create history entry with both responses
         const historyEntry = {
-            timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+            timestamp: formatAbuDhabiTimestamp(),
             type: 'Forwarder',
             sender: forwarderEmail,
             subject: subject,
@@ -907,8 +996,6 @@ async function handleForwarderSubmit(e) {
             saveState();
             // Update history display (non-blocking)
             updateHistoryDisplay();
-            // Check for forwarder form
-            checkForwarderForm();
         });
         
         // REMOVED: location.reload() - responses now display immediately
@@ -1049,36 +1136,12 @@ function toggleHistoryItem(index) {
     }
 }
 
-// Check if forwarder form should be shown
+// Forwarder form removed - forwarder emails are now sent through main form
+// This function is kept for backward compatibility but does nothing
+// Form auto-population happens in displayResponse() when forwarder is assigned
 function checkForwarderForm() {
-    const forwarderSection = document.getElementById('forwarder-form-section');
-    if (!forwarderSection) return;
-    
-    const lastEmail = state.emailHistory[state.emailHistory.length - 1];
-    if (lastEmail && lastEmail.forwarderAssignment) {
-        forwarderSection.style.display = 'block';
-        
-        // Pre-fill forwarder form
-        const assignedForwarder = lastEmail.forwarderAssignment.assigned_forwarder || {};
-        const forwarderName = assignedForwarder.name || 'Forwarder Team';
-        
-        document.getElementById('forwarder-content').value = `Dear Logistics Team,
-
-Please find our rate quote:
-
-Route: Shanghai (CNSHG) to Los Angeles (USLAX)
-Container: 40HC
-Rate: $2,850 USD
-Transit Time: 18 days
-Valid Until: December 31, 2024
-
-Please confirm if you would like to proceed.
-
-Best regards,
-${forwarderName}`;
-    } else {
-        forwarderSection.style.display = 'none';
-    }
+    // No longer needed - forwarder emails use main form
+    return;
 }
 
 // Reset thread
