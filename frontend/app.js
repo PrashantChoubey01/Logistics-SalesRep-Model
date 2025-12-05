@@ -138,10 +138,18 @@ function loadState() {
     }
 }
 
-// Save state to localStorage
+// Save state to localStorage (optimized - non-blocking)
 function saveState() {
-    localStorage.setItem('threadId', state.threadId);
-    localStorage.setItem('emailHistory', JSON.stringify(state.emailHistory));
+    // Use try-catch to prevent blocking on localStorage errors
+    try {
+        // Defer localStorage write to avoid blocking UI
+        setTimeout(() => {
+            localStorage.setItem('threadId', state.threadId);
+            localStorage.setItem('emailHistory', JSON.stringify(state.emailHistory));
+        }, 0);
+    } catch (e) {
+        console.warn('⚠️ Failed to save state to localStorage:', e);
+    }
 }
 
 // Generate new thread ID
@@ -241,6 +249,27 @@ function handleEmailTypeChange(e) {
     updateSenderEmailLabel();
 }
 
+// Show status indicator
+function showStatus(icon, text) {
+    const indicator = document.getElementById('status-indicator');
+    const statusIcon = document.getElementById('status-icon');
+    const statusText = document.getElementById('status-text');
+    
+    if (indicator && statusIcon && statusText) {
+        statusIcon.textContent = icon;
+        statusText.textContent = text;
+        indicator.style.display = 'block';
+    }
+    console.log(`${icon} ${text}`);
+}
+
+function hideStatus() {
+    const indicator = document.getElementById('status-indicator');
+    if (indicator) {
+        indicator.style.display = 'none';
+    }
+}
+
 // Handle template selection
 function handleTemplateSelect(e) {
     const templateKey = e.target.value;
@@ -275,6 +304,20 @@ async function handleEmailSubmit(e) {
     
     console.log('📧 Form submitted - handleEmailSubmit called');
     
+    // Immediate visual feedback - button clicked!
+    const processBtn = document.getElementById('process-btn');
+    const processBtnText = document.getElementById('process-btn-text');
+    const processBtnSpinner = document.getElementById('process-btn-spinner');
+    
+    if (processBtn) {
+        processBtn.disabled = true;
+        processBtn.style.opacity = '0.7';
+    }
+    if (processBtnText) processBtnText.style.display = 'none';
+    if (processBtnSpinner) processBtnSpinner.style.display = 'inline';
+    
+    showStatus('✅', 'Button clicked! Validating form...');
+    
     const sender = document.getElementById('sender-email').value.trim();
     const subject = document.getElementById('subject').value.trim();
     const content = document.getElementById('content').value.trim();
@@ -283,17 +326,29 @@ async function handleEmailSubmit(e) {
     console.log('📝 Form data:', { sender, subject, content: content.substring(0, 50) + '...', emailType });
     
     if (!content) {
+        showStatus('❌', 'Error: Email content cannot be empty');
+        if (processBtn) processBtn.disabled = false;
+        if (processBtnText) processBtnText.style.display = 'inline';
+        if (processBtnSpinner) processBtnSpinner.style.display = 'none';
         showMessage('❌ Email content cannot be empty', 'error');
+        setTimeout(hideStatus, 3000);
         return;
     }
     
-    // Show loading
+    // Show loading and status
     showLoading(true);
+    showStatus('⏳', 'Form validated. Calling API...');
     hideResponse();
+    
+    // Scroll to top to show loading spinner
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     
     console.log('🌐 Calling API:', `${state.apiBaseUrl}/api/process-email`);
     
     try {
+        showStatus('🌐', 'API request sent. Waiting for response...');
+        
+        const startTime = Date.now();
         const response = await fetch(`${state.apiBaseUrl}/api/process-email`, {
             method: 'POST',
             headers: {
@@ -307,15 +362,28 @@ async function handleEmailSubmit(e) {
             })
         });
         
+        const responseTime = Date.now() - startTime;
+        console.log(`⏱️ API response received in ${responseTime}ms`);
+        
         if (!response.ok) {
+            showStatus('❌', `API Error: HTTP ${response.status}`);
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
+        showStatus('📥', 'Response received. Processing...');
         const data = await response.json();
         
+        console.log('✅ API Response received:', { 
+            success: data.success, 
+            thread_id: data.thread_id 
+        });
+        
         if (!data.success) {
+            showStatus('❌', `Error: ${data.error || 'Unknown error'}`);
             throw new Error(data.error || 'Unknown error occurred');
         }
+        
+        showStatus('✅', 'Processing workflow response...');
         
         // Update thread ID if changed
         if (data.thread_id && data.thread_id !== state.threadId) {
@@ -323,10 +391,10 @@ async function handleEmailSubmit(e) {
             saveState();
         }
         
-        // Process response
-        processWorkflowResponse(data, emailType, sender, subject, content);
+        // Process response immediately (optimized for speed)
+        processWorkflowResponse(data, emailType, sender, subject, content, processBtn, processBtnText, processBtnSpinner);
         
-        // Update form state
+        // Update form state (non-blocking)
         state.formState.senderEmail = sender;
         state.formState.subject = subject;
         state.formState.content = content;
@@ -338,14 +406,29 @@ async function handleEmailSubmit(e) {
             stack: error.stack,
             apiUrl: `${state.apiBaseUrl}/api/process-email`
         });
+        
+        showStatus('❌', `Error: ${error.message}`);
         showMessage(`❌ Error processing email: ${error.message}`, 'error');
+        
+        // Reset button state on error
+        if (processBtn) {
+            processBtn.disabled = false;
+            processBtn.style.opacity = '1';
+        }
+        if (processBtnText) processBtnText.style.display = 'inline';
+        if (processBtnSpinner) processBtnSpinner.style.display = 'none';
+        
+        // Hide status after 5 seconds on error
+        setTimeout(() => {
+            hideStatus();
+        }, 5000);
     } finally {
         showLoading(false);
     }
 }
 
 // Process workflow response
-function processWorkflowResponse(data, emailType, sender, subject, content) {
+function processWorkflowResponse(data, emailType, sender, subject, content, processBtn = null, processBtnText = null, processBtnSpinner = null) {
     const workflowState = data.result;
     
     // Find response (priority order)
@@ -391,31 +474,58 @@ function processWorkflowResponse(data, emailType, sender, subject, content) {
     
     // Add to history
     state.emailHistory.push(historyEntry);
-    saveState();
     
-    // Display response
+    // Display response IMMEDIATELY (optimized - show first, update history later)
+    showStatus('📤', 'Displaying response...');
     displayResponse(response, responseType, forwarderAssignment, forwarderResponse, 
                     salesNotification, customerQuote, workflowState, emailType);
     
-    // Update history display
-    updateHistoryDisplay();
+    // Hide loading immediately after displaying response
+    showLoading(false);
+    showStatus('✅', 'Response displayed successfully!');
     
-    // Check for forwarder form
-    checkForwarderForm();
+    // Reset button state
+    if (processBtn) {
+        processBtn.disabled = false;
+        processBtn.style.opacity = '1';
+    }
+    if (processBtnText) processBtnText.style.display = 'inline';
+    if (processBtnSpinner) processBtnSpinner.style.display = 'none';
     
-    // Show success
+    // Show success message immediately
     showMessage('✅ Email processed successfully!', 'success');
+    
+    // Hide status after 3 seconds
+    setTimeout(() => {
+        hideStatus();
+    }, 3000);
+    
+    // Defer heavy operations to avoid blocking UI
+    requestAnimationFrame(() => {
+        // Save state (non-blocking)
+        saveState();
+        // Update history display (non-blocking)
+        updateHistoryDisplay();
+        // Check for forwarder form
+        checkForwarderForm();
+    });
 }
 
-// Display response
+// Display response (optimized for speed)
 function displayResponse(response, responseType, forwarderAssignment, forwarderResponse,
                         salesNotification, customerQuote, workflowState, emailType) {
+    // Show response section immediately
     const responseSection = document.getElementById('response-section');
     responseSection.style.display = 'block';
+    responseSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    // Use DocumentFragment for faster DOM updates
+    const fragment = document.createDocumentFragment();
     
     // Main response
     const mainResponse = document.getElementById('main-response');
     if (response && !response.error) {
+        mainResponse.style.display = 'block';
         mainResponse.innerHTML = `
             <h3>✅ Response Generated (${responseType})</h3>
             <div class="response-field">
@@ -567,9 +677,99 @@ function displayResponse(response, responseType, forwarderAssignment, forwarderR
     }
 }
 
+// Display forwarder-specific responses (acknowledgment + sales notification) - optimized
+function displayForwarderResponses(forwarderAcknowledgment, salesNotification) {
+    // Show response section immediately and scroll to it
+    const responseSection = document.getElementById('response-section');
+    responseSection.style.display = 'block';
+    responseSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    // Clear main response section (not used for forwarder responses)
+    const mainResponse = document.getElementById('main-response');
+    mainResponse.style.display = 'none';
+    mainResponse.innerHTML = '';
+    
+    // Display Forwarder Acknowledgment (Response 1)
+    if (forwarderAcknowledgment && !forwarderAcknowledgment.error) {
+        const ackDiv = document.getElementById('forwarder-acknowledgment');
+        ackDiv.style.display = 'block';
+        ackDiv.innerHTML = `
+            <h3>🤝 Forwarder Acknowledgment</h3>
+            <p class="message message-info">Bot's response to forwarder email.</p>
+            <div class="response-field">
+                <strong>Subject:</strong> ${forwarderAcknowledgment.subject || 'N/A'}
+            </div>
+            <div class="response-field">
+                <strong>To:</strong> ${forwarderAcknowledgment.sender_email || forwarderAcknowledgment.to || 'N/A'}
+            </div>
+            <div class="response-field">
+                <strong>Body:</strong>
+                <div class="response-body">${escapeHtml(forwarderAcknowledgment.body || 'N/A')}</div>
+            </div>
+        `;
+        console.log('✅ Forwarder acknowledgment displayed');
+    } else {
+        const ackDiv = document.getElementById('forwarder-acknowledgment');
+        ackDiv.style.display = 'none';
+        console.log('⚠️ No forwarder acknowledgment to display');
+    }
+    
+    // Display Sales Notification (Response 2)
+    if (salesNotification && !salesNotification.error) {
+        const salesDiv = document.getElementById('sales-notification');
+        salesDiv.style.display = 'block';
+        salesDiv.innerHTML = `
+            <h3>📧 Sales Notification (Collated Email)</h3>
+            <p class="message message-info">This email contains customer requirements and forwarder rate information for the sales team.</p>
+            <div class="response-field">
+                <strong>Subject:</strong> ${salesNotification.subject || 'N/A'}
+            </div>
+            <div class="response-field">
+                <strong>To:</strong> ${salesNotification.to || 'Sales Team'}
+            </div>
+            <div class="response-field">
+                <strong>Priority:</strong> ${salesNotification.priority || 'N/A'}
+            </div>
+            <div class="response-field">
+                <strong>Body:</strong>
+                <div class="response-body">${escapeHtml(salesNotification.body || 'N/A')}</div>
+            </div>
+        `;
+        console.log('✅ Sales notification displayed');
+    } else {
+        const salesDiv = document.getElementById('sales-notification');
+        salesDiv.style.display = 'none';
+        console.log('⚠️ No sales notification to display');
+    }
+    
+    // If neither response, show message
+    if ((!forwarderAcknowledgment || forwarderAcknowledgment.error) && 
+        (!salesNotification || salesNotification.error)) {
+        const mainResponse = document.getElementById('main-response');
+        mainResponse.style.display = 'block';
+        mainResponse.innerHTML = `
+            <h3>⚠️ No Response Generated</h3>
+            <p>No acknowledgment or sales notification was generated from the workflow.</p>
+            <p class="message message-warning">Check the workflow state to see what happened.</p>
+        `;
+        console.log('⚠️ No responses generated');
+    }
+}
+
 // Handle forwarder form submission
 async function handleForwarderSubmit(e) {
     e.preventDefault();
+    
+    console.log('📧 Forwarder form submitted');
+    
+    // Immediate visual feedback
+    const forwarderBtn = e.target.querySelector('button[type="submit"]') || e.target;
+    const originalText = forwarderBtn.innerHTML;
+    forwarderBtn.disabled = true;
+    forwarderBtn.style.opacity = '0.7';
+    forwarderBtn.innerHTML = '⏳ Processing...';
+    
+    showStatus('✅', 'Forwarder response button clicked!');
     
     const subject = document.getElementById('forwarder-subject').value.trim();
     const content = document.getElementById('forwarder-content').value.trim();
@@ -577,101 +777,196 @@ async function handleForwarderSubmit(e) {
     // Get forwarder email from last email's forwarder assignment
     const lastEmail = state.emailHistory[state.emailHistory.length - 1];
     if (!lastEmail || !lastEmail.forwarderAssignment) {
+        showStatus('❌', 'Error: No forwarder assignment found');
+        forwarderBtn.disabled = false;
+        forwarderBtn.style.opacity = '1';
+        forwarderBtn.innerHTML = originalText;
         showMessage('❌ No forwarder assignment found', 'error');
+        setTimeout(hideStatus, 3000);
         return;
     }
     
     const forwarderEmail = lastEmail.forwarderAssignment.assigned_forwarder?.email || 'forwarder@example.com';
+    const forwarderName = lastEmail.forwarderAssignment.assigned_forwarder?.name || 'Forwarder';
+    
+    if (!content.trim()) {
+        showStatus('❌', 'Error: Content cannot be empty');
+        forwarderBtn.disabled = false;
+        forwarderBtn.style.opacity = '1';
+        forwarderBtn.innerHTML = originalText;
+        showMessage('❌ Forwarder response content cannot be empty', 'error');
+        setTimeout(hideStatus, 3000);
+        return;
+    }
+    
+    showStatus('✅', 'Form validated. Preparing request...');
+    
+    // Log all 4 fields being sent
+    console.log('📤 Sending forwarder response with:');
+    console.log('   - Forwarder Email:', forwarderEmail);
+    console.log('   - Subject:', subject);
+    console.log('   - Content:', content.substring(0, 50) + '...');
+    console.log('   - Thread ID:', state.threadId);
     
     showLoading(true);
+    hideResponse(); // Clear previous responses
     
     try {
+        showStatus('🌐', 'Calling API with forwarder email...');
+        console.log('🌐 Calling API:', `${state.apiBaseUrl}/api/process-email`);
+        
+        const startTime = Date.now();
         const response = await fetch(`${state.apiBaseUrl}/api/process-email`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                sender: forwarderEmail,
-                subject: subject,
-                content: content,
-                thread_id: state.threadId
+                sender: forwarderEmail,      // ✅ Forwarder email
+                subject: subject,            // ✅ Subject
+                content: content,            // ✅ Content
+                thread_id: state.threadId    // ✅ Current thread ID
             })
         });
         
+        const responseTime = Date.now() - startTime;
+        console.log(`⏱️ API response received in ${responseTime}ms`);
+        
         if (!response.ok) {
+            showStatus('❌', `API Error: HTTP ${response.status}`);
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
+        showStatus('📥', 'Response received. Extracting data...');
         const data = await response.json();
         
+        console.log('✅ API Response received:', { 
+            success: data.success, 
+            thread_id: data.thread_id 
+        });
+        
         if (!data.success) {
+            showStatus('❌', `Error: ${data.error || 'Unknown error'}`);
             throw new Error(data.error || 'Unknown error occurred');
         }
         
+        showStatus('🔍', 'Processing workflow responses...');
         const workflowState = data.result;
         
-        // Find response
-        let responseObj = null;
-        let responseType = null;
+        // Extract both responses
+        const forwarderAcknowledgment = workflowState.acknowledgment_response_result;
+        const salesNotification = workflowState.sales_notification_result;
         
-        if (workflowState.sales_notification_result) {
-            responseObj = workflowState.sales_notification_result;
-            responseType = 'Sales Notification';
-        } else if (workflowState.acknowledgment_response_result) {
-            responseObj = workflowState.acknowledgment_response_result;
-            responseType = 'Forwarder Acknowledgment';
-        }
+        console.log('📋 Extracted responses:');
+        console.log('   - Forwarder Acknowledgment:', forwarderAcknowledgment ? 'Present' : 'Missing');
+        console.log('   - Sales Notification:', salesNotification ? 'Present' : 'Missing');
         
-        // Add to history
+        showStatus('📤', 'Displaying responses...');
+        
+        // Create history entry with both responses
         const historyEntry = {
             timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
             type: 'Forwarder',
             sender: forwarderEmail,
             subject: subject,
             content: content,
-            response: responseObj,
-            responseType: responseType,
+            response: forwarderAcknowledgment, // Primary response (acknowledgment)
+            responseType: forwarderAcknowledgment ? 'Forwarder Acknowledgment' : 
+                         (salesNotification ? 'Sales Notification' : 'No Response'),
             forwarderAssignment: null,
             forwarderResponse: null,
-            salesNotification: workflowState.sales_notification_result,
+            salesNotification: salesNotification, // Secondary response (sales notification)
             workflowState: workflowState
         };
         
         state.emailHistory.push(historyEntry);
-        saveState();
         
-        updateHistoryDisplay();
-        checkForwarderForm();
+        // Display both responses IMMEDIATELY (optimized - show first)
+        displayForwarderResponses(forwarderAcknowledgment, salesNotification);
+        
+        // Hide loading immediately after displaying responses
+        showLoading(false);
+        showStatus('✅', 'Forwarder response processed successfully!');
+        
+        // Reset button
+        forwarderBtn.disabled = false;
+        forwarderBtn.style.opacity = '1';
+        forwarderBtn.innerHTML = originalText;
+        
+        // Show success message immediately
         showMessage('✅ Forwarder response processed!', 'success');
         
-        // Reload page to show new response
-        location.reload();
+        // Hide status after 3 seconds
+        setTimeout(() => {
+            hideStatus();
+        }, 3000);
+        
+        // Defer heavy operations to avoid blocking UI
+        requestAnimationFrame(() => {
+            // Save state (non-blocking)
+            saveState();
+            // Update history display (non-blocking)
+            updateHistoryDisplay();
+            // Check for forwarder form
+            checkForwarderForm();
+        });
+        
+        // REMOVED: location.reload() - responses now display immediately
         
     } catch (error) {
-        console.error('Error processing forwarder response:', error);
+        console.error('❌ Error processing forwarder response:', error);
+        console.error('Error details:', {
+            message: error.message,
+            forwarderEmail: forwarderEmail,
+            threadId: state.threadId
+        });
+        
+        showStatus('❌', `Error: ${error.message}`);
         showMessage(`❌ Error: ${error.message}`, 'error');
+        
+        // Reset button on error
+        forwarderBtn.disabled = false;
+        forwarderBtn.style.opacity = '1';
+        forwarderBtn.innerHTML = originalText;
+        
+        // Hide status after 5 seconds on error
+        setTimeout(() => {
+            hideStatus();
+        }, 5000);
     } finally {
         showLoading(false);
     }
 }
 
-// Update history display
+// Update history display (optimized - only update if changed)
+let lastHistoryCount = 0;
+
 function updateHistoryDisplay() {
     const container = document.getElementById('history-container');
     const count = state.emailHistory.length;
     
+    // Quick update of count
     document.getElementById('history-count').textContent = count;
+    
+    // Only rebuild if history changed (optimization)
+    if (count === lastHistoryCount && count > 0) {
+        return; // Skip if no new emails
+    }
+    lastHistoryCount = count;
     
     if (count === 0) {
         container.innerHTML = '<div class="message message-info">ℹ️ No email history yet. Process an email to see it here.</div>';
         return;
     }
     
+    // Use DocumentFragment for faster DOM updates
+    const fragment = document.createDocumentFragment();
+    const tempDiv = document.createElement('div');
+    
     // Display in reverse chronological order (newest first)
     const reversed = [...state.emailHistory].reverse();
     
-    container.innerHTML = reversed.map((email, idx) => {
+    tempDiv.innerHTML = reversed.map((email, idx) => {
         const emailNum = count - idx;
         const isExpanded = idx === 0;
         
@@ -727,6 +1022,9 @@ function updateHistoryDisplay() {
             </div>
         `;
     }).join('');
+    
+    // Use innerHTML in one operation (faster than multiple DOM operations)
+    container.innerHTML = tempDiv.innerHTML;
 }
 
 // Toggle history item
@@ -803,6 +1101,7 @@ function showLoading(show) {
 
 function hideResponse() {
     document.getElementById('response-section').style.display = 'none';
+    // Clear all response sections including forwarder acknowledgment and sales notification
     ['main-response', 'forwarder-assignment', 'forwarder-response', 
      'forwarder-acknowledgment', 'sales-notification', 'customer-quote', 'debug-section'].forEach(id => {
         const el = document.getElementById(id);
