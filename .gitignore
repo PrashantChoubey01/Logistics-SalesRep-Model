@@ -90,3 +90,6 @@ data/embeddings/*.faiss
 
 cursor_rules.md
 CUSTOMER_EMAIL_INPUT_OUTPUT_SPEC.md
+
+# Secrets directory (local storage only, never commit)
+.secrets/
