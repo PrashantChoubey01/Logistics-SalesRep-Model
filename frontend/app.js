@@ -589,7 +589,6 @@ function displayResponse(response, responseType, forwarderAssignment, forwarderR
                     <p><strong>Name:</strong> ${assignedForwarder.name || 'N/A'}</p>
                     <p><strong>Email:</strong> ${assignedForwarder.email || 'N/A'}</p>
                     <p><strong>Company:</strong> ${assignedForwarder.company || 'N/A'}</p>
-                    <p><strong>Route:</strong> ${forwarderAssignment.origin_country || 'N/A'} → ${forwarderAssignment.destination_country || 'N/A'}</p>
                 </div>
                 <div>
                     <h4>Rate Request Email:</h4>
