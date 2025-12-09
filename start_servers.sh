@@ -1,65 +1,95 @@
 #!/bin/bash
-# Start both API and Frontend servers
+# Start both API and Frontend servers (API on 5001, frontend on 5002)
+# This script is idempotent: if a service is already running, it will not start a duplicate.
+# Usage: ./start_servers.sh
 
-echo "🚀 Starting SeaRates AI Servers..."
-echo ""
+set -euo pipefail
 
-# Activate virtual environment if it exists
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+log() { printf "%s\n" "$*"; }
+
+log "🚀 Starting SeaRates AI Servers..."
+log ""
+
+# Activate virtual environment if present
 if [ -d "venv_ai_model" ]; then
-    echo "📦 Activating virtual environment..."
-    source venv_ai_model/bin/activate
+  log "📦 Activating virtual environment..."
+  # shellcheck source=/dev/null
+  source venv_ai_model/bin/activate
 fi
 
-# Check if API server is already running
-if curl -s http://localhost:5001/health > /dev/null 2>&1; then
-    echo "✅ API server already running on port 5001"
-else
-    echo "🔌 Starting API server on port 5001..."
-    python3 api_server.py > api_server.log 2>&1 &
-    API_PID=$!
-    echo "   API server started (PID: $API_PID)"
-    echo "   Logs: api_server.log"
-    sleep 3
-    
-    # Verify it started
-    if curl -s http://localhost:5001/health > /dev/null 2>&1; then
-        echo "   ✅ API server is ready"
-    else
-        echo "   ⚠️  API server may still be starting..."
+ensure_api() {
+  local PORT=5001
+  local HEALTH_URL="http://localhost:${PORT}/health"
+
+  if curl -s --max-time 2 "$HEALTH_URL" >/dev/null 2>&1; then
+    log "✅ API server already running on port ${PORT}"
+    return
+  fi
+
+  log "🔌 Starting API server on port ${PORT}..."
+  nohup python3 api_server.py > api_server.log 2>&1 &
+  local PID=$!
+  log "   API server started (PID: ${PID})"
+  log "   Logs: api_server.log"
+
+  # Wait up to 20 seconds for health
+  for _ in {1..20}; do
+    if curl -s --max-time 2 "$HEALTH_URL" >/dev/null 2>&1; then
+      log "   ✅ API server is ready"
+      return
     fi
-fi
+    sleep 1
+  done
+  log "   ⚠️  API server may still be starting (health not reachable yet)"
+}
 
-# Check if frontend is already running on 5002
-if curl -s http://localhost:5002 > /dev/null 2>&1; then
-    echo "✅ Frontend already running on port 5002"
-else
-    echo "🌐 Starting frontend server on port 5002..."
+ensure_frontend() {
+  local PORT=5002
+  local URL="http://localhost:${PORT}"
+
+  if curl -s --max-time 2 "$URL" >/dev/null 2>&1; then
+    log "✅ Frontend already running on port ${PORT}"
+    return
+  fi
+
+  log "🌐 Starting frontend server on port ${PORT}..."
+  (
     cd frontend
-    python3 -m http.server 5002 > ../frontend_server.log 2>&1 &
-    FRONTEND_PID=$!
-    echo "   Frontend server started (PID: $FRONTEND_PID)"
-    echo "   Logs: frontend_server.log"
-    cd ..
-    sleep 2
-    
-    # Verify it started
-    if curl -s http://localhost:5002 > /dev/null 2>&1; then
-        echo "   ✅ Frontend server is ready"
-    else
-        echo "   ⚠️  Frontend server may still be starting..."
-    fi
-fi
+    nohup python3 -m http.server "${PORT}" > ../frontend_server.log 2>&1 &
+    echo $! > ../frontend_server.pid
+  )
+  local PID
+  PID=$(cat frontend_server.pid 2>/dev/null || true)
+  log "   Frontend server started (PID: ${PID:-unknown})"
+  log "   Logs: frontend_server.log"
 
-echo ""
-echo "=========================================="
-echo "✅ Servers are running!"
-echo ""
-echo "🌐 Frontend UI: http://localhost:5002"
-echo "🔌 API Server:  http://localhost:5001"
-echo "📚 API Docs:     http://localhost:5001/docs"
-echo ""
-echo "To stop servers:"
-echo "  pkill -f 'api_server.py'"
-echo "  pkill -f 'http.server 5002'"
-echo "=========================================="
+  # Wait up to 10 seconds
+  for _ in {1..10}; do
+    if curl -s --max-time 2 "$URL" >/dev/null 2>&1; then
+      log "   ✅ Frontend server is ready"
+      return
+    fi
+    sleep 1
+  done
+  log "   ⚠️  Frontend server may still be starting (not reachable yet)"
+}
+
+ensure_api
+ensure_frontend
+
+log ""
+log "=========================================="
+log "✅ Servers are running!"
+log ""
+log "🌐 Frontend UI: http://localhost:5002"
+log "🔌 API Server:  http://localhost:5001"
+log "📚 API Docs:     http://localhost:5001/docs"
+log ""
+log "To stop servers:"
+log "  pkill -f 'api_server.py'"
+log "  pkill -f 'http.server 5002'"
+log "=========================================="
 

@@ -36,6 +36,7 @@ mlflow.log
 
 # Logs
 *.log
+frontend_server.pid
 
 # Mac system files
 .DS_Store
