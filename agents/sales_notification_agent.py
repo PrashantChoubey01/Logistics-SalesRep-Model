@@ -66,9 +66,13 @@ class SalesNotificationAgent(BaseAgent):
         if not self.client:
             return {"error": "LLM client not initialized"}
 
-        return self._generate_sales_notification(notification_type, customer_details, shipment_details, forwarder_rates, forwarder_details, forwarder_email_content, forwarder_rate_request_email, timeline_information, conversation_state, thread_id, urgency)
+        # Get additional data for complete information
+        port_lookup_result = input_data.get("port_lookup_result", {})
+        cumulative_extraction = input_data.get("cumulative_extraction", {})
+        
+        return self._generate_sales_notification(notification_type, customer_details, shipment_details, forwarder_rates, forwarder_details, forwarder_email_content, forwarder_rate_request_email, timeline_information, conversation_state, thread_id, urgency, port_lookup_result, cumulative_extraction)
 
-    def _generate_sales_notification(self, notification_type: str, customer_details: Dict[str, Any], shipment_details: Dict[str, Any], forwarder_rates: List[Dict[str, Any]], forwarder_details: Dict[str, Any], forwarder_email_content: str, forwarder_rate_request_email: str, timeline_information: Dict[str, Any], conversation_state: str, thread_id: str, urgency: str) -> Dict[str, Any]:
+    def _generate_sales_notification(self, notification_type: str, customer_details: Dict[str, Any], shipment_details: Dict[str, Any], forwarder_rates: List[Dict[str, Any]], forwarder_details: Dict[str, Any], forwarder_email_content: str, forwarder_rate_request_email: str, timeline_information: Dict[str, Any], conversation_state: str, thread_id: str, urgency: str, port_lookup_result: Dict[str, Any] = None, cumulative_extraction: Dict[str, Any] = None) -> Dict[str, Any]:
         """Generate sales notification using LLM function calling."""
         try:
             function_schema = {
@@ -130,13 +134,13 @@ class SalesNotificationAgent(BaseAgent):
 
             # Format data for analysis
             customer_summary = self._format_customer_summary(customer_details)
-            shipment_summary = self._format_shipment_summary(shipment_details)
+            shipment_summary = self._format_shipment_summary(shipment_details, port_lookup_result)
             rates_summary = self._format_rates_summary(forwarder_rates)
             forwarder_summary = self._format_forwarder_summary(forwarder_details)
             timeline_summary = self._format_timeline_summary(timeline_information)
 
             prompt = f"""
-You are an expert sales coordinator for logistics operations. Generate a comprehensive sales team notification in proper email format.
+You are an expert sales coordinator for logistics operations. Generate a SIMPLE, FOCUSED sales team notification email.
 
 NOTIFICATION TYPE: {notification_type}
 CONVERSATION STATE: {conversation_state}
@@ -161,120 +165,67 @@ TIMELINE INFORMATION:
 FORWARDER RECEIVED EMAIL (email FROM forwarder - if available):
 {forwarder_email_content if forwarder_email_content else "No forwarder email received yet."}
 
-NOTIFICATION TYPES:
-1. rates_received: Forwarder has sent rates, ready for customer presentation
-2. customer_rate_inquiry: Customer is asking about rates or status
-3. customer_booking_request: Customer wants to proceed with booking
-4. escalation: Complex case or customer frustration
-5. deal_update: General update on deal progress
-6. deal_closure: Deal has been closed or finalized
-
-PRIORITY LEVELS:
-- urgent: Customer frustration, high-value deals, immediate action needed
-- high: Rate inquiries, booking requests, forwarder responses
-- medium: Deal updates, general inquiries
-- low: Follow-ups, status updates
-
-REQUIRED EMAIL FORMAT (MUST FOLLOW THIS STRUCTURE):
+REQUIRED EMAIL FORMAT (KEEP IT SIMPLE - ONLY THESE SECTIONS):
 
 **EMAIL GREETING:**
-- Start with: "Dear Sales Team," or "Hello Sales Team,"
-- Include a brief opening line (1-2 sentences) about the notification purpose and urgency
+- Start with: "Dear Sales Team,"
+- Brief opening line (1 sentence) about the notification
 
-**EMAIL BODY STRUCTURE:**
+**EMAIL BODY STRUCTURE (ONLY THESE 4 SECTIONS):**
 
 1. **THREAD ID** - Include at the top: "Thread ID: [thread_id]"
 
-2. **OPENING PARAGRAPH** - Brief context (2-3 sentences):
-   - What type of notification this is
-   - Why the sales team is being notified
-   - Urgency level if applicable
-
-3. **CUSTOMER INFORMATION** - Include ONLY validated customer contact details:
+2. **CUSTOMER REQUIREMENTS** - Include ONLY confirmed shipment details:
    - Customer Name (if available)
    - Email Address (if available)
-   - Phone Number (if available)
    - Company Name (if available)
-   - Only include fields that have actual values, skip if unknown
+   - Origin with port code - Format: "Port Name (PORTCODE)"
+   - Destination with port code - Format: "Port Name (PORTCODE)"
+   - Container Type (if confirmed)
+   - Container Count (if confirmed)
+   - Commodity (if confirmed)
+   - Weight (if confirmed)
+   - Volume (if confirmed)
+   - Incoterm (if confirmed)
+   - Shipment Date (if confirmed)
+   - Special Requirements (if any confirmed)
+   - CRITICAL: Only include fields that are CONFIRMED by the customer
+   - CRITICAL: Do NOT mention what is NOT provided - only list what IS confirmed
+   - CRITICAL: Include port codes in format "Port Name (PORTCODE)"
 
-4. **SHIPMENT DETAILS** - Include ONLY validated shipment specifications:
-   - Origin (if validated) - DO NOT include origin country
-   - Destination (if validated) - DO NOT include destination country
-   - Container Type (if validated)
-   - Container Count (if validated)
-   - Commodity (if validated)
-   - Weight (if validated)
-   - Volume (if validated)
-   - Incoterm (if validated)
-   - Shipment Type (FCL/LCL if validated)
-   - CRITICAL: NEVER include origin_country or destination_country in shipment details
-   - Only include fields that are confirmed/validated
-
-5. **FORWARDER INFORMATION** - CRITICAL: Always include forwarder details if available:
-   - Forwarder Name (if available)
-   - Forwarder Email (if available)
-   - Forwarder Company (if available)
+3. **FORWARDER INFORMATION** - Include if available:
+   - Forwarder Name
+   - Forwarder Email
+   - Forwarder Company
    - Forwarder Phone (if available)
-   - This information is essential for sales team to coordinate with forwarders
+   - Forwarder Rate Quote (if available - include rate, transit time, valid until)
+   - If forwarder has sent an email, include it briefly
 
-6. **FORWARDER RATE QUOTE** - Include (if rates are available):
-   - Forwarder Name and Contact Information (if available)
-   - Rate per container (clearly stated)
-   - Number of containers
-   - Total shipment cost calculation (rate × containers)
-   - Transit time
-   - Valid until date
-   - DO NOT include "Additional notes" or unvalidated information
-
-7. **FORWARDER RECEIVED EMAIL** - CRITICAL: ALWAYS include if a forwarder has sent an email (check FORWARDER RECEIVED EMAIL section above):
-   - MANDATORY: If FORWARDER RECEIVED EMAIL section has content (not "No forwarder email received yet"), you MUST include it
-   - Include the complete email that was received FROM the forwarder
-   - Show the full email content including subject, from, to, and body
-   - This is the actual email the forwarder sent to us with their rates/response
-   - Format it clearly with a header like "FORWARDER EMAIL RECEIVED:" followed by the complete email content
-   - This is essential information - do NOT skip it if available
-
-9. **ACTION REQUIRED** - Provide SPECIFIC, ACTIONABLE steps:
+4. **NEXT STEPS** - Provide 3-5 SPECIFIC, ACTIONABLE steps:
    - Step 1: Contact customer at [email] by [deadline]
-   - Step 2: Present rates with margin calculation (if applicable)
-   - Step 3: Confirm booking if accepted
-   - Step 4: Coordinate with forwarder at [forwarder_email]
+   - Step 2: [Specific action based on notification type]
+   - Step 3: [Specific action]
    - Include specific deadlines and contact information
-
-10. **URGENCY & TIMELINE** - Include:
-   - Customer requested date (if available and validated)
-   - Days until deadline (calculate if possible)
-   - Urgency level justification
-
-11. **KEY HIGHLIGHTS** - Important points for sales team (brief bullet points, 2-4 items)
-
-12. **RISK FACTORS** - Any concerns or considerations (if applicable, brief)
-
-13. **RECOMMENDATIONS** - Suggested approach for handling (brief, 1-2 sentences)
+   - Keep steps concise and actionable
 
 **EMAIL CLOSING:**
-- Closing paragraph (1-2 sentences) thanking the sales team and emphasizing importance
-- Professional closing: "Best regards," or "Thank you,"
-- Signature: "Sales Coordination Team" or "Logistics Operations Team"
+- Brief closing (1 sentence)
+- Professional closing: "Best regards,"
+- Signature: "Logistics Operations Team"
 
-IMPORTANT INSTRUCTIONS:
-- Format as a proper email with greeting, body paragraphs, and signature
-- Include Thread ID at the top of the email body (after greeting)
-- Write in professional but friendly tone
-- Use proper paragraph breaks between sections
-- Make the email readable and well-structured
-- CRITICAL: Include the FORWARDER RECEIVED EMAIL (the email FROM the forwarder) in the body if available - this is essential information for the sales team
-- CRITICAL: NEVER include origin_country or destination_country in shipment details - only include origin and destination port/city names
-- Include ONLY validated customer information - skip fields marked as unknown or unvalidated
-- Include ONLY validated shipment details - do not include unconfirmed information
-- DO NOT include "Additional notes" section
-- CRITICAL: Include ALL forwarder contact information (name, email, company, phone) in a dedicated "FORWARDER INFORMATION" section if available - this is essential for sales coordination
-- Make action items SPECIFIC with actual contact details and deadlines
-- Calculate total shipment cost clearly (rate × number of containers)
-- Be professional, clear, and actionable
-- Use natural paragraph flow, not just bullet points
+CRITICAL INSTRUCTIONS:
+- KEEP IT SIMPLE - Do NOT include sections like "KEY HIGHLIGHTS", "RISK FACTORS", "RECOMMENDATIONS", "URGENCY & TIMELINE"
+- Do NOT mention what information is missing or not provided
+- Only include information that IS confirmed/available
+- Do NOT add extra analysis or commentary
+- Focus on: Customer Requirements, Forwarder Info, Thread ID, Next Steps
+- Format as a clean, professional email
+- Use bullet points for clarity
+- Be concise - sales team needs quick, actionable information
+- Include port codes in format "Port Name (PORTCODE)" for origin and destination
+- If forwarder rates are available, include them in the Forwarder Information section
 
-Generate a complete, well-formatted email that the sales team can read and act upon immediately. The email should feel like a professional internal communication, not just a data dump.
+Generate a SIMPLE, FOCUSED email with ONLY the 4 required sections above. Do not add extra sections or unnecessary information.
 """
 
             # Use OpenAI client for function calling
@@ -386,8 +337,8 @@ Generate a complete, well-formatted email that the sales team can read and act u
         else:
             return "No customer details available"
 
-    def _format_shipment_summary(self, shipment_details: Dict[str, Any]) -> str:
-        """Format shipment details for analysis - EXCLUDES country information."""
+    def _format_shipment_summary(self, shipment_details: Dict[str, Any], port_lookup_result: Dict[str, Any] = None) -> str:
+        """Format shipment details for analysis - EXCLUDES country information, INCLUDES port codes."""
         if not shipment_details:
             return "No shipment details available"
         
@@ -395,9 +346,36 @@ Generate a complete, well-formatted email that the sales team can read and act u
         # CRITICAL: Exclude country fields - never include origin_country or destination_country
         excluded_fields = ['origin_country', 'destination_country']
         
+        # Format origin with port code if available
+        origin = shipment_details.get("origin", "")
+        if origin and port_lookup_result and port_lookup_result.get("origin"):
+            origin_port = port_lookup_result.get("origin", {})
+            if origin_port.get("port_code"):
+                origin_display = f"{origin_port.get('port_name', origin)} ({origin_port.get('port_code')})"
+                summary_parts.append(f"- origin: {origin_display}")
+            else:
+                if origin:
+                    summary_parts.append(f"- origin: {origin}")
+        elif origin:
+            summary_parts.append(f"- origin: {origin}")
+        
+        # Format destination with port code if available
+        destination = shipment_details.get("destination", "")
+        if destination and port_lookup_result and port_lookup_result.get("destination"):
+            dest_port = port_lookup_result.get("destination", {})
+            if dest_port.get("port_code"):
+                dest_display = f"{dest_port.get('port_name', destination)} ({dest_port.get('port_code')})"
+                summary_parts.append(f"- destination: {dest_display}")
+            else:
+                if destination:
+                    summary_parts.append(f"- destination: {destination}")
+        elif destination:
+            summary_parts.append(f"- destination: {destination}")
+        
+        # Add all other shipment details (excluding origin/destination which we already handled, and country fields)
         for key, value in shipment_details.items():
-            # Skip country fields
-            if key in excluded_fields:
+            # Skip country fields and origin/destination (already handled above)
+            if key in excluded_fields or key in ['origin', 'destination']:
                 continue
             if value and str(value).strip():
                 summary_parts.append(f"- {key}: {value}")

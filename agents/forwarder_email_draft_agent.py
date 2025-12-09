@@ -221,6 +221,7 @@ Ignore personal information, greetings, or non-logistics content.
                     dest_name = port_lookup_result["destination"].get("port_name", destination_display)
                     destination_display = f"{dest_name} ({dest_code})"
             
+            # Build complete shipment_info with ALL confirmed fields from shipment_details
             shipment_info = {
                 "origin": origin_display,
                 "destination": destination_display,
@@ -233,8 +234,16 @@ Ignore personal information, greetings, or non-logistics content.
                 "volume": shipment_details.get("volume", ""),
                 "shipment_date": shipment_details.get("shipment_date", shipment_details.get("requested_dates", "")),
                 "incoterm": shipment_details.get("incoterm", ""),
-                "shipment_type": shipment_details.get("shipment_type", "FCL")
+                "shipment_type": shipment_details.get("shipment_type", "FCL"),
+                # Include all additional confirmed fields
+                "transit_time": shipment_details.get("transit_time", ""),
+                "urgency": shipment_details.get("urgency", ""),
+                "special_notes": shipment_details.get("special_notes", ""),
+                "special_requirements": shipment_details.get("special_requirements", "")
             }
+            
+            # Remove empty fields to keep it clean
+            shipment_info = {k: v for k, v in shipment_info.items() if v and str(v).strip()}
 
             # Format additional details for email
             additional_info = self._format_additional_details(additional_details)
@@ -256,14 +265,24 @@ Sales Manager Signature:
 Rules:
 - Professional and courteous tone
 - Clear, organized shipment details
+- CRITICAL: Include ALL customer-confirmed shipment information:
+  * Origin with port code (format: "Port Name (PORTCODE)")
+  * Destination with port code (format: "Port Name (PORTCODE)")
+  * Container Type and Container Count (if confirmed)
+  * Weight and Volume (if confirmed)
+  * Commodity (if confirmed)
+  * Shipment Date / Ready Date (if confirmed)
+  * Incoterm (if confirmed)
+  * Special Requirements (if any confirmed)
 - Request competitive rates and transit times
 - Include all additional requirements from customer
-- NO customer information or personal details
+- NO customer information or personal details (no customer name, email, phone)
 - Request all-inclusive rates
 - Use the provided sales manager signature
 - Format details in a clear, structured manner
+- CRITICAL: The email must include ALL confirmed shipment details - this is what the customer has agreed to
 
-Generate one email per forwarder with subject, body, priority, urgency, and response time.
+Generate one email per forwarder with subject, body, priority, urgency, and response time. The email body must include all confirmed shipment details with port codes.
 """
 
             # Use OpenAI client for function calling
@@ -385,6 +404,20 @@ Searates By DP World
         # Shipment Type
         if shipment_info.get("shipment_type"):
             details.append(f"Shipment Type: {shipment_info['shipment_type']}")
+        
+        # Special Requirements (if any confirmed by customer)
+        if shipment_info.get("special_notes"):
+            details.append(f"Special Notes: {shipment_info['special_notes']}")
+        
+        if shipment_info.get("special_requirements"):
+            details.append(f"Special Requirements: {shipment_info['special_requirements']}")
+        
+        # Transit Time and Urgency (if available)
+        if shipment_info.get("transit_time"):
+            details.append(f"Transit Time: {shipment_info['transit_time']}")
+        
+        if shipment_info.get("urgency"):
+            details.append(f"Urgency: {shipment_info['urgency']}")
         
         return "\n".join([f"- {detail}" for detail in details])
 

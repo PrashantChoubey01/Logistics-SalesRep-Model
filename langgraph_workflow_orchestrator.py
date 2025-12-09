@@ -1708,24 +1708,70 @@ class LangGraphWorkflowOrchestrator:
                 customer_email_content = email_data.get("content", email_data.get("body_text", email_data.get("body", "")))
                 
                 # Generate rate request email using forwarder email draft agent
-                # Include all confirmed shipment details including port codes
-                # Use cumulative extraction to get complete shipment details
-                complete_shipment_details = shipment_details.copy() if shipment_details else {}
+                # CRITICAL: Include ALL customer-confirmed information from cumulative_extraction
+                # Build complete_shipment_details from ALL sections of cumulative_extraction
+                complete_shipment_details = {}
                 
-                # Use standardized container type if available
+                # Start with shipment_details from cumulative_extraction
+                if cumulative_extraction and cumulative_extraction.get("shipment_details"):
+                    complete_shipment_details = cumulative_extraction.get("shipment_details", {}).copy()
+                    logger.info("📊 Using shipment_details from cumulative_extraction")
+                
+                # Add container details from cumulative_extraction
+                if cumulative_extraction and cumulative_extraction.get("container_details"):
+                    container_details = cumulative_extraction.get("container_details", {})
+                    if container_details.get("container_type"):
+                        complete_shipment_details["container_type"] = container_details.get("container_type")
+                    if container_details.get("container_count"):
+                        complete_shipment_details["container_count"] = container_details.get("container_count")
+                    logger.info("📦 Added container_details from cumulative_extraction")
+                
+                # Use standardized container type if available (overrides if present)
                 if state.get("container_standardization_result") and isinstance(state["container_standardization_result"], dict):
                     standardized_type = state["container_standardization_result"].get("standardized_type")
                     if standardized_type:
                         complete_shipment_details["container_type"] = standardized_type
                         logger.info(f"📦 Using standardized container type: {standardized_type}")
                 
-                # Also include timeline information from cumulative extraction for shipment_date
+                # Add timeline information from cumulative_extraction
                 if cumulative_extraction and cumulative_extraction.get("timeline_information"):
                     timeline_info = cumulative_extraction.get("timeline_information", {})
-                    # Add requested_dates to shipment_details if shipment_date is missing
-                    if not complete_shipment_details.get("shipment_date") and timeline_info.get("requested_dates"):
+                    if timeline_info.get("shipment_date"):
+                        complete_shipment_details["shipment_date"] = timeline_info.get("shipment_date")
+                    elif timeline_info.get("requested_dates"):
                         complete_shipment_details["shipment_date"] = timeline_info.get("requested_dates")
-                        logger.info(f"📅 Added shipment_date from timeline_information: {timeline_info.get('requested_dates')}")
+                    if timeline_info.get("transit_time"):
+                        complete_shipment_details["transit_time"] = timeline_info.get("transit_time")
+                    if timeline_info.get("urgency"):
+                        complete_shipment_details["urgency"] = timeline_info.get("urgency")
+                    logger.info("📅 Added timeline_information from cumulative_extraction")
+                
+                # Add special requirements from cumulative_extraction
+                if cumulative_extraction and cumulative_extraction.get("special_requirements"):
+                    special_req = cumulative_extraction.get("special_requirements", {})
+                    if special_req.get("notes"):
+                        complete_shipment_details["special_notes"] = special_req.get("notes")
+                    if special_req.get("requirements"):
+                        complete_shipment_details["special_requirements"] = special_req.get("requirements")
+                    logger.info("📋 Added special_requirements from cumulative_extraction")
+                
+                # Ensure all key fields are included (even if empty)
+                if not complete_shipment_details.get("origin"):
+                    complete_shipment_details["origin"] = shipment_details.get("origin", "")
+                if not complete_shipment_details.get("destination"):
+                    complete_shipment_details["destination"] = shipment_details.get("destination", "")
+                if not complete_shipment_details.get("commodity"):
+                    complete_shipment_details["commodity"] = shipment_details.get("commodity", "")
+                if not complete_shipment_details.get("weight"):
+                    complete_shipment_details["weight"] = shipment_details.get("weight", "")
+                if not complete_shipment_details.get("volume"):
+                    complete_shipment_details["volume"] = shipment_details.get("volume", "")
+                if not complete_shipment_details.get("incoterm"):
+                    complete_shipment_details["incoterm"] = shipment_details.get("incoterm", "")
+                if not complete_shipment_details.get("shipment_type"):
+                    complete_shipment_details["shipment_type"] = shipment_details.get("shipment_type", "FCL")
+                
+                logger.info(f"✅ Complete shipment details prepared with {len(complete_shipment_details)} fields")
                 
                 rate_request_data = {
                     "assigned_forwarders": [assigned_forwarder],
@@ -1929,18 +1975,54 @@ class LangGraphWorkflowOrchestrator:
             # Determine notification type
             notification_type = "rates_received" if forwarder_response_result and not forwarder_response_result.get('error') else "deal_update"
             
-            # Extract customer details from cumulative extraction (with proper None checks)
+            # CRITICAL: Extract ALL customer-confirmed information from cumulative_extraction
+            # This ensures the sales collated email includes everything the customer confirmed
+            
+            # Extract customer details from cumulative extraction
             customer_details = {}
             if cumulative_extraction and isinstance(cumulative_extraction, dict):
-                customer_details = cumulative_extraction.get("contact_information", {})
+                customer_details = cumulative_extraction.get("contact_information", {}).copy() if cumulative_extraction.get("contact_information") else {}
             
+            # Build complete shipment_details from ALL sections of cumulative_extraction
             shipment_details = {}
             if cumulative_extraction and isinstance(cumulative_extraction, dict):
-                shipment_details = cumulative_extraction.get("shipment_details", {})
+                # Start with shipment_details
+                shipment_details = cumulative_extraction.get("shipment_details", {}).copy() if cumulative_extraction.get("shipment_details") else {}
+                
+                # Add container details
+                if cumulative_extraction.get("container_details"):
+                    container_details = cumulative_extraction.get("container_details", {})
+                    if container_details.get("container_type"):
+                        shipment_details["container_type"] = container_details.get("container_type")
+                    if container_details.get("container_count"):
+                        shipment_details["container_count"] = container_details.get("container_count")
+                
+                # Add timeline information
+                if cumulative_extraction.get("timeline_information"):
+                    timeline_info = cumulative_extraction.get("timeline_information", {})
+                    if timeline_info.get("shipment_date"):
+                        shipment_details["shipment_date"] = timeline_info.get("shipment_date")
+                    elif timeline_info.get("requested_dates"):
+                        shipment_details["shipment_date"] = timeline_info.get("requested_dates")
+                    if timeline_info.get("transit_time"):
+                        shipment_details["transit_time"] = timeline_info.get("transit_time")
+                    if timeline_info.get("urgency"):
+                        shipment_details["urgency"] = timeline_info.get("urgency")
+                
+                # Add special requirements
+                if cumulative_extraction.get("special_requirements"):
+                    special_req = cumulative_extraction.get("special_requirements", {})
+                    if special_req.get("notes"):
+                        shipment_details["special_notes"] = special_req.get("notes")
+                    if special_req.get("requirements"):
+                        shipment_details["special_requirements"] = special_req.get("requirements")
+                
+                logger.info("📊 Using complete cumulative_extraction data for sales notification")
             elif extraction_result and isinstance(extraction_result, dict):
                 extracted_data = extraction_result.get("extracted_data", {})
                 if extracted_data and isinstance(extracted_data, dict):
                     shipment_details = extracted_data.get("shipment_details", {})
+                    logger.info("📊 Using extraction_result data for sales notification (fallback)")
             
             # Extract forwarder rates from forwarder_response_result
             forwarder_rates = []
