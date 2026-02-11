@@ -700,25 +700,47 @@ ${forwarderName}${forwarderCompany ? '\n' + forwarderCompany : ''}`;
     if (forwarderResponse && !forwarderResponse.error) {
         const forwarderRespDiv = document.getElementById('forwarder-response');
         forwarderRespDiv.style.display = 'block';
-        const rateInfo = forwarderResponse.rate_info || {};
+        const rateInfo = forwarderResponse.extracted_rate_info || {};
         
-        forwarderRespDiv.innerHTML = `
-            <h3>📊 Forwarder Response (Rates Received)</h3>
-            <div class="two-columns">
-                <div>
-                    <h4>Rate Information:</h4>
-                    <p><strong>Rate:</strong> ${rateInfo.rate || 'N/A'}</p>
-                    <p><strong>Currency:</strong> ${rateInfo.currency || 'N/A'}</p>
-                    <p><strong>Transit Time:</strong> ${rateInfo.transit_time || 'N/A'}</p>
+        // Check if we have any rate data
+        const hasRateData = rateInfo.rate || rateInfo.rates_with_dthc || rateInfo.rates_with_othc || rateInfo.rates_without_thc;
+        
+        if (hasRateData) {
+            forwarderRespDiv.innerHTML = `
+                <h3>📊 Forwarder Response (Rates Received)</h3>
+                <div class="two-columns">
+                    <div>
+                        <h4>Forwarder Details:</h4>
+                        <p><strong>Name:</strong> ${forwarderResponse.forwarder_name || 'N/A'}</p>
+                        <p><strong>Email:</strong> ${forwarderResponse.forwarder_email || 'N/A'}</p>
+                    </div>
+                    <div>
+                        <h4>Route Information:</h4>
+                        <p><strong>Origin:</strong> ${rateInfo.origin_port || 'N/A'}</p>
+                        <p><strong>Destination:</strong> ${rateInfo.destination_port || 'N/A'}</p>
+                        <p><strong>Container:</strong> ${rateInfo.container_type || 'N/A'}</p>
+                    </div>
                 </div>
-                <div>
-                    <h4>Additional Details:</h4>
-                    <p><strong>Valid Until:</strong> ${rateInfo.valid_until || 'N/A'}</p>
-                    <p><strong>Sailing Date:</strong> ${rateInfo.sailing_date || 'N/A'}</p>
-                    ${rateInfo.additional_notes ? `<p><strong>Notes:</strong> ${rateInfo.additional_notes}</p>` : ''}
+                
+                <div class="rate-details" style="margin-top: 20px;">
+                    <h4>Rate Breakdown:</h4>
+                    ${rateInfo.rate ? `<p><strong>Rate:</strong> $${rateInfo.rate.toLocaleString()} USD</p>` : ''}
+                    ${rateInfo.rates_without_thc ? `<p><strong>Ocean Freight:</strong> $${rateInfo.rates_without_thc.toLocaleString()} USD</p>` : ''}
+                    ${rateInfo.rates_with_othc ? `<p><strong>With Origin THC:</strong> $${rateInfo.rates_with_othc.toLocaleString()} USD</p>` : ''}
+                    ${rateInfo.rates_with_dthc ? `<p><strong>Total Rate:</strong> $${rateInfo.rates_with_dthc.toLocaleString()} USD</p>` : ''}
+                    ${rateInfo.transit_time ? `<p><strong>Transit Time:</strong> ${rateInfo.transit_time} days</p>` : ''}
+                    ${rateInfo.valid_until ? `<p><strong>Valid Until:</strong> ${rateInfo.valid_until}</p>` : ''}
+                    ${rateInfo.sailing_date ? `<p><strong>Sailing Date:</strong> ${rateInfo.sailing_date}</p>` : ''}
                 </div>
-            </div>
-        `;
+            `;
+        } else {
+            forwarderRespDiv.innerHTML = `
+                <h3>📊 Forwarder Response Received</h3>
+                <p class="message message-info">Forwarder response received. Rate extraction in progress or rates not clearly specified.</p>
+                <p><strong>Forwarder:</strong> ${forwarderResponse.forwarder_name || 'N/A'}</p>
+                <p><strong>Email:</strong> ${forwarderResponse.forwarder_email || 'N/A'}</p>
+            `;
+        }
     }
     
     // Sales Notification

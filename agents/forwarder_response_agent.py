@@ -137,19 +137,27 @@ class ForwarderResponseAgent(BaseAgent):
         }
         
         # Extract origin and destination ports
+        # Enhanced patterns to handle formats like "Jebel Ali (AEJEA) to Los Angeles (USLAX)"
         port_patterns = [
-            r"from\s+([A-Za-z\s]+)\s+to\s+([A-Za-z\s]+)",
-            r"([A-Za-z\s]+)\s+to\s+([A-Za-z\s]+)",
-            r"origin[:\s]*([A-Za-z\s]+)",
-            r"destination[:\s]*([A-Za-z\s]+)"
+            r"route[:\s]*([A-Za-z\s]+)\s*\([A-Z]{5}\)\s*to\s*([A-Za-z\s]+)\s*\([A-Z]{5}\)",  # Route: Port (CODE) to Port (CODE)
+            r"route[:\s]*([A-Za-z\s,]+)\s+to\s+([A-Za-z\s,]+)",  # Route: Port to Port
+            r"from[:\s]*([A-Za-z\s,]+)\s+to\s+([A-Za-z\s,]+)",  # From Port to Port
+            r"([A-Za-z\s,]+)\s+to\s+([A-Za-z\s,]+)",  # Port to Port
+            r"origin[:\s]*([A-Za-z\s,]+)",  # Origin: Port
+            r"destination[:\s]*([A-Za-z\s,]+)"  # Destination: Port
         ]
         
         for pattern in port_patterns:
             matches = re.findall(pattern, email_text, re.IGNORECASE)
             if matches:
                 if len(matches[0]) == 2:
-                    rate_info["origin_port"] = matches[0][0].strip()
-                    rate_info["destination_port"] = matches[0][1].strip()
+                    origin = matches[0][0].strip()
+                    destination = matches[0][1].strip()
+                    # Clean up port names (remove port codes in parentheses for display)
+                    origin = re.sub(r'\s*\([A-Z]{5}\)', '', origin).strip()
+                    destination = re.sub(r'\s*\([A-Z]{5}\)', '', destination).strip()
+                    rate_info["origin_port"] = origin
+                    rate_info["destination_port"] = destination
                 elif "origin" in pattern.lower():
                     rate_info["origin_port"] = matches[0].strip()
                 elif "destination" in pattern.lower():
@@ -170,12 +178,14 @@ class ForwarderResponseAgent(BaseAgent):
                 break
         
         # Extract rates
-        # Simple "Rate:" pattern (most common in forwarder emails)
+        # Enhanced patterns to match various formats including "$3,200 USD per container"
         rate_patterns = [
-            r"rate[:\s]*\$?\s*([\d,]+\.?\d*)\s*USD?",
-            r"rate[:\s]*USD?\s*([\d,]+\.?\d*)",
-            r"rate[:\s]*\$?\s*([\d,]+\.?\d*)",
-            r"\$?\s*([\d,]+\.?\d*)\s*USD?\s*\(?rate\)?"
+            r"rate[:\s]*\$\s*([\d,]+\.?\d*)\s*USD",  # Rate: $3,200 USD
+            r"rate[:\s]*\$\s*([\d,]+\.?\d*)",  # Rate: $3,200
+            r"rate[:\s]*([\d,]+\.?\d*)\s*USD",  # Rate: 3200 USD
+            r"rate[:\s]*USD\s*\$?\s*([\d,]+\.?\d*)",  # Rate: USD $3,200
+            r"\$\s*([\d,]+\.?\d*)\s*USD\s*per\s*container",  # $3,200 USD per container
+            r"rate[:\s]*([\d,]+\.?\d*)",  # Rate: 3200
         ]
         
         for pattern in rate_patterns:
@@ -186,6 +196,7 @@ class ForwarderResponseAgent(BaseAgent):
                 rate_info["rates_with_dthc"] = rate_value
                 # Also store as a general rate field for compatibility
                 rate_info["rate"] = rate_value
+                rate_info["currency"] = "USD"
                 break
         
         # Total rate (usually includes all charges)
@@ -250,11 +261,13 @@ class ForwarderResponseAgent(BaseAgent):
                 rate_info["transit_time"] = int(matches[0])
                 break
         
-        # Extract dates
+        # Extract dates - enhanced to handle various formats
         date_patterns = [
-            r"valid\s*until[:\s]*([A-Za-z]+\s+\d+,\s+\d{4})",
-            r"sailing\s*date[:\s]*([A-Za-z]+\s+\d+,\s+\d{4})",
-            r"([A-Za-z]+\s+\d+,\s+\d{4})\s*\(?valid\s*until\)?"
+            r"validity[:\s]*([A-Za-z]+\s+\d+,\s+\d{4})",  # Validity: March 31, 2026
+            r"valid\s*until[:\s]*([A-Za-z]+\s+\d+,\s+\d{4})",  # Valid Until: March 31, 2026
+            r"valid\s*till[:\s]*([A-Za-z]+\s+\d+,\s+\d{4})",  # Valid Till: March 31, 2026
+            r"sailing\s*date[:\s]*([A-Za-z]+\s+\d+,\s+\d{4})",  # Sailing Date: March 31, 2026
+            r"([A-Za-z]+\s+\d+,\s+\d{4})\s*\(?valid",  # March 31, 2026 (valid)
         ]
         
         for pattern in date_patterns:
