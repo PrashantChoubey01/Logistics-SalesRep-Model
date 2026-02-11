@@ -475,34 +475,25 @@ class ConfirmationResponseAgent(BaseAgent):
         if not rate_info or rate_info.get("status") != "success":
             return "Rate information will be provided in the final quote."
         
-        # Parse price range from format like "[1951,4837]"
-        price_range_str = rate_info.get("price_range_recommendation", "")
+        # Use market_range (±10% of average) instead of raw CSV min/max
+        market_range = rate_info.get("market_range")
         market_average = rate_info.get("market_average")
         rate_quality = rate_info.get("rate_quality")
+        container_type = rate_info.get('container_type', 'container')
         
-        if price_range_str and market_average:
-            # Parse the price range
-            try:
-                # Remove brackets and split
-                price_range_str = price_range_str.strip("[]")
-                prices = [int(float(p.strip())) for p in price_range_str.split(",")]
-                if len(prices) == 2:
-                    min_price = prices[0]
-                    max_price = prices[1]
-                    
-                    rate_text += "**Indicative Market Rates:**\n"
-                    rate_text += f"Based on current market data for this route:\n"
-                    rate_text += f"• Price Range: ${min_price:,} - ${max_price:,} per {rate_info.get('container_type', 'container')}\n"
-                    rate_text += f"• Market Average: ${int(float(market_average)):,} per {rate_info.get('container_type', 'container')}\n"
-                    
-                    if rate_quality:
-                        rate_text += f"• Rate Quality: {rate_quality} quotes analyzed\n"
-                    
-                    rate_text += f"\nNote: Final rates from forwarders may vary based on current availability and specific requirements."
-                    
-                    return rate_text
-            except (ValueError, IndexError) as e:
-                logger.warning(f"Could not parse price range: {price_range_str}, error: {e}")
+        if market_range and market_average:
+            # Use the calculated ±10% market range
+            rate_text += "**Indicative Market Rates:**\n"
+            rate_text += f"Based on current market data for this route:\n"
+            rate_text += f"• Price Range: {market_range} per {container_type}\n"
+            rate_text += f"• Market Average: ${int(float(market_average)):,} per {container_type}\n"
+            
+            if rate_quality:
+                rate_text += f"• Rate Quality: {rate_quality} quotes analyzed\n"
+            
+            rate_text += f"\nNote: Final rates from forwarders may vary based on current availability and specific requirements."
+            
+            return rate_text
         
         # Fallback if parsing fails
         if rate_info.get("formatted_rate_range"):
