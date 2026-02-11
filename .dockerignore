@@ -1,0 +1,76 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+venv_ai_model/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Logs
+*.log
+logs/
+api_server.log
+frontend_server.log
+
+# Test files
+tests/
+test_*.py
+*_test.py
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets (important!)
+.secrets/
+*.key
+*.pem
+.env
+.env.local
+
+# Thread data (will be mounted as volume)
+data/threads/*.json
+
+# Monitoring
+monitoring/
+docker-compose.monitoring.yml
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+frontend_server.pid
+nohup.out
+
+# Scripts not needed in container
+activate_*.sh
+stop_servers.sh
+scripts/

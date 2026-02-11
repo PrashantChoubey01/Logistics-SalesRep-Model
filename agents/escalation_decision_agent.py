@@ -39,7 +39,7 @@ class EscalationDecisionAgent(BaseAgent):
         super().__init__("EscalationDecisionAgent")
         
         # Use a different model for escalation decisions (more focused on decision making)
-        self.escalation_model = "databricks-meta-llama-3-3-70b-instruct"
+        self.escalation_model = self.config.get("model_name", "claude-3-haiku-20240307")
         
         # Escalation types
         self.escalation_types = {

@@ -39,7 +39,7 @@ class ThreadContextAnalyzerAgent(BaseAgent):
         super().__init__("ThreadContextAnalyzerAgent")
         
         # Use a different model for thread analysis (more focused on conversation)
-        self.thread_analysis_model = "databricks-meta-llama-3-3-70b-instruct"
+        self.thread_analysis_model = self.config.get("model_name", "claude-3-haiku-20240307")
         
         # Thread context states
         self.thread_states = {

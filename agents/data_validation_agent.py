@@ -39,7 +39,7 @@ class DataValidationAgent(BaseAgent):
         super().__init__("DataValidationAgent")
         
         # Use a different model for data validation (more focused on logic and validation)
-        self.validation_model = "databricks-meta-llama-3-3-70b-instruct"
+        self.validation_model = self.config.get("model_name", "claude-3-haiku-20240307")
         
         # Validation categories
         self.validation_categories = {

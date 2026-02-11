@@ -39,7 +39,7 @@ class UnifiedEmailClassifierAgent(BaseAgent):
         super().__init__("UnifiedEmailClassifierAgent")
         
         # Use a different model for classification (more focused)
-        self.classification_model = "databricks-meta-llama-3-3-70b-instruct"
+        self.classification_model = self.config.get("model_name", "claude-3-haiku-20240307")
         
         # Load sales team and forwarder data for sender classification
         self.sales_team_manager = None
