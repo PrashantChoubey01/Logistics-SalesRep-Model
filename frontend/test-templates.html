@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Template Verification</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .template-card {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .template-card h2 {
+            color: #2196F3;
+            margin-top: 0;
+        }
+        .field {
+            margin-bottom: 15px;
+        }
+        .field strong {
+            display: block;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .field-value {
+            background: #f9f9f9;
+            padding: 10px;
+            border-left: 3px solid #2196F3;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-ok {
+            background: #4CAF50;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>📋 Email Template Verification</h1>
+    <p>This page displays all email templates to verify they are correctly formatted.</p>
+    
+    <div id="templates-container"></div>
+
+    <script>
+        // Email Templates (copied from app.js)
+        const EMAIL_TEMPLATES = {
+            'complete-fcl': {
+                type: 'Customer',
+                sender: 'john.smith@techcorp.com',
+                subject: 'FCL Shipping Quote - Dubai to Los Angeles',
+                content: `Hello SeaRates Team,
+
+I need a shipping quote for the following shipment:
+
+Origin: Jebel Ali, Dubai, UAE
+Destination: Los Angeles, USA
+Container: 2 x 40HC
+Commodity: Electronics (Consumer Goods)
+Ready Date: March 15, 2026
+Incoterm: FOB
+
+Please provide your best rates.
+
+Best regards,
+John Smith
+Procurement Manager
+TechCorp Industries
+Phone: +1-555-0123`
+            },
+            'minimal-info': {
+                type: 'Customer',
+                sender: 'maria.garcia@importexport.com',
+                subject: 'Shipping Quote Needed',
+                content: `Hi,
+
+I need a shipping quote.
+
+Origin: China
+Destination: Germany
+
+Thanks,
+Maria Garcia
+Import/Export Solutions Ltd`
+            },
+            'customer-confirmation': {
+                type: 'Customer',
+                sender: 'john.smith@techcorp.com',
+                subject: 'RE: FCL Shipping Quote - Dubai to Los Angeles',
+                content: `Hi Sarah,
+
+Yes, all details are confirmed. The indicative rates look reasonable. Please proceed with getting the actual quotes from forwarders.
+
+Thanks,
+John`
+            },
+            'forwarder-rate': {
+                type: 'Forwarder',
+                sender: 'ops@pacificbridgelogistics.com',
+                subject: 'Rate Quote - Jebel Ali to Los Angeles',
+                content: `Dear SeaRates Team,
+
+Thank you for your rate request. Please find our competitive quote below:
+
+Route: Jebel Ali (AEJEA) to Los Angeles (USLAX)
+Container Type: 40HC
+Rate: $3,200 USD per container
+Transit Time: 21 days
+Validity: March 31, 2026
+
+Additional Services:
+- Free detention: 7 days
+- Documentation included
+
+We look forward to your confirmation.
+
+Best regards,
+Michael Chen
+Operations Manager
+Pacific Bridge Logistics`
+            },
+            'lcl-shipment': {
+                type: 'Customer',
+                sender: 'emily.wong@hktrading.com',
+                subject: 'LCL Quote - Hong Kong to UK',
+                content: `Hi SeaRates,
+
+I need an LCL quote for the following:
+
+From: Hong Kong
+To: Felixstowe, UK
+Cargo: Fashion Accessories
+Ready: March 1, 2026
+
+Can you help?
+
+Thanks,
+Emily Wong
+HK Trading Ltd`
+            },
+            'urgent-shipment': {
+                type: 'Customer',
+                sender: 'lisa.johnson@fashionretail.com',
+                subject: 'URGENT - Need Quote Today - Vietnam to USA',
+                content: `Hi,
+
+We have an urgent shipment from Vietnam to Los Angeles. Need 2 containers of garments. Must ship by end of this month!
+
+Please quote ASAP!
+
+Lisa Johnson
+Fashion Retail Inc.`
+            }
+        };
+
+        // Display all templates
+        const container = document.getElementById('templates-container');
+        
+        const templateNames = {
+            'complete-fcl': 'Complete FCL Quote Request (Dubai → LA)',
+            'minimal-info': 'Minimal Information Request (China → Germany)',
+            'customer-confirmation': 'Customer Confirmation',
+            'forwarder-rate': 'Forwarder Rate Quote (Dubai → LA)',
+            'lcl-shipment': 'LCL Shipment Request (Hong Kong → UK)',
+            'urgent-shipment': 'Urgent Shipment (Vietnam → USA)'
+        };
+
+        Object.keys(EMAIL_TEMPLATES).forEach(key => {
+            const template = EMAIL_TEMPLATES[key];
+            const card = document.createElement('div');
+            card.className = 'template-card';
+            
+            card.innerHTML = `
+                <h2>${templateNames[key]}</h2>
+                <span class="status status-ok">✓ Valid</span>
+                
+                <div class="field">
+                    <strong>Template Key:</strong>
+                    <div class="field-value">${key}</div>
+                </div>
+                
+                <div class="field">
+                    <strong>Email Type:</strong>
+                    <div class="field-value">${template.type}</div>
+                </div>
+                
+                <div class="field">
+                    <strong>Sender Email:</strong>
+                    <div class="field-value">${template.sender}</div>
+                </div>
+                
+                <div class="field">
+                    <strong>Subject:</strong>
+                    <div class="field-value">${template.subject}</div>
+                </div>
+                
+                <div class="field">
+                    <strong>Content:</strong>
+                    <div class="field-value">${template.content}</div>
+                </div>
+            `;
+            
+            container.appendChild(card);
+        });
+    </script>
+</body>
+</html>

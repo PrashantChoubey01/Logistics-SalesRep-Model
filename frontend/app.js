@@ -4,8 +4,8 @@ const state = {
     emailHistory: [],
     formState: {
         emailType: 'Customer',
-        senderEmail: 'john.doe@techcorp.com',
-        subject: 'FCL Shipping Quote - Shanghai to Los Angeles',
+        senderEmail: 'john.smith@techcorp.com',
+        subject: 'FCL Shipping Quote - Dubai to Los Angeles',
         content: ''
     },
     selectedTemplate: null,
@@ -18,92 +18,109 @@ const state = {
 const EMAIL_TEMPLATES = {
     'complete-fcl': {
         type: 'Customer',
-        sender: 'john.doe@techcorp.com',
-        subject: 'FCL Shipping Quote - Shanghai to Los Angeles',
-        content: `Hello Searates,
+        sender: 'john.smith@techcorp.com',
+        subject: 'FCL Shipping Quote - Dubai to Los Angeles',
+        content: `Hello SeaRates Team,
 
-I need a shipping quote for a full container load from Shanghai, China to Los Angeles, USA.
+I need a shipping quote for the following shipment:
 
-Details:
-- Origin: Shanghai, China
-- Destination: Los Angeles, USA
-- Container Type: 40HC
-- Number of Containers: 2
-- Commodity: Electronics
-- Weight: 20,000 kg per container
-- Ready Date: 2024-03-15
-- Incoterm: FOB
-
-Please provide rates and transit time.
-
-Best regards,
-John Doe
-Logistics Manager
-TechCorp Inc.`
-    },
-    'minimal-info': {
-        type: 'Customer',
-        sender: 'sarah.williams@manufacturing.com',
-        subject: 'Shipping Quote Request',
-        content: `Hi,
-
-I want to ship from USA to China.
-
-Please send me a quote.
-
-Thanks,
-Sarah Williams`
-    },
-    'customer-confirmation': {
-        type: 'Customer',
-        sender: 'john.doe@techcorp.com',
-        subject: 'Re: FCL Shipping Quote - Shanghai to Los Angeles',
-        content: `Hi,
-
-I confirm the details are correct. Please proceed with the booking.
-
-Best regards,
-John Doe`
-    },
-    'forwarder-rate': {
-        type: 'Forwarder',
-        sender: 'ops@pacificbridgelogistics.com',
-        subject: 'Rate Quote - Shanghai to Los Angeles',
-        content: `Dear Logistics Team,
-
-Please find our rate quote:
-
-Route: Shanghai (CNSHG) to Los Angeles (USLAX)
-Container: 40HC
-Rate: $2,850 USD
-Transit Time: 18 days
-Valid Until: December 31, 2024
-
-Please confirm if you would like to proceed.
-
-Best regards,
-Pacific Bridge Logistics`
-    },
-    'lcl-shipment': {
-        type: 'Customer',
-        sender: 'mike.chen@trading.com',
-        subject: 'LCL Shipping Quote Request',
-        content: `Dear SeaRates Team,
-
-I need a quote for LCL shipment:
-
-- Origin: Singapore
-- Destination: New York, USA
-- Weight: 500 kg
-- Volume: 2.5 CBM
-- Commodity: Textiles
-- Ready Date: 2024-04-01
+Origin: Jebel Ali, Dubai, UAE
+Destination: Los Angeles, USA
+Container: 2 x 40HC
+Commodity: Electronics (Consumer Goods)
+Ready Date: March 15, 2026
+Incoterm: FOB
 
 Please provide your best rates.
 
 Best regards,
-Mike Chen
-Trading Co.`
+John Smith
+Procurement Manager
+TechCorp Industries
+Phone: +1-555-0123`
+    },
+    'minimal-info': {
+        type: 'Customer',
+        sender: 'maria.garcia@importexport.com',
+        subject: 'Shipping Quote Needed',
+        content: `Hi,
+
+I need a shipping quote.
+
+Origin: China
+Destination: Germany
+
+Thanks,
+Maria Garcia
+Import/Export Solutions Ltd`
+    },
+    'customer-confirmation': {
+        type: 'Customer',
+        sender: 'john.smith@techcorp.com',
+        subject: 'RE: FCL Shipping Quote - Dubai to Los Angeles',
+        content: `Hi Sarah,
+
+Yes, all details are confirmed. The indicative rates look reasonable. Please proceed with getting the actual quotes from forwarders.
+
+Thanks,
+John`
+    },
+    'forwarder-rate': {
+        type: 'Forwarder',
+        sender: 'ops@pacificbridgelogistics.com',
+        subject: 'Rate Quote - Jebel Ali to Los Angeles',
+        content: `Dear SeaRates Team,
+
+Thank you for your rate request. Please find our competitive quote below:
+
+Route: Jebel Ali (AEJEA) to Los Angeles (USLAX)
+Container Type: 40HC
+Rate: $3,200 USD per container
+Transit Time: 21 days
+Validity: March 31, 2026
+
+Additional Services:
+- Free detention: 7 days
+- Documentation included
+
+We look forward to your confirmation.
+
+Best regards,
+Michael Chen
+Operations Manager
+Pacific Bridge Logistics`
+    },
+    'lcl-shipment': {
+        type: 'Customer',
+        sender: 'emily.wong@hktrading.com',
+        subject: 'LCL Quote - Hong Kong to UK',
+        content: `Hi SeaRates,
+
+I need an LCL quote for the following:
+
+From: Hong Kong
+To: Felixstowe, UK
+Cargo: Fashion Accessories
+Ready: March 1, 2026
+
+Can you help?
+
+Thanks,
+Emily Wong
+HK Trading Ltd`
+    },
+    'urgent-shipment': {
+        type: 'Customer',
+        sender: 'lisa.johnson@fashionretail.com',
+        subject: 'URGENT - Need Quote Today - Vietnam to USA',
+        content: `Hi,
+
+We have an urgent shipment from Vietnam to Los Angeles. Need 2 containers of garments. Must ship by end of this month!
+
+Please quote ASAP!
+
+Lisa Johnson
+Fashion Retail Inc.`
     }
 };
 

@@ -471,15 +471,47 @@ class ConfirmationResponseAgent(BaseAgent):
         """Format rate information for display"""
         rate_text = ""
         
-        if rate_info.get("rate_ranges"):
-            rate_text += "**Rate Ranges:**\n"
-            for route, rates in rate_info["rate_ranges"].items():
-                rate_text += f"• {route}: ${rates.get('min', 'N/A')} - ${rates.get('max', 'N/A')}\n"
+        # Check if rate data is available and status is success
+        if not rate_info or rate_info.get("status") != "success":
+            return "Rate information will be provided in the final quote."
         
-        if rate_info.get("rate_disclaimer"):
-            rate_text += f"\n**Note:** {rate_info['rate_disclaimer']}\n"
+        # Parse price range from format like "[1951,4837]"
+        price_range_str = rate_info.get("price_range_recommendation", "")
+        market_average = rate_info.get("market_average")
+        rate_quality = rate_info.get("rate_quality")
         
-        return rate_text if rate_text else "Rate information will be provided in the final quote."
+        if price_range_str and market_average:
+            # Parse the price range
+            try:
+                # Remove brackets and split
+                price_range_str = price_range_str.strip("[]")
+                prices = [int(float(p.strip())) for p in price_range_str.split(",")]
+                if len(prices) == 2:
+                    min_price = prices[0]
+                    max_price = prices[1]
+                    
+                    rate_text += "**Indicative Market Rates:**\n"
+                    rate_text += f"Based on current market data for this route:\n"
+                    rate_text += f"• Price Range: ${min_price:,} - ${max_price:,} per {rate_info.get('container_type', 'container')}\n"
+                    rate_text += f"• Market Average: ${int(float(market_average)):,} per {rate_info.get('container_type', 'container')}\n"
+                    
+                    if rate_quality:
+                        rate_text += f"• Rate Quality: {rate_quality} quotes analyzed\n"
+                    
+                    rate_text += f"\nNote: Final rates from forwarders may vary based on current availability and specific requirements."
+                    
+                    return rate_text
+            except (ValueError, IndexError) as e:
+                logger.warning(f"Could not parse price range: {price_range_str}, error: {e}")
+        
+        # Fallback if parsing fails
+        if rate_info.get("formatted_rate_range"):
+            rate_text += f"**Indicative Market Rate:**\n"
+            rate_text += f"• {rate_info['formatted_rate_range']}\n"
+            rate_text += f"\nNote: Final rates from forwarders may vary based on current availability and specific requirements."
+            return rate_text
+        
+        return "Rate information will be provided in the final quote."
     
     def _generate_fallback_response(self, extracted_data: Dict[str, Any], customer_name: str) -> Dict[str, Any]:
         """Generate a fallback response if main generation fails"""
