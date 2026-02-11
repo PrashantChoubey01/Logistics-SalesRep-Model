@@ -76,6 +76,8 @@ secrets.*
 *.key
 *.pem
 *.csv
+# Exception: Keep rate recommendation data
+!data/rate_recommendation.csv
 
 # Configuration files - exclude sensitive ones
 # config/sales_team.json
