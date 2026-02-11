@@ -35,20 +35,17 @@ class ForwarderResponseAgent(BaseAgent):
             forwarder_name = forwarder_details.get("name", "")
             forwarder_email = forwarder_details.get("email", "")
             
-            # If forwarder details are missing, extract from email
+            # Use sensible defaults if forwarder details are missing
             if not forwarder_name or forwarder_name == "Forwarder":
-                forwarder_name = self._extract_forwarder_name_from_email(email_data, forwarder_email)
+                # Try from_name first, then fall back to professional default
+                forwarder_name = email_data.get("from_name", "") or "Valued Partner"
             
             if not forwarder_email:
-                forwarder_email = email_data.get("sender", "")
+                forwarder_email = email_data.get("sender", "") or email_data.get("from_email", "")
             
-            # Extract company name if not present
+            # Use forwarder name as company if not present
             if not forwarder_details.get("company"):
-                company_name = self._extract_company_name_from_email(email_data)
-                if company_name:
-                    forwarder_details["company"] = company_name
-                elif forwarder_name:
-                    forwarder_details["company"] = forwarder_name
+                forwarder_details["company"] = forwarder_name
             
             # Update forwarder_details with extracted information
             forwarder_details["name"] = forwarder_name

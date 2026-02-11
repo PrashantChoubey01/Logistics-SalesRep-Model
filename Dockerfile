@@ -39,10 +39,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY agents/ ./agents/
 COPY config/ ./config/
 COPY data/ ./data/
-COPY eval/ ./eval/
 COPY frontend/ ./frontend/
 COPY models/ ./models/
-COPY monitoring/ ./monitoring/
 COPY utils/ ./utils/
 COPY api_server.py .
 COPY langgraph_workflow_orchestrator.py .
