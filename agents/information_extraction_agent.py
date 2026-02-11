@@ -47,11 +47,21 @@ class InformationExtractionAgent(BaseAgent):
         try:
             print(f"🔍 INFORMATION_EXTRACTOR: Starting enhanced LLM information extraction...")
             
+            # Handle both direct email_text and email_data.body_text formats
+            email_data = input_data.get("email_data", {})
             email_text = input_data.get("email_text", "")
-            sender = input_data.get("sender", "")
+            
+            # If email_data is provided, extract from it
+            if email_data and not email_text:
+                email_text = email_data.get("body_text", "")
+                sender = email_data.get("from_email", input_data.get("sender", ""))
+                subject = email_data.get("subject", input_data.get("subject", ""))
+            else:
+                sender = input_data.get("sender", "")
+                subject = input_data.get("subject", "")
+            
             thread_id = input_data.get("thread_id", "")
             timestamp = input_data.get("timestamp", datetime.utcnow().isoformat())
-            subject = input_data.get("subject", "")
             customer_context = input_data.get("customer_context", {})
             forwarder_context = input_data.get("forwarder_context", {})
             prioritize_recent = input_data.get("prioritize_recent", True)
