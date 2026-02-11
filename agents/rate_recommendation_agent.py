@@ -24,6 +24,8 @@ class RateRecommendationAgent(BaseAgent):
         self.rates_df = None
         self.data_loaded = False
         self.data_file_path = None
+        # Load rate data on initialization
+        self.load_context()
 
     def load_context(self) -> bool:
         """Load rate data from CSV file"""
@@ -212,6 +214,7 @@ class RateRecommendationAgent(BaseAgent):
         market_high = None
         market_midlow = None
         market_midhigh = None
+        market_range_formatted = None  # New: formatted market range
         rate_quality = None
         contract_length = None
         day = None
@@ -223,21 +226,52 @@ class RateRecommendationAgent(BaseAgent):
             # Get price range recommendation
             if 'price_range_recommendation' in source_df.columns:
                 price_range_series = source_df['price_range_recommendation'].dropna()
-            if len(price_range_series) > 0:
-                price_range_recommendation = str(price_range_series.iloc[0])
+                if len(price_range_series) > 0:
+                    price_range_recommendation = str(price_range_series.iloc[0])
 
             # Get market data
+            market_avg_numeric = None
             if 'Market_Average' in source_df.columns:
                 market_avg_series = source_df['Market_Average'].dropna()
                 if len(market_avg_series) > 0:
-                    market_average = str(market_avg_series.iloc[0])
+                    market_avg_numeric = market_avg_series.iloc[0]
+                    market_average = str(market_avg_numeric)
             
-            if 'Market_Low' in source_df.columns:
+            # Calculate market range: ±10% of market average
+            if market_avg_numeric is not None and pd.notna(market_avg_numeric):
+                try:
+                    avg_value = float(market_avg_numeric)
+                    if avg_value > 0:
+                        # Calculate ±10%
+                        range_low = avg_value * 0.9  # -10%
+                        range_high = avg_value * 1.1  # +10%
+                        
+                        # Ensure lower bound is at least $10
+                        if range_low < 10:
+                            range_low = 10
+                        
+                        # Ensure both values are positive
+                        range_low = max(10, range_low)
+                        range_high = max(range_low + 1, range_high)
+                        
+                        # Format the market range
+                        market_range_formatted = f"${int(range_low):,} - ${int(range_high):,}"
+                        
+                        # Also set market_low and market_high for backward compatibility
+                        market_low = str(int(range_low))
+                        market_high = str(int(range_high))
+                        
+                        print(f"💰 Market Range Calculated: {market_range_formatted} (based on average ${int(avg_value):,})")
+                except (ValueError, TypeError) as e:
+                    print(f"⚠️ Could not calculate market range: {e}")
+            
+            # Fallback: Get original market_low and market_high from CSV if calculation failed
+            if not market_low and 'Market_Low' in source_df.columns:
                 market_low_series = source_df['Market_Low'].dropna()
                 if len(market_low_series) > 0:
                     market_low = str(market_low_series.iloc[0])
             
-            if 'Market_High' in source_df.columns:
+            if not market_high and 'Market_High' in source_df.columns:
                 market_high_series = source_df['Market_High'].dropna()
                 if len(market_high_series) > 0:
                     market_high = str(market_high_series.iloc[0])
@@ -279,6 +313,7 @@ class RateRecommendationAgent(BaseAgent):
             "market_average": market_average,
             "market_low": market_low,
             "market_high": market_high,
+            "market_range": market_range_formatted,  # New: formatted market range (±10%)
             "market_midlow": market_midlow,
             "market_midhigh": market_midhigh,
             "price_range_recommendation": price_range_recommendation,
