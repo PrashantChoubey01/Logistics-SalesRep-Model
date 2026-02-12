@@ -23,6 +23,7 @@ databricks-results/
 # Python virtual environments
 venv/
 venv-ai-sales/
+venv_ai_model/
 .venv/
 env/
 ENV/
