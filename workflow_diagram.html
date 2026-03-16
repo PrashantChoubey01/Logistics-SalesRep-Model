@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeaRates Logistics AI - Workflow Diagram</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg-primary: #0a0e27;
+            --bg-secondary: #151b3d;
+            --bg-card: #1a2142;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-yellow: #f59e0b;
+            --accent-orange: #f97316;
+            --accent-purple: #8b5cf6;
+            --accent-red: #ef4444;
+            --accent-cyan: #06b6d4;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-muted: #64748b;
+            --border: #334155;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, #0f1629 100%);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+            padding: 30px;
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+        
+        h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 15px;
+            letter-spacing: -1px;
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        
+        .legend {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 40px;
+            padding: 25px;
+            background: var(--bg-card);
+            border-radius: 15px;
+            border: 1px solid var(--border);
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            transition: transform 0.2s;
+        }
+        
+        .legend-item:hover {
+            transform: translateY(-2px);
+        }
+        
+        .legend-color {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .legend-label {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+        
+        #workflow-canvas {
+            width: 100%;
+            height: 5400px;
+            background: var(--bg-card);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            cursor: grab;
+        }
+        
+        #workflow-canvas:active {
+            cursor: grabbing;
+        }
+        
+        .controls {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+        
+        .control-btn {
+            padding: 15px 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--text-primary);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .control-btn:hover {
+            background: var(--accent-blue);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 30px;
+            padding: 25px;
+            background: var(--bg-card);
+            border-radius: 15px;
+            border: 1px solid var(--border);
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 20px;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+        }
+        
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-top: 8px;
+            font-weight: 500;
+        }
+        
+        /* Print styles */
+        @media print {
+            body {
+                background: white;
+            }
+            
+            .controls {
+                display: none !important;
+            }
+            
+            .container {
+                max-width: 100%;
+                padding: 0;
+            }
+            
+            header, .legend, .stats {
+                page-break-inside: avoid;
+            }
+            
+            #workflow-canvas {
+                page-break-inside: avoid;
+                width: 100%;
+                height: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚢 SeaRates Logistics AI</h1>
+            <p class="subtitle">LangGraph Multi-Agent Email Workflow Architecture</p>
+        </header>
+        
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);"></div>
+                <div>
+                    <div class="legend-label">Classification & Analysis</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Understand who sent the email and what they need</div>
+                </div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);"></div>
+                <div>
+                    <div class="legend-label">Data Processing</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Extract and validate shipment information</div>
+                </div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);"></div>
+                <div>
+                    <div class="legend-label">Decision Points</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Choose the next action based on available data</div>
+                </div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);"></div>
+                <div>
+                    <div class="legend-label">Response Generation</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Create email replies to customers</div>
+                </div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);"></div>
+                <div>
+                    <div class="legend-label">Forwarder Operations</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Handle shipping partner communications</div>
+                </div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);"></div>
+                <div>
+                    <div class="legend-label">Notifications</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Alert sales team about important updates</div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="background: var(--bg-card); border-radius: 15px; border: 1px solid var(--border); padding: 25px; margin-bottom: 30px;">
+            <h2 style="font-size: 1.5rem; margin-bottom: 15px; color: var(--text-primary);">📖 How It Works</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; color: var(--text-secondary); line-height: 1.6;">
+                <div>
+                    <strong style="color: var(--accent-cyan);">1. Email Arrives</strong>
+                    <p style="margin-top: 8px; font-size: 0.95rem;">System receives an email from a customer, shipping partner, or sales person.</p>
+                </div>
+                <div>
+                    <strong style="color: var(--accent-blue);">2. Identify & Route</strong>
+                    <p style="margin-top: 8px; font-size: 0.95rem;">AI determines who sent it and routes to the appropriate workflow path.</p>
+                </div>
+                <div>
+                    <strong style="color: var(--accent-green);">3. Process Information</strong>
+                    <p style="margin-top: 8px; font-size: 0.95rem;">Extracts shipment details, validates data, and enriches with port codes.</p>
+                </div>
+                <div>
+                    <strong style="color: var(--accent-orange);">4. Generate Response</strong>
+                    <p style="margin-top: 8px; font-size: 0.95rem;">Creates appropriate reply: ask for missing info, confirm details, or acknowledge receipt.</p>
+                </div>
+                <div>
+                    <strong style="color: var(--accent-purple);">5. Handle Partners</strong>
+                    <p style="margin-top: 8px; font-size: 0.95rem;">If from shipping partner, extracts rates and notifies sales team.</p>
+                </div>
+                <div>
+                    <strong style="color: var(--accent-red);">6. Save & Send</strong>
+                    <p style="margin-top: 8px; font-size: 0.95rem;">Saves conversation history and sends email to customer automatically.</p>
+                </div>
+            </div>
+        </div>
+        
+        <canvas id="workflow-canvas"></canvas>
+        
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-value">20+</div>
+                <div class="stat-label">Specialized Agents</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">3</div>
+                <div class="stat-label">Main Workflows</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">15+</div>
+                <div class="stat-label">Decision Points</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">100%</div>
+                <div class="stat-label">Automated</div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button class="control-btn" onclick="resetView()">Reset View</button>
+            <button class="control-btn" onclick="downloadDiagram()">Download PNG</button>
+            <button class="control-btn" onclick="downloadPDF()">Generate PDF</button>
+            <button class="control-btn" onclick="window.print()">Print/Save PDF</button>
+        </div>
+    </div>
+    
+    <script>
+        const canvas = document.getElementById('workflow-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Set canvas size
+        canvas.width = canvas.offsetWidth * 2;
+        canvas.height = canvas.offsetHeight * 2;
+        ctx.scale(2, 2);
+        
+        // Colors
+        const colors = {
+            classification: '#3b82f6',
+            processing: '#10b981',
+            decision: '#f59e0b',
+            response: '#f97316',
+            forwarder: '#8b5cf6',
+            notification: '#ef4444',
+            connection: '#475569',
+            text: '#f8fafc',
+            textSecondary: '#cbd5e1',
+            textMuted: '#64748b',
+            bg: '#1a2142'
+        };
+        
+        // Node class
+        class Node {
+            constructor(x, y, width, height, label, color, type = 'rect', description = '') {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.label = label;
+                this.color = color;
+                this.type = type;
+                this.description = description;
+            }
+            
+            draw() {
+                ctx.save();
+                
+                // Shadow
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                ctx.shadowBlur = 15;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 4;
+                
+                if (this.type === 'diamond') {
+                    // Diamond shape for decision nodes
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y - this.height / 2);
+                    ctx.lineTo(this.x + this.width / 2, this.y);
+                    ctx.lineTo(this.x, this.y + this.height / 2);
+                    ctx.lineTo(this.x - this.width / 2, this.y);
+                    ctx.closePath();
+                    
+                    const gradient = ctx.createLinearGradient(this.x - this.width / 2, this.y - this.height / 2, 
+                                                              this.x + this.width / 2, this.y + this.height / 2);
+                    gradient.addColorStop(0, this.color);
+                    gradient.addColorStop(1, this.adjustColor(this.color, -20));
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    
+                    ctx.strokeStyle = this.adjustColor(this.color, 20);
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                } else if (this.type === 'circle') {
+                    // Circle for start/end
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.width / 2, 0, Math.PI * 2);
+                    
+                    const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.width / 2);
+                    gradient.addColorStop(0, this.color);
+                    gradient.addColorStop(1, this.adjustColor(this.color, -30));
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    
+                    ctx.strokeStyle = this.adjustColor(this.color, 20);
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                } else {
+                    // Rectangle with rounded corners
+                    const radius = 12;
+                    ctx.beginPath();
+                    ctx.moveTo(this.x - this.width / 2 + radius, this.y - this.height / 2);
+                    ctx.lineTo(this.x + this.width / 2 - radius, this.y - this.height / 2);
+                    ctx.quadraticCurveTo(this.x + this.width / 2, this.y - this.height / 2, 
+                                        this.x + this.width / 2, this.y - this.height / 2 + radius);
+                    ctx.lineTo(this.x + this.width / 2, this.y + this.height / 2 - radius);
+                    ctx.quadraticCurveTo(this.x + this.width / 2, this.y + this.height / 2, 
+                                        this.x + this.width / 2 - radius, this.y + this.height / 2);
+                    ctx.lineTo(this.x - this.width / 2 + radius, this.y + this.height / 2);
+                    ctx.quadraticCurveTo(this.x - this.width / 2, this.y + this.height / 2, 
+                                        this.x - this.width / 2, this.y + this.height / 2 - radius);
+                    ctx.lineTo(this.x - this.width / 2, this.y - this.height / 2 + radius);
+                    ctx.quadraticCurveTo(this.x - this.width / 2, this.y - this.height / 2, 
+                                        this.x - this.width / 2 + radius, this.y - this.height / 2);
+                    ctx.closePath();
+                    
+                    const gradient = ctx.createLinearGradient(this.x - this.width / 2, this.y - this.height / 2, 
+                                                              this.x + this.width / 2, this.y + this.height / 2);
+                    gradient.addColorStop(0, this.color);
+                    gradient.addColorStop(1, this.adjustColor(this.color, -20));
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    
+                    ctx.strokeStyle = this.adjustColor(this.color, 20);
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+                
+                ctx.restore();
+                
+                // Text - Professional styling
+                ctx.fillStyle = colors.text;
+                ctx.font = 'bold 12px Inter';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // Wrap text
+                const words = this.label.split(' ');
+                const lines = [];
+                let currentLine = '';
+                
+                words.forEach(word => {
+                    const testLine = currentLine + (currentLine ? ' ' : '') + word;
+                    const metrics = ctx.measureText(testLine);
+                    if (metrics.width > this.width - 24 && currentLine) {
+                        lines.push(currentLine);
+                        currentLine = word;
+                    } else {
+                        currentLine = testLine;
+                    }
+                });
+                lines.push(currentLine);
+                
+                const lineHeight = 16;
+                const startY = this.y - ((lines.length - 1) * lineHeight) / 2;
+                
+                lines.forEach((line, i) => {
+                    ctx.fillText(line, this.x, startY + i * lineHeight);
+                });
+                
+                // Description - Better positioning and styling
+                if (this.description) {
+                    ctx.font = '9px Inter';
+                    ctx.fillStyle = 'rgba(203, 213, 225, 0.7)';
+                    const descY = this.y + this.height / 2 + 18;
+                    
+                    // Wrap description if too long
+                    const descWords = this.description.split(' ');
+                    let descLine = '';
+                    const maxDescWidth = this.width + 40;
+                    
+                    descWords.forEach(word => {
+                        const testDesc = descLine + (descLine ? ' ' : '') + word;
+                        const metrics = ctx.measureText(testDesc);
+                        if (metrics.width > maxDescWidth && descLine) {
+                            ctx.fillText(descLine, this.x, descY);
+                            descLine = word;
+                        } else {
+                            descLine = testDesc;
+                        }
+                    });
+                    if (descLine) {
+                        ctx.fillText(descLine, this.x, descY);
+                    }
+                }
+            }
+            
+            adjustColor(color, amount) {
+                const num = parseInt(color.replace('#', ''), 16);
+                const r = Math.max(0, Math.min(255, (num >> 16) + amount));
+                const g = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + amount));
+                const b = Math.max(0, Math.min(255, (num & 0x0000FF) + amount));
+                return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+            }
+        }
+        
+        // Helper function to draw arrowhead
+        function drawArrowhead(x, y, angle) {
+            const arrowSize = 10;
+            ctx.fillStyle = colors.connection;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(
+                x - arrowSize * Math.cos(angle - Math.PI / 6),
+                y - arrowSize * Math.sin(angle - Math.PI / 6)
+            );
+            ctx.lineTo(
+                x - arrowSize * Math.cos(angle + Math.PI / 6),
+                y - arrowSize * Math.sin(angle + Math.PI / 6)
+            );
+            ctx.closePath();
+            ctx.fill();
+        }
+        
+        // Arrow drawing with professional styling
+        function drawArrow(fromX, fromY, toX, toY, label = '', curved = false, color = colors.connection) {
+            ctx.save();
+            
+            // Enhanced arrow styling
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.setLineDash([]);
+            
+            // Add subtle glow effect
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 4;
+            
+            ctx.beginPath();
+            
+            if (curved) {
+                const midX = (fromX + toX) / 2;
+                const midY = (fromY + toY) / 2;
+                const offset = 40;
+                const controlX = midX + (toY - fromY > 0 ? offset : -offset);
+                const controlY = midY;
+                
+                ctx.moveTo(fromX, fromY);
+                ctx.quadraticCurveTo(controlX, controlY, toX, toY);
+            } else {
+                ctx.moveTo(fromX, fromY);
+                ctx.lineTo(toX, toY);
+            }
+            
+            ctx.stroke();
+            
+            // Reset shadow
+            ctx.shadowBlur = 0;
+            
+            // Arrowhead - larger and more prominent
+            const angle = Math.atan2(toY - fromY, toX - fromX);
+            const arrowSize = 12;
+            
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(toX, toY);
+            ctx.lineTo(
+                toX - arrowSize * Math.cos(angle - Math.PI / 6),
+                toY - arrowSize * Math.sin(angle - Math.PI / 6)
+            );
+            ctx.lineTo(
+                toX - arrowSize * Math.cos(angle + Math.PI / 6),
+                toY - arrowSize * Math.sin(angle + Math.PI / 6)
+            );
+            ctx.closePath();
+            ctx.fill();
+            
+            // Label with better styling
+            if (label) {
+                const midX = (fromX + toX) / 2;
+                const midY = (fromY + toY) / 2;
+                
+                // Label background with rounded corners
+                const labelWidth = 70;
+                const labelHeight = 24;
+                const labelRadius = 6;
+                
+                ctx.fillStyle = colors.bg;
+                ctx.beginPath();
+                ctx.moveTo(midX - labelWidth/2 + labelRadius, midY - labelHeight/2);
+                ctx.lineTo(midX + labelWidth/2 - labelRadius, midY - labelHeight/2);
+                ctx.quadraticCurveTo(midX + labelWidth/2, midY - labelHeight/2, midX + labelWidth/2, midY - labelHeight/2 + labelRadius);
+                ctx.lineTo(midX + labelWidth/2, midY + labelHeight/2 - labelRadius);
+                ctx.quadraticCurveTo(midX + labelWidth/2, midY + labelHeight/2, midX + labelWidth/2 - labelRadius, midY + labelHeight/2);
+                ctx.lineTo(midX - labelWidth/2 + labelRadius, midY + labelHeight/2);
+                ctx.quadraticCurveTo(midX - labelWidth/2, midY + labelHeight/2, midX - labelWidth/2, midY + labelHeight/2 - labelRadius);
+                ctx.lineTo(midX - labelWidth/2, midY - labelHeight/2 + labelRadius);
+                ctx.quadraticCurveTo(midX - labelWidth/2, midY - labelHeight/2, midX - labelWidth/2 + labelRadius, midY - labelHeight/2);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Label border
+                ctx.strokeStyle = colors.border;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                
+                // Label text
+                ctx.fillStyle = color;
+                ctx.font = 'bold 10px Inter';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(label, midX, midY);
+            }
+            
+            ctx.restore();
+        }
+        
+        // Draw section label
+        function drawSectionLabel(x, y, label) {
+            ctx.save();
+            ctx.fillStyle = colors.textSecondary;
+            ctx.font = 'bold 14px Inter';
+            ctx.textAlign = 'left';
+            ctx.fillText(label, x, y);
+            ctx.restore();
+        }
+        
+        // Draw section description
+        function drawSectionDescription(x, y, description) {
+            ctx.save();
+            ctx.fillStyle = colors.textMuted;
+            ctx.font = '11px Inter';
+            ctx.textAlign = 'left';
+            ctx.fillText(description, x, y);
+            ctx.restore();
+        }
+        
+        // Info boxes with shadow and professional styling
+        function drawInfoBox(x, y, width, title, items) {
+            ctx.save();
+            
+            // Shadow
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 15;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 6;
+            
+            // Box background with gradient
+            const boxHeight = 35 + (items.length * 22);
+            const gradient = ctx.createLinearGradient(x, y, x, y + boxHeight);
+            gradient.addColorStop(0, 'rgba(26, 33, 66, 0.98)');
+            gradient.addColorStop(1, 'rgba(21, 27, 61, 0.98)');
+            ctx.fillStyle = gradient;
+            
+            // Rounded rectangle
+            const radius = 10;
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + boxHeight - radius);
+            ctx.quadraticCurveTo(x + width, y + boxHeight, x + width - radius, y + boxHeight);
+            ctx.lineTo(x + radius, y + boxHeight);
+            ctx.quadraticCurveTo(x, y + boxHeight, x, y + boxHeight - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Reset shadow
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            
+            // Box border with glow
+            ctx.strokeStyle = colors.border;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Title with icon
+            ctx.fillStyle = colors.textSecondary;
+            ctx.font = 'bold 13px Inter';
+            ctx.textAlign = 'left';
+            ctx.fillText('ℹ️ ' + title, x + 12, y + 22);
+            
+            // Items
+            ctx.fillStyle = colors.text;
+            ctx.font = '11px Inter';
+            items.forEach((item, i) => {
+                ctx.fillText('• ' + item, x + 12, y + 48 + (i * 22));
+            });
+            
+            ctx.restore();
+        }
+        
+        // Define all nodes with ultra-clean layout
+        const centerX = 450;
+        const leftColumnX = 170;
+        const rightColumnX = 730;
+        const spacing = 140; // Even more spacing
+        
+        const nodes = {
+            // ===== ENTRY (Centered) =====
+            start: new Node(centerX, 90, 130, 130, 'START\nInbound Email', colors.classification, 'circle'),
+            
+            // ===== CLASSIFICATION (Centered) =====
+            classify: new Node(centerX, 270, 210, 75, 'Classify Email', colors.classification, 'rect', 'Identify type & sender'),
+            routeClassify: new Node(centerX, 430, 170, 110, 'Route by Type', colors.decision, 'diamond'),
+            
+            // ===== CUSTOMER PATH (Left) =====
+            conversationState: new Node(leftColumnX, 650, 210, 75, 'Conversation State', colors.classification, 'rect', 'Track history'),
+            analyzeThread: new Node(leftColumnX, 790, 210, 75, 'Analyze Thread', colors.classification, 'rect', 'Review emails'),
+            extractInfo: new Node(leftColumnX, 930, 210, 75, 'Extract Information', colors.processing, 'rect', 'Get shipment data'),
+            updateCumulative: new Node(leftColumnX, 1070, 210, 75, 'Update Cumulative', colors.processing, 'rect', 'Merge data'),
+            validateData: new Node(leftColumnX, 1210, 210, 75, 'Validate Data', colors.processing, 'rect', 'Check fields'),
+            lookupPorts: new Node(leftColumnX, 1350, 210, 75, 'Lookup Ports', colors.processing, 'rect', 'Find codes'),
+            standardizeContainer: new Node(leftColumnX, 1490, 210, 75, 'Standardize Container', colors.processing, 'rect', 'Format types'),
+            recommendRates: new Node(leftColumnX, 1630, 210, 75, 'Recommend Rates', colors.processing, 'rect', 'Suggest pricing'),
+            nextAction: new Node(leftColumnX, 1770, 210, 75, 'Next Action', colors.decision, 'rect', 'Decide response'),
+            assignSales: new Node(leftColumnX, 1910, 210, 75, 'Assign Sales', colors.processing, 'rect', 'Pick rep'),
+            
+            // ===== RESPONSE ROUTING =====
+            routeResponse: new Node(leftColumnX, 2090, 170, 110, 'Route Action', colors.decision, 'diamond'),
+            
+            // ===== RESPONSES (Bottom Row) =====
+            clarification: new Node(90, 2320, 170, 75, 'Clarification', colors.response, 'rect', 'Ask missing info'),
+            confirmation: new Node(280, 2320, 170, 75, 'Confirmation', colors.response, 'rect', 'Confirm details'),
+            confirmAck: new Node(470, 2320, 170, 75, 'Acknowledgment', colors.response, 'rect', 'Acknowledge'),
+            assignForwarders: new Node(470, 2480, 190, 75, 'Assign Forwarders', colors.forwarder, 'rect', 'Select partners'),
+            
+            // ===== FORWARDER PATH (Right) =====
+            acknowledgment: new Node(rightColumnX, 650, 190, 75, 'Acknowledgment', colors.response, 'rect', 'Send receipt'),
+            routeAck: new Node(rightColumnX, 830, 170, 110, 'Is Forwarder?', colors.decision, 'diamond'),
+            detectForwarder: new Node(rightColumnX, 1040, 190, 75, 'Detect Forwarder', colors.forwarder, 'rect', 'Identify partner'),
+            processForwarder: new Node(rightColumnX, 1210, 190, 75, 'Process Response', colors.forwarder, 'rect', 'Extract rates'),
+            notifySales: new Node(rightColumnX, 1380, 190, 75, 'Notify Sales', colors.notification, 'rect', 'Alert team'),
+            routeSalesNotif: new Node(rightColumnX, 1560, 170, 110, 'Has Rates?', colors.decision, 'diamond'),
+            customerQuote: new Node(rightColumnX, 1770, 190, 75, 'Customer Quote', colors.response, 'rect', 'Create quote'),
+            
+            // ===== FINALIZATION (Centered) =====
+            updateThread: new Node(centerX, 2850, 210, 75, 'Update Thread', colors.processing, 'rect', 'Save conversation'),
+            end: new Node(centerX, 3040, 130, 130, 'END\nEmail Sent', colors.notification, 'circle')
+        };
+        
+        // Draw everything
+        function drawWorkflow() {
+            // Clear canvas with gradient background
+            const bgGradient = ctx.createLinearGradient(0, 0, 0, canvas.height / 2);
+            bgGradient.addColorStop(0, '#1a2142');
+            bgGradient.addColorStop(1, '#151b3d');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw subtle grid pattern for professional look
+            ctx.strokeStyle = 'rgba(51, 65, 85, 0.3)';
+            ctx.lineWidth = 0.5;
+            const gridSize = 50;
+            
+            // Vertical lines
+            for (let x = 0; x < canvas.width / 2; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height / 2);
+                ctx.stroke();
+            }
+            
+            // Horizontal lines
+            for (let y = 0; y < canvas.height / 2; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width / 2, y);
+                ctx.stroke();
+            }
+            
+            // Section labels - minimal and clean
+            function drawSectionHeader(x, y, icon, title, description) {
+                // Background box for better visibility
+                ctx.save();
+                ctx.fillStyle = 'rgba(26, 33, 66, 0.7)';
+                const headerWidth = 280;
+                const headerHeight = 45;
+                ctx.fillRect(x - 5, y - 18, headerWidth, headerHeight);
+                
+                // Border
+                ctx.strokeStyle = colors.border;
+                ctx.lineWidth = 1;
+                ctx.strokeRect(x - 5, y - 18, headerWidth, headerHeight);
+                
+                // Section title
+                ctx.fillStyle = colors.textSecondary;
+                ctx.font = 'bold 14px Inter';
+                ctx.textAlign = 'left';
+                ctx.fillText(icon + ' ' + title, x, y);
+                
+                // Section description
+                ctx.fillStyle = colors.textMuted;
+                ctx.font = '10px Inter';
+                ctx.fillText(description, x, y + 16);
+                
+                ctx.restore();
+            }
+            
+            // Section headers - positioned to avoid overlap
+            drawSectionHeader(centerX - 160, 210, '📋', 'CLASSIFICATION', 
+                'Identify email type and sender');
+            
+            drawSectionHeader(30, 570, '🔍', 'CUSTOMER PROCESSING', 
+                'Extract and validate shipment details');
+            
+            drawSectionHeader(30, 2240, '📧', 'RESPONSES', 
+                'Generate appropriate email replies');
+            
+            drawSectionHeader(620, 570, '🔄', 'FORWARDER PATH', 
+                'Handle shipping partner quotes');
+            
+            drawSectionHeader(centerX - 110, 2780, '💾', 'FINALIZATION', 
+                'Save and send email');
+            
+            // ===== ENTRY & CLASSIFICATION =====
+            drawArrow(nodes.start.x, nodes.start.y + 65, nodes.classify.x, nodes.classify.y - 38);
+            drawArrow(nodes.classify.x, nodes.classify.y + 38, nodes.routeClassify.x, nodes.routeClassify.y - 55);
+            
+            // ===== CUSTOMER PATH (Left) - Straight down =====
+            drawArrow(nodes.routeClassify.x - 85, nodes.routeClassify.y + 50, nodes.conversationState.x + 65, nodes.conversationState.y - 38, 'Customer');
+            drawArrow(nodes.conversationState.x, nodes.conversationState.y + 38, nodes.analyzeThread.x, nodes.analyzeThread.y - 38);
+            drawArrow(nodes.analyzeThread.x, nodes.analyzeThread.y + 38, nodes.extractInfo.x, nodes.extractInfo.y - 38);
+            drawArrow(nodes.extractInfo.x, nodes.extractInfo.y + 38, nodes.updateCumulative.x, nodes.updateCumulative.y - 38);
+            drawArrow(nodes.updateCumulative.x, nodes.updateCumulative.y + 38, nodes.validateData.x, nodes.validateData.y - 38);
+            drawArrow(nodes.validateData.x, nodes.validateData.y + 38, nodes.lookupPorts.x, nodes.lookupPorts.y - 38);
+            drawArrow(nodes.lookupPorts.x, nodes.lookupPorts.y + 38, nodes.standardizeContainer.x, nodes.standardizeContainer.y - 38);
+            drawArrow(nodes.standardizeContainer.x, nodes.standardizeContainer.y + 38, nodes.recommendRates.x, nodes.recommendRates.y - 38);
+            drawArrow(nodes.recommendRates.x, nodes.recommendRates.y + 38, nodes.nextAction.x, nodes.nextAction.y - 38);
+            drawArrow(nodes.nextAction.x, nodes.nextAction.y + 38, nodes.assignSales.x, nodes.assignSales.y - 38);
+            drawArrow(nodes.assignSales.x, nodes.assignSales.y + 38, nodes.routeResponse.x, nodes.routeResponse.y - 55);
+            
+            // ===== RESPONSE ROUTING - Three paths =====
+            drawArrow(nodes.routeResponse.x - 65, nodes.routeResponse.y + 50, nodes.clarification.x + 45, nodes.clarification.y - 38, 'Missing');
+            drawArrow(nodes.routeResponse.x + 15, nodes.routeResponse.y + 55, nodes.confirmation.x - 35, nodes.confirmation.y - 38, 'Complete');
+            drawArrow(nodes.routeResponse.x + 75, nodes.routeResponse.y + 50, nodes.confirmAck.x - 55, nodes.confirmAck.y - 38, 'Confirmed');
+            
+            // ===== FORWARDER ASSIGNMENT =====
+            drawArrow(nodes.confirmAck.x, nodes.confirmAck.y + 38, nodes.assignForwarders.x, nodes.assignForwarders.y - 38);
+            
+            // ===== FORWARDER PATH (Right) - Straight down =====
+            drawArrow(nodes.routeClassify.x + 85, nodes.routeClassify.y + 50, nodes.acknowledgment.x - 65, nodes.acknowledgment.y - 38, 'Forwarder');
+            drawArrow(nodes.acknowledgment.x, nodes.acknowledgment.y + 38, nodes.routeAck.x, nodes.routeAck.y - 55);
+            drawArrow(nodes.routeAck.x, nodes.routeAck.y + 55, nodes.detectForwarder.x, nodes.detectForwarder.y - 38, 'Yes');
+            drawArrow(nodes.detectForwarder.x, nodes.detectForwarder.y + 38, nodes.processForwarder.x, nodes.processForwarder.y - 38);
+            drawArrow(nodes.processForwarder.x, nodes.processForwarder.y + 38, nodes.notifySales.x, nodes.notifySales.y - 38);
+            drawArrow(nodes.notifySales.x, nodes.notifySales.y + 38, nodes.routeSalesNotif.x, nodes.routeSalesNotif.y - 55);
+            drawArrow(nodes.routeSalesNotif.x, nodes.routeSalesNotif.y + 55, nodes.customerQuote.x, nodes.customerQuote.y - 38, 'Yes');
+            
+            // ===== CONVERGENCE TO THREAD UPDATE - Simple clean curves =====
+            // Path 1: Clarification → Thread (far left)
+            ctx.save();
+            ctx.strokeStyle = colors.connection;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(nodes.clarification.x, nodes.clarification.y + 38);
+            ctx.bezierCurveTo(
+                nodes.clarification.x, nodes.clarification.y + 200,
+                nodes.updateThread.x - 180, nodes.updateThread.y - 200,
+                nodes.updateThread.x - 105, nodes.updateThread.y - 38
+            );
+            ctx.stroke();
+            drawArrowhead(nodes.updateThread.x - 105, nodes.updateThread.y - 38, 0);
+            ctx.restore();
+            
+            // Path 2: Confirmation → Thread (left)
+            ctx.save();
+            ctx.strokeStyle = colors.connection;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(nodes.confirmation.x, nodes.confirmation.y + 38);
+            ctx.bezierCurveTo(
+                nodes.confirmation.x, nodes.confirmation.y + 180,
+                nodes.updateThread.x - 60, nodes.updateThread.y - 180,
+                nodes.updateThread.x - 60, nodes.updateThread.y - 38
+            );
+            ctx.stroke();
+            drawArrowhead(nodes.updateThread.x - 60, nodes.updateThread.y - 38, Math.PI / 2);
+            ctx.restore();
+            
+            // Path 3: Forwarder Assignment → Thread (right)
+            ctx.save();
+            ctx.strokeStyle = colors.connection;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(nodes.assignForwarders.x, nodes.assignForwarders.y + 38);
+            ctx.bezierCurveTo(
+                nodes.assignForwarders.x, nodes.assignForwarders.y + 110,
+                nodes.updateThread.x + 60, nodes.updateThread.y - 110,
+                nodes.updateThread.x + 60, nodes.updateThread.y - 38
+            );
+            ctx.stroke();
+            drawArrowhead(nodes.updateThread.x + 60, nodes.updateThread.y - 38, Math.PI / 2);
+            ctx.restore();
+            
+            // Path 4: Customer Quote → Thread (far right)
+            ctx.save();
+            ctx.strokeStyle = colors.connection;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(nodes.customerQuote.x, nodes.customerQuote.y + 38);
+            ctx.bezierCurveTo(
+                nodes.customerQuote.x, nodes.customerQuote.y + 400,
+                nodes.updateThread.x + 180, nodes.updateThread.y - 400,
+                nodes.updateThread.x + 105, nodes.updateThread.y - 38
+            );
+            ctx.stroke();
+            drawArrowhead(nodes.updateThread.x + 105, nodes.updateThread.y - 38, 0);
+            ctx.restore();
+            
+            // ===== "NO" PATHS (Dashed, lighter) =====
+            // No forwarder → Thread
+            ctx.save();
+            ctx.strokeStyle = 'rgba(100, 116, 139, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 8]);
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(nodes.routeAck.x - 75, nodes.routeAck.y + 45);
+            ctx.bezierCurveTo(
+                nodes.routeAck.x - 160, nodes.routeAck.y + 500,
+                nodes.updateThread.x + 230, nodes.updateThread.y - 500,
+                nodes.updateThread.x + 105, nodes.updateThread.y
+            );
+            ctx.stroke();
+            drawArrowhead(nodes.updateThread.x + 105, nodes.updateThread.y, 0);
+            // Label
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(26, 33, 66, 0.95)';
+            ctx.fillRect(nodes.routeAck.x - 105, nodes.routeAck.y + 65, 50, 26);
+            ctx.strokeStyle = 'rgba(100, 116, 139, 0.5)';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(nodes.routeAck.x - 105, nodes.routeAck.y + 65, 50, 26);
+            ctx.fillStyle = 'rgba(203, 213, 225, 0.8)';
+            ctx.font = 'bold 11px Inter';
+            ctx.textAlign = 'center';
+            ctx.fillText('No', nodes.routeAck.x - 80, nodes.routeAck.y + 80);
+            ctx.restore();
+            
+            // No rates → Thread
+            ctx.save();
+            ctx.strokeStyle = 'rgba(100, 116, 139, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([10, 8]);
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(nodes.routeSalesNotif.x - 75, nodes.routeSalesNotif.y + 45);
+            ctx.bezierCurveTo(
+                nodes.routeSalesNotif.x - 190, nodes.routeSalesNotif.y + 600,
+                nodes.updateThread.x + 260, nodes.updateThread.y - 600,
+                nodes.updateThread.x + 105, nodes.updateThread.y + 20
+            );
+            ctx.stroke();
+            drawArrowhead(nodes.updateThread.x + 105, nodes.updateThread.y + 20, 0);
+            // Label
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(26, 33, 66, 0.95)';
+            ctx.fillRect(nodes.routeSalesNotif.x - 105, nodes.routeSalesNotif.y + 65, 50, 26);
+            ctx.strokeStyle = 'rgba(100, 116, 139, 0.5)';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(nodes.routeSalesNotif.x - 105, nodes.routeSalesNotif.y + 65, 50, 26);
+            ctx.fillStyle = 'rgba(203, 213, 225, 0.8)';
+            ctx.font = 'bold 11px Inter';
+            ctx.textAlign = 'center';
+            ctx.fillText('No', nodes.routeSalesNotif.x - 80, nodes.routeSalesNotif.y + 80);
+            ctx.restore();
+            
+            // ===== FINAL FLOW =====
+            drawArrow(nodes.updateThread.x, nodes.updateThread.y + 38, nodes.end.x, nodes.end.y - 65);
+            
+            // Draw all nodes first
+            Object.values(nodes).forEach(node => node.draw());
+            
+            // Draw info boxes BELOW the flows to avoid overlap
+            // Customer info (left side, well below the response boxes)
+            drawInfoBox(30, 2600, 370, 'Customer Path Details', [
+                'FCL: Port, container type, date required',
+                'LCL: Port, weight, volume, date required',
+                'All data preserved across conversation'
+            ]);
+            
+            // Forwarder info (right side, well below the quote generation)
+            drawInfoBox(560, 2000, 370, 'Forwarder Path Details', [
+                'Identifies shipping partner emails',
+                'Extracts rate quotes automatically',
+                'Notifies sales team with details',
+                'Generates customer quote if rates available'
+            ]);
+            
+            // Info boxes with shadow and professional styling - defined as function
+            ctx.save();
+            ctx.restore();
+        }
+        
+        // Initial draw
+        drawWorkflow();
+        
+        // Reset view
+        function resetView() {
+            drawWorkflow();
+        }
+        
+        // Download as PNG
+        function downloadDiagram() {
+            const link = document.createElement('a');
+            link.download = 'searates-workflow-diagram.png';
+            link.href = canvas.toDataURL('image/png', 1.0);
+            link.click();
+        }
+        
+        // Download as PDF using jsPDF
+        function downloadPDF() {
+            // Show loading message
+            const originalText = event.target.textContent;
+            event.target.textContent = 'Generating PDF...';
+            event.target.disabled = true;
+            
+            // Use a timeout to allow UI to update
+            setTimeout(() => {
+                try {
+                    // Get canvas as image
+                    const imgData = canvas.toDataURL('image/png', 1.0);
+                    
+                    // Calculate dimensions for PDF (A4 landscape or custom size)
+                    const canvasWidth = canvas.width / 2; // Actual display width
+                    const canvasHeight = canvas.height / 2; // Actual display height
+                    
+                    // Create PDF with custom dimensions to fit the diagram
+                    // Using mm units, A4 is 210x297mm
+                    // We'll use a larger custom size to accommodate the tall diagram
+                    const pdfWidth = 297; // A4 landscape width in mm
+                    const pdfHeight = (canvasHeight / canvasWidth) * pdfWidth; // Maintain aspect ratio
+                    
+                    // Create a temporary script element to load jsPDF
+                    const script = document.createElement('script');
+                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+                    script.onload = function() {
+                        const { jsPDF } = window.jspdf;
+                        const pdf = new jsPDF({
+                            orientation: pdfHeight > pdfWidth ? 'portrait' : 'landscape',
+                            unit: 'mm',
+                            format: [pdfWidth, pdfHeight]
+                        });
+                        
+                        // Add image to PDF
+                        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, '', 'FAST');
+                        
+                        // Save PDF
+                        pdf.save('searates-workflow-diagram.pdf');
+                        
+                        // Reset button
+                        event.target.textContent = originalText;
+                        event.target.disabled = false;
+                    };
+                    script.onerror = function() {
+                        alert('Failed to load PDF library. Please check your internet connection.');
+                        event.target.textContent = originalText;
+                        event.target.disabled = false;
+                    };
+                    document.head.appendChild(script);
+                } catch (error) {
+                    console.error('Error generating PDF:', error);
+                    alert('Error generating PDF: ' + error.message);
+                    event.target.textContent = originalText;
+                    event.target.disabled = false;
+                }
+            }, 100);
+        }
+        
+        // Pan functionality
+        let isPanning = false;
+        let startX, startY;
+        let translateX = 0;
+        let translateY = 0;
+        
+        canvas.addEventListener('mousedown', (e) => {
+            isPanning = true;
+            startX = e.clientX - translateX;
+            startY = e.clientY - translateY;
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isPanning) return;
+            translateX = e.clientX - startX;
+            translateY = e.clientY - startY;
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isPanning = false;
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            isPanning = false;
+        });
+        
+        // Responsive resize
+        window.addEventListener('resize', () => {
+            canvas.width = canvas.offsetWidth * 2;
+            canvas.height = canvas.offsetHeight * 2;
+            ctx.scale(2, 2);
+            drawWorkflow();
+        });
+    </script>
+</body>
+</html>
