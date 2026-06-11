@@ -8,6 +8,7 @@ Manages forwarder assignment based on country matching and route optimization.
 
 import json
 import os
+import random
 from typing import Dict, List, Optional, Tuple
 import logging
 
@@ -60,41 +61,88 @@ class ForwarderManager:
         country = country.strip()
         return self.forwarders_by_country.get(country, [])
     
-    def assign_forwarder_for_route(self, origin_country: str, destination_country: str) -> Optional[Dict]:
+    def assign_forwarder_with_reason(self, origin_country: str, destination_country: str) -> Tuple[Optional[Dict], Dict]:
         """
-        Assign forwarder based on origin and destination countries
-        Priority: Destination country > Origin country > Any available
+        Assign a forwarder and explain WHY it was chosen.
+
+        Strategy (matches the business rule "fulfilment region, else randomness"):
+          Priority 1 — a forwarder serving the DESTINATION fulfilment region.
+          Priority 2 — a forwarder serving the ORIGIN fulfilment region.
+          Priority 3 — a RANDOM forwarder from the pool (no regional match available).
+        When a region has more than one forwarder we pick randomly among them, so load
+        is spread rather than always hitting the first entry.
+
+        Returns (forwarder_or_None, reason_dict) where reason_dict carries a machine
+        field (`matched_on`) and a human-readable `description` for display.
         """
-        origin_country = origin_country.strip()
-        destination_country = destination_country.strip()
-        
-        logger.info(f"Assigning forwarder for route: {origin_country} → {destination_country}")
-        
-        # Priority 1: Forwarders in destination country
-        destination_forwarders = self.get_forwarders_by_country(destination_country)
+        origin_country = (origin_country or "").strip()
+        destination_country = (destination_country or "").strip()
+
+        logger.info(f"Assigning forwarder for route: {origin_country or '?'} → {destination_country or '?'}")
+
+        # Priority 1: Forwarders serving the destination region
+        destination_forwarders = self.get_forwarders_by_country(destination_country) if destination_country else []
         if destination_forwarders:
-            selected = destination_forwarders[0]  # Take first available
-            logger.info(f"Assigned forwarder from destination country: {selected['name']}")
-            return selected
-        
-        # Priority 2: Forwarders in origin country
-        origin_forwarders = self.get_forwarders_by_country(origin_country)
+            selected = random.choice(destination_forwarders)
+            reason = {
+                "matched_on": "destination_region",
+                "matched_country": destination_country,
+                "priority": 1,
+                "description": (
+                    f"Assigned because {selected['name']} serves the destination region "
+                    f"({destination_country})."
+                ),
+            }
+            logger.info(f"Assigned forwarder from destination region {destination_country}: {selected['name']}")
+            return selected, reason
+
+        # Priority 2: Forwarders serving the origin region
+        origin_forwarders = self.get_forwarders_by_country(origin_country) if origin_country else []
         if origin_forwarders:
-            selected = origin_forwarders[0]  # Take first available
-            logger.info(f"Assigned forwarder from origin country: {selected['name']}")
-            return selected
-        
-        # Priority 3: Any available forwarder (fallback)
-        if self.forwarders_by_country:
-            # Get first available forwarder from any country
-            for country, forwarders in self.forwarders_by_country.items():
-                if forwarders:
-                    selected = forwarders[0]
-                    logger.info(f"Assigned fallback forwarder: {selected['name']} from {country}")
-                    return selected
-        
+            selected = random.choice(origin_forwarders)
+            reason = {
+                "matched_on": "origin_region",
+                "matched_country": origin_country,
+                "priority": 2,
+                "description": (
+                    f"Assigned because {selected['name']} serves the origin region "
+                    f"({origin_country}); no forwarder was available for the destination "
+                    f"region ({destination_country or 'unknown'})."
+                ),
+            }
+            logger.info(f"Assigned forwarder from origin region {origin_country}: {selected['name']}")
+            return selected, reason
+
+        # Priority 3: Random forwarder from the whole pool (no regional match)
+        all_forwarders = [f for forwarders in self.forwarders_by_country.values() for f in forwarders]
+        if all_forwarders:
+            selected = random.choice(all_forwarders)
+            reason = {
+                "matched_on": "random",
+                "matched_country": selected.get("country", ""),
+                "priority": 3,
+                "description": (
+                    f"No forwarder serves the requested route "
+                    f"({origin_country or 'unknown'} → {destination_country or 'unknown'}); "
+                    f"randomly assigned {selected['name']} ({selected.get('country', 'unknown')})."
+                ),
+            }
+            logger.info(f"Randomly assigned fallback forwarder: {selected['name']} from {selected.get('country')}")
+            return selected, reason
+
         logger.warning(f"No forwarder available for route: {origin_country} → {destination_country}")
-        return None
+        return None, {
+            "matched_on": "none",
+            "matched_country": "",
+            "priority": 0,
+            "description": "No forwarders are configured; none could be assigned.",
+        }
+
+    def assign_forwarder_for_route(self, origin_country: str, destination_country: str) -> Optional[Dict]:
+        """Backward-compatible wrapper that returns only the forwarder (see
+        `assign_forwarder_with_reason` for the reasoning)."""
+        forwarder, _reason = self.assign_forwarder_with_reason(origin_country, destination_country)
+        return forwarder
     
     def get_forwarder_by_email(self, email: str) -> Optional[Dict]:
         """Get forwarder information by email address"""

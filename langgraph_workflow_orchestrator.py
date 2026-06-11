@@ -1593,7 +1593,9 @@ class LangGraphWorkflowOrchestrator:
         try:
             # Get data safely
             email_data = state.get("email_data", {})
-            forwarder_info = state.get("forwarder_detection_result", {})
+            # `or {}`: the key is initialised to None in state; the acknowledgment->process
+            # path reaches here without detect_forwarder having populated it.
+            forwarder_info = state.get("forwarder_detection_result") or {}
             extraction_result = state.get("extraction_result", {})
             extracted_data = extraction_result.get("extracted_data", {}) if extraction_result else {}
             
@@ -1606,7 +1608,8 @@ class LangGraphWorkflowOrchestrator:
                 
             result = self.forwarder_response_agent.process({
                 "email_data": email_data,
-                "forwarder_info": forwarder_info,
+                # Agent reads input_data["forwarder_detection"]["forwarder_details"]
+                "forwarder_detection": forwarder_info,
                 "extracted_data": extracted_data
             })
             
@@ -1642,6 +1645,59 @@ class LangGraphWorkflowOrchestrator:
         
         return state
     
+    # ISO 3166-1 alpha-2 -> country name as used in config/forwarders.json. Port codes
+    # are UN/LOCODE-style (e.g. CNSHG, NLRTM) whose first two letters are the country code,
+    # so we can recover the fulfilment region even when the LLM leaves *_country blank.
+    _PORT_PREFIX_TO_COUNTRY = {
+        "CN": "China", "US": "United States", "NL": "Netherlands",
+        "AE": "United Arab Emirates", "IN": "India", "DE": "Germany",
+        "GB": "United Kingdom", "SG": "Singapore", "HK": "Hong Kong",
+        "JP": "Japan", "KR": "South Korea", "FR": "France", "IT": "Italy",
+        "ES": "Spain", "BE": "Belgium", "SA": "Saudi Arabia", "BR": "Brazil",
+        "AU": "Australia", "CA": "Canada", "ZA": "South Africa", "TR": "Turkey",
+    }
+
+    @staticmethod
+    def _is_valid_country(value: str) -> bool:
+        """A country string is usable only if it's non-empty and not a placeholder."""
+        return bool(value) and value.strip().lower() not in ("", "unknown", "n/a", "none")
+
+    def _country_from_port_code(self, port_code: str) -> str:
+        """Recover the country name from a UN/LOCODE-style port code prefix (CNSHG -> China)."""
+        if port_code and len(port_code) >= 2 and port_code[:2].isalpha():
+            return self._PORT_PREFIX_TO_COUNTRY.get(port_code[:2].upper(), "")
+        return ""
+
+    def _resolve_route_countries(self, shipment_details: dict, port_lookup_result: dict) -> tuple:
+        """Best-effort origin/destination fulfilment region resolution.
+
+        Order: explicit *_country fields -> port-lookup country -> port-code prefix.
+        Placeholder values like "Unknown" are rejected at every step (previously an
+        "Unknown" from port lookup was treated as valid and produced "Unknown -> Unknown").
+        """
+        origin = (shipment_details.get("origin_country") or "").strip()
+        destination = (shipment_details.get("destination_country") or "").strip()
+        port_lookup = port_lookup_result if isinstance(port_lookup_result, dict) else {}
+
+        for side, current in (("origin", origin), ("destination", destination)):
+            if self._is_valid_country(current):
+                continue
+            resolved = ""
+            side_lookup = port_lookup.get(side)
+            if isinstance(side_lookup, dict):
+                cand = (side_lookup.get("country") or "").strip()
+                if self._is_valid_country(cand):
+                    resolved = cand
+                if not resolved:
+                    resolved = self._country_from_port_code(side_lookup.get("port_code", ""))
+            if side == "origin":
+                origin = resolved
+            else:
+                destination = resolved
+
+        return (origin if self._is_valid_country(origin) else "",
+                destination if self._is_valid_country(destination) else "")
+
     async def _assign_forwarders(self, state: WorkflowState) -> WorkflowState:
         """Assign forwarders and generate rate requests"""
         logger.info("🔄 Assigning forwarders...")
@@ -1668,37 +1724,19 @@ class LangGraphWorkflowOrchestrator:
                 "rate_recommendation": state.get("rate_recommendation_result", {})
             }
             
-            # Extract origin and destination countries - prioritize extracted country fields
-            origin_country = ""
-            destination_country = ""
-            origin_country = shipment_details.get("origin_country", "").strip()
-            destination_country = shipment_details.get("destination_country", "").strip()
-            
-            # Fallback: Extract from port lookup if country fields are not set
-            if not origin_country or not destination_country:
-                if state.get("port_lookup_result"):
-                    port_lookup = state["port_lookup_result"]
-                    if port_lookup and isinstance(port_lookup, dict):
-                        if not origin_country and port_lookup.get("origin") and isinstance(port_lookup["origin"], dict):
-                            origin_country = port_lookup["origin"].get("country", "")
-                        if not destination_country and port_lookup.get("destination") and isinstance(port_lookup["destination"], dict):
-                            destination_country = port_lookup["destination"].get("country", "")
-            
-            # If still no countries, try to extract from origin/destination fields (as last resort)
-            if not origin_country:
-                origin_country = shipment_details.get("origin", "").strip()
-            if not destination_country:
-                destination_country = shipment_details.get("destination", "").strip()
-            
-            # If still no countries, use default values for testing
-            if not origin_country:
-                origin_country = "China"  # Default origin
-            if not destination_country:
-                destination_country = "USA"  # Default destination
-            
-            # Use forwarder manager to assign forwarders
-            assigned_forwarder = self.forwarder_manager.assign_forwarder_for_route(origin_country, destination_country)
-            
+            # Resolve the origin/destination fulfilment regions (rejects "Unknown"
+            # placeholders and recovers the country from the port-code prefix).
+            origin_country, destination_country = self._resolve_route_countries(
+                shipment_details, state.get("port_lookup_result", {})
+            )
+
+            # Assign by fulfilment region, falling back to a random forwarder, and capture
+            # the reason so the UI can explain WHY this forwarder was chosen.
+            assigned_forwarder, assignment_reason = self.forwarder_manager.assign_forwarder_with_reason(
+                origin_country, destination_country
+            )
+            logger.info(f"🧭 Forwarder assignment reason: {assignment_reason.get('description')}")
+
             if assigned_forwarder:
                 # Get sales manager ID from assigned sales person
                 sales_manager_id = state.get("assigned_sales_person", {}).get("id", "")
@@ -1753,7 +1791,9 @@ class LangGraphWorkflowOrchestrator:
                     "destination_country": destination_country,
                     "rate_request": rate_request_email,  # Use the extracted email
                     "rate_request_full": rate_request_result,  # Keep the full result
-                    "assignment_method": "country_based",
+                    "assignment_method": assignment_reason.get("matched_on", "country_based"),
+                    "assignment_reason": assignment_reason.get("description", ""),
+                    "assignment_reason_detail": assignment_reason,
                     "status": "success"
                 }
                 
@@ -1765,8 +1805,9 @@ class LangGraphWorkflowOrchestrator:
                 print(f"📧 Forwarder Email: {assigned_forwarder.get('email', 'Unknown')}")
                 print(f"🏢 Company: {assigned_forwarder.get('company', 'Unknown')}")
                 print(f"🌍 Countries: {assigned_forwarder.get('countries', 'Unknown')}")
-                print(f"📊 Route: {origin_country} → {destination_country}")
-                print(f"🎯 Assignment Method: Country-based matching")
+                print(f"📊 Route: {origin_country or 'Unknown'} → {destination_country or 'Unknown'}")
+                print(f"🎯 Assignment Method: {assignment_reason.get('matched_on', 'country_based')}")
+                print(f"💡 Reason: {assignment_reason.get('description', 'N/A')}")
                 
                 # Show sales manager information
                 if state.get("assigned_sales_person"):
@@ -1793,7 +1834,9 @@ class LangGraphWorkflowOrchestrator:
                     "origin_country": origin_country,
                     "destination_country": destination_country,
                     "rate_request": None,
-                    "assignment_method": "country_based",
+                    "assignment_method": assignment_reason.get("matched_on", "country_based"),
+                    "assignment_reason": assignment_reason.get("description", ""),
+                    "assignment_reason_detail": assignment_reason,
                     "status": "no_forwarder_available",
                     "error": "No forwarder available for the specified route"
                 }
@@ -2100,11 +2143,11 @@ Body:
     
     def _route_after_sales_notification(self, state: WorkflowState) -> str:
         """Route after sales notification - generate customer quote if forwarder rates available"""
-        forwarder_response_result = state.get("forwarder_response_result", {})
-        if forwarder_response_result and not forwarder_response_result.get('error'):
-            rate_info = forwarder_response_result.get('rate_info', {})
-            if rate_info:
-                return "generate_customer_quote"
+        # BUSINESS RULE: the system never emails the customer directly. When a forwarder
+        # rate arrives, the collated email (sales notification) goes to the SALES PERSON so
+        # they can add their markup and contact the customer themselves. So we always end at
+        # update_thread here and do NOT generate a customer-facing quote. The forwarder rate
+        # is carried inside the collated sales notification (see SalesNotificationAgent).
         return "update_thread"
     
     async def _generate_customer_quote(self, state: WorkflowState) -> WorkflowState:
@@ -2112,24 +2155,47 @@ Body:
         logger.info("🔄 Generating customer quote email...")
         
         try:
-            # Get customer details
-            email_data = state.get("email_data", {})
-            customer_name = email_data.get("sender_name", "Valued Customer")
-            customer_email = email_data.get("sender", email_data.get("from_email", ""))
-            
-            # Get shipment details
-            cumulative_extraction = state.get("cumulative_extraction", {})
+            email_data = state.get("email_data") or {}
+
+            # Get shipment + customer details. NOTE: on the forwarder-email path several
+            # upstream nodes (lookup_ports, assign_sales_person) never run, so their state
+            # keys exist but hold None — `state.get(k, {})` returns that None, not the
+            # default. `or {}` collapses None to an empty dict so the .get chains are safe.
+            # Reload the cumulative extraction from the thread so we have the CUSTOMER's
+            # identity (the current email is FROM the forwarder, not the customer).
+            cumulative_extraction = state.get("cumulative_extraction") or {}
+            thread_id = state.get("thread_id", "")
+            if thread_id:
+                latest = self.thread_manager.get_cumulative_extraction(thread_id)
+                if latest and isinstance(latest, dict):
+                    cumulative_extraction = latest
             shipment_details = cumulative_extraction.get("shipment_details", {}) if cumulative_extraction else {}
-            
+
+            # Customer identity comes from the thread's contact information, NOT the
+            # forwarder email that triggered this quote.
+            contact_info = cumulative_extraction.get("contact_information", {}) if cumulative_extraction else {}
+            customer_name = (contact_info.get("name") or "").strip() or "Valued Customer"
+            customer_email = (contact_info.get("email") or "").strip()
+            if not customer_email:
+                # Last resort: only use the inbound sender if it isn't the forwarder's address.
+                fwd_email = ((state.get("forwarder_response_result") or {}).get("forwarder_email") or "").strip().lower()
+                inbound = (email_data.get("sender") or email_data.get("from_email") or "").strip()
+                customer_email = inbound if inbound.lower() != fwd_email else ""
+
             # Get forwarder rates
-            forwarder_response_result = state.get("forwarder_response_result", {})
-            rate_info = forwarder_response_result.get('rate_info', {}) if forwarder_response_result else {}
-            
+            forwarder_response_result = state.get("forwarder_response_result") or {}
+            # Agent returns the rate under 'extracted_rate_info'; keep 'rate_info' as a fallback.
+            rate_info = (
+                (forwarder_response_result.get('extracted_rate_info')
+                 or forwarder_response_result.get('rate_info', {}))
+                if forwarder_response_result else {}
+            ) or {}
+
             # Get port lookup result for formatting
-            port_lookup_result = state.get("port_lookup_result", {})
-            
+            port_lookup_result = state.get("port_lookup_result") or {}
+
             # Get assigned sales person
-            assigned_sales_person = state.get("assigned_sales_person", {})
+            assigned_sales_person = state.get("assigned_sales_person") or {}
             
             # Build quote body with rates
             origin = shipment_details.get('origin', 'N/A')
@@ -2168,11 +2234,23 @@ Thank you for your patience. I'm pleased to provide you with the shipping quote 
             if shipment_details.get('incoterm'):
                 quote_body += f"• Incoterm: {shipment_details.get('incoterm')}\n"
             
+            def _fmt_amount(val):
+                """Render a rate as a thousands-separated figure (2650.0 -> '2,650')."""
+                try:
+                    num = float(str(val).replace(',', ''))
+                    return f"{num:,.0f}" if num == int(num) else f"{num:,.2f}"
+                except (TypeError, ValueError):
+                    return str(val)
+
             quote_body += "\n**Rate Information:**\n"
-            if rate_info:
-                quote_body += f"• Rate: {rate_info.get('rate', 'N/A')} {rate_info.get('currency', 'USD')}\n"
-                if rate_info.get('rate_with_othc'):
-                    quote_body += f"• Rate with Origin THC: {rate_info.get('rate_with_othc')} {rate_info.get('currency', 'USD')}\n"
+            currency = rate_info.get('currency', 'USD') if rate_info else 'USD'
+            # The forwarder agent stores the headline figure under 'rate'/'rates_with_dthc'.
+            headline_rate = rate_info.get('rate') or rate_info.get('rates_with_dthc') if rate_info else None
+            if headline_rate is not None:
+                quote_body += f"• Rate: {_fmt_amount(headline_rate)} {currency} per container\n"
+                othc = rate_info.get('rate_with_othc') or rate_info.get('rates_with_othc')
+                if othc:
+                    quote_body += f"• Rate with Origin THC: {_fmt_amount(othc)} {currency}\n"
                 if rate_info.get('transit_time'):
                     quote_body += f"• Transit Time: {rate_info.get('transit_time')} days\n"
                 if rate_info.get('valid_until'):

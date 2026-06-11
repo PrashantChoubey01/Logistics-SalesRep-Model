@@ -589,8 +589,7 @@ function displayResponse(response, responseType, forwarderAssignment, forwarderR
                     <p><strong>Name:</strong> ${assignedForwarder.name || 'N/A'}</p>
                     <p><strong>Email:</strong> ${assignedForwarder.email || 'N/A'}</p>
                     <p><strong>Company:</strong> ${assignedForwarder.company || 'N/A'}</p>
-                    <p><strong>Route:</strong> ${forwarderAssignment.origin_country || 'Unknown'} → ${forwarderAssignment.destination_country || 'Unknown'}</p>
-                    <p><strong>Why this forwarder:</strong> ${escapeHtml(forwarderAssignment.assignment_reason || 'Assigned from available forwarders.')}</p>
+                    <p><strong>Route:</strong> ${forwarderAssignment.origin_country || 'N/A'} → ${forwarderAssignment.destination_country || 'N/A'}</p>
                 </div>
                 <div>
                     <h4>Rate Request Email:</h4>
@@ -681,18 +680,38 @@ ${forwarderName}${forwarderCompany ? '\n' + forwarderCompany : ''}`;
         }
     }
     
-    // Forwarder Response (Rates) card removed — the forwarder rate is now surfaced
-    // inside the collated "Sales Notification" email below, so this card was redundant.
-    const forwarderRespDiv = document.getElementById('forwarder-response');
-    if (forwarderRespDiv) forwarderRespDiv.style.display = 'none';
-
+    // Forwarder Response (Rates)
+    if (forwarderResponse && !forwarderResponse.error) {
+        const forwarderRespDiv = document.getElementById('forwarder-response');
+        forwarderRespDiv.style.display = 'block';
+        const rateInfo = forwarderResponse.rate_info || {};
+        
+        forwarderRespDiv.innerHTML = `
+            <h3>📊 Forwarder Response (Rates Received)</h3>
+            <div class="two-columns">
+                <div>
+                    <h4>Rate Information:</h4>
+                    <p><strong>Rate:</strong> ${rateInfo.rate || 'N/A'}</p>
+                    <p><strong>Currency:</strong> ${rateInfo.currency || 'N/A'}</p>
+                    <p><strong>Transit Time:</strong> ${rateInfo.transit_time || 'N/A'}</p>
+                </div>
+                <div>
+                    <h4>Additional Details:</h4>
+                    <p><strong>Valid Until:</strong> ${rateInfo.valid_until || 'N/A'}</p>
+                    <p><strong>Sailing Date:</strong> ${rateInfo.sailing_date || 'N/A'}</p>
+                    ${rateInfo.additional_notes ? `<p><strong>Notes:</strong> ${rateInfo.additional_notes}</p>` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
     // Sales Notification
     if (salesNotification && !salesNotification.error) {
         const salesDiv = document.getElementById('sales-notification');
         salesDiv.style.display = 'block';
         salesDiv.innerHTML = `
-            <h3>📧 Collated Email → Sales Team</h3>
-            <p class="message message-info">Internal hand-off: customer requirements + forwarder cost rate. Sales adds their markup, then contacts the customer. <strong>Not sent to the customer.</strong></p>
+            <h3>📧 Sales Notification (Collated Email)</h3>
+            <p class="message message-info">This email contains customer requirements and forwarder rate information for the sales team.</p>
             <div class="response-field">
                 <strong>Subject:</strong> ${salesNotification.subject || 'N/A'}
             </div>
@@ -708,7 +727,7 @@ ${forwarderName}${forwarderCompany ? '\n' + forwarderCompany : ''}`;
             </div>
         `;
     }
-
+    
     // Customer Quote
     if (customerQuote && !customerQuote.error) {
         const quoteDiv = document.getElementById('customer-quote');
@@ -767,8 +786,8 @@ ${forwarderName}${forwarderCompany ? '\n' + forwarderCompany : ''}`;
     }
 }
 
-// Display forwarder-specific responses (acknowledgment + sales notification + customer quote) - optimized
-function displayForwarderResponses(forwarderAcknowledgment, salesNotification, customerQuote) {
+// Display forwarder-specific responses (acknowledgment + sales notification) - optimized
+function displayForwarderResponses(forwarderAcknowledgment, salesNotification) {
     // Show response section immediately and scroll to it
     const responseSection = document.getElementById('response-section');
     responseSection.style.display = 'block';
@@ -809,8 +828,8 @@ function displayForwarderResponses(forwarderAcknowledgment, salesNotification, c
         const salesDiv = document.getElementById('sales-notification');
         salesDiv.style.display = 'block';
         salesDiv.innerHTML = `
-            <h3>📧 Collated Email → Sales Team</h3>
-            <p class="message message-info">Internal hand-off: customer requirements + forwarder cost rate. Sales adds their markup, then contacts the customer. <strong>Not sent to the customer.</strong></p>
+            <h3>📧 Sales Notification (Collated Email)</h3>
+            <p class="message message-info">This email contains customer requirements and forwarder rate information for the sales team.</p>
             <div class="response-field">
                 <strong>Subject:</strong> ${salesNotification.subject || 'N/A'}
             </div>
@@ -831,36 +850,9 @@ function displayForwarderResponses(forwarderAcknowledgment, salesNotification, c
         salesDiv.style.display = 'none';
         console.log('⚠️ No sales notification to display');
     }
-
-    // Display Customer Quote (collated final email to the customer) if formed
-    const quoteDiv = document.getElementById('customer-quote');
-    if (customerQuote && !customerQuote.error) {
-        quoteDiv.style.display = 'block';
-        quoteDiv.innerHTML = `
-            <h3>📨 Final Customer Quote Email (Collated)</h3>
-            <p class="message message-success">Collated email to the customer with the forwarder's rate.</p>
-            <div class="response-field">
-                <strong>Subject:</strong> ${customerQuote.subject || 'N/A'}
-            </div>
-            <div class="response-field">
-                <strong>To:</strong> ${customerQuote.to || 'N/A'}
-            </div>
-            <div class="response-field">
-                <strong>From:</strong> ${customerQuote.from || 'N/A'}
-            </div>
-            <div class="response-field">
-                <strong>Body:</strong>
-                <div class="response-body">${escapeHtml(customerQuote.body || 'N/A')}</div>
-            </div>
-        `;
-        console.log('✅ Customer quote (collated email) displayed');
-    } else {
-        quoteDiv.style.display = 'none';
-        console.log('⚠️ No customer quote to display');
-    }
-
+    
     // If neither response, show message
-    if ((!forwarderAcknowledgment || forwarderAcknowledgment.error) &&
+    if ((!forwarderAcknowledgment || forwarderAcknowledgment.error) && 
         (!salesNotification || salesNotification.error)) {
         const mainResponse = document.getElementById('main-response');
         mainResponse.style.display = 'block';
@@ -970,15 +962,13 @@ async function handleForwarderSubmit(e) {
         showStatus('🔍', 'Processing workflow responses...');
         const workflowState = data.result;
         
-        // Extract responses (acknowledgment + collated sales notification + customer quote)
+        // Extract both responses
         const forwarderAcknowledgment = workflowState.acknowledgment_response_result;
         const salesNotification = workflowState.sales_notification_result;
-        const customerQuote = workflowState.customer_quote_result;
-
+        
         console.log('📋 Extracted responses:');
         console.log('   - Forwarder Acknowledgment:', forwarderAcknowledgment ? 'Present' : 'Missing');
         console.log('   - Sales Notification:', salesNotification ? 'Present' : 'Missing');
-        console.log('   - Customer Quote:', customerQuote ? 'Present' : 'Missing');
         
         showStatus('📤', 'Displaying responses...');
         
@@ -990,19 +980,18 @@ async function handleForwarderSubmit(e) {
             subject: subject,
             content: content,
             response: forwarderAcknowledgment, // Primary response (acknowledgment)
-            responseType: forwarderAcknowledgment ? 'Forwarder Acknowledgment' :
+            responseType: forwarderAcknowledgment ? 'Forwarder Acknowledgment' : 
                          (salesNotification ? 'Sales Notification' : 'No Response'),
             forwarderAssignment: null,
             forwarderResponse: null,
             salesNotification: salesNotification, // Secondary response (sales notification)
-            customerQuote: customerQuote, // Final collated email to customer
             workflowState: workflowState
         };
-
+        
         state.emailHistory.push(historyEntry);
-
-        // Display responses IMMEDIATELY (optimized - show first)
-        displayForwarderResponses(forwarderAcknowledgment, salesNotification, customerQuote);
+        
+        // Display both responses IMMEDIATELY (optimized - show first)
+        displayForwarderResponses(forwarderAcknowledgment, salesNotification);
         
         // Display agent performance in sidebar
         displayAgentPerformance(workflowState);

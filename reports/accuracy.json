@@ -1,0 +1,272 @@
+[
+  {
+    "scenario": "Complete FCL quote request",
+    "all_pass": true,
+    "checks": {
+      "BP1_classification": {
+        "pass": true,
+        "detail": "email_type='customer_quote_request' expected one of ['customer_clarification', 'customer_quote_request']"
+      },
+      "BP2_pipeline": {
+        "pass": true,
+        "detail": "status=completed"
+      },
+      "BP3_routing": {
+        "pass": true,
+        "detail": "response='confirmation_response_result' expected one of ['clarification_response_result', 'confirmation_response_result']"
+      },
+      "BP4_response": {
+        "pass": true,
+        "detail": "subject_len=95, body_len=1022"
+      },
+      "BP5_data_integrity": {
+        "pass": true,
+        "detail": "ok"
+      }
+    },
+    "email_type": "customer_quote_request",
+    "response_branch": "confirmation_response_result",
+    "subject": "Please Confirm Your Shipment Details - Shanghai (CNSHG) to Los Angeles (incl San Pedro) (USLAX)",
+    "body_preview": "Dear John,\n\nThank you for providing the details for your shipment from Shanghai to Los Angeles.\n\nI've carefully reviewed your email and extracted the following information. Please take a moment to con\u2026"
+  },
+  {
+    "scenario": "Minimal info request",
+    "all_pass": true,
+    "checks": {
+      "BP1_classification": {
+        "pass": true,
+        "detail": "email_type='customer_quote_request' expected one of ['customer_clarification', 'customer_quote_request']"
+      },
+      "BP2_pipeline": {
+        "pass": true,
+        "detail": "status=completed"
+      },
+      "BP3_routing": {
+        "pass": true,
+        "detail": "response='clarification_response_result' expected one of ['clarification_response_result']"
+      },
+      "BP4_response": {
+        "pass": true,
+        "detail": "subject_len=50, body_len=487"
+      },
+      "BP5_data_integrity": {
+        "pass": true,
+        "detail": "missing_fields=6"
+      }
+    },
+    "email_type": "customer_quote_request",
+    "response_branch": "clarification_response_result",
+    "subject": "Additional Information Needed - Shipping from  to ",
+    "body_preview": "Dear Jane,\n\nThank you for your inquiry. I've reviewed the information you provided and need some additional details to prepare your quote.\n\n**Contact Information:**\n\u2022 Name: Jane Smith\n\u2022 Email: jane.sm\u2026"
+  },
+  {
+    "scenario": "LCL quote request",
+    "all_pass": true,
+    "checks": {
+      "BP1_classification": {
+        "pass": true,
+        "detail": "email_type='customer_quote_request' expected one of ['customer_clarification', 'customer_quote_request']"
+      },
+      "BP2_pipeline": {
+        "pass": true,
+        "detail": "status=completed"
+      },
+      "BP3_routing": {
+        "pass": true,
+        "detail": "response='clarification_response_result' expected one of ['clarification_response_result', 'confirmation_response_result']"
+      },
+      "BP4_response": {
+        "pass": true,
+        "detail": "subject_len=75, body_len=521"
+      },
+      "BP5_data_integrity": {
+        "pass": true,
+        "detail": "ok"
+      }
+    },
+    "email_type": "customer_quote_request",
+    "response_branch": "clarification_response_result",
+    "subject": "Additional Information Needed - Shipping from Singapore to New York (USNYC)",
+    "body_preview": "Dear Mike,\n\nThank you for your inquiry. I've reviewed the information you provided and need some additional details to prepare your quote.\n\n**Shipment Details:**\n\u2022 Origin: Singapore (Please specify a \u2026"
+  },
+  {
+    "scenario": "Customer confirmation (after complete quote)",
+    "all_pass": true,
+    "checks": {
+      "BP1_classification": {
+        "pass": true,
+        "detail": "email_type='customer_confirmation' expected one of ['customer_clarification', 'customer_confirmation']"
+      },
+      "BP2_pipeline": {
+        "pass": true,
+        "detail": "status=completed"
+      },
+      "BP3_routing": {
+        "pass": true,
+        "detail": "response='confirmation_acknowledgment_result' expected one of ['acknowledgment_response_result', 'confirmation_acknowledgment_result', 'forwarder_assignment_result']"
+      },
+      "BP4_response": {
+        "pass": true,
+        "detail": "subject_len=102, body_len=925"
+      },
+      "BP5_data_integrity": {
+        "pass": true,
+        "detail": "ok"
+      }
+    },
+    "email_type": "customer_confirmation",
+    "response_branch": "confirmation_acknowledgment_result",
+    "subject": "Confirmation Received - Quote in Progress for Shanghai (CNSHG) to Los Angeles (incl San Pedro) (USLAX)",
+    "body_preview": "Dear John,\n\nThank you for confirming the details for your shipment from Shanghai to Los Angeles.\n\nI've received your confirmation for:\n\n**Confirmed Shipment Details:**\n- Origin: Shanghai (CNSHG)\n- Des\u2026"
+  },
+  {
+    "scenario": "Forwarder rate response",
+    "all_pass": true,
+    "checks": {
+      "BP1_classification": {
+        "pass": true,
+        "detail": "email_type='forwarder_rate_quote' expected one of ['forwarder_rate_quote', 'forwarder_response']"
+      },
+      "BP2_pipeline": {
+        "pass": true,
+        "detail": "status=completed"
+      },
+      "BP3_routing": {
+        "pass": true,
+        "detail": "response='acknowledgment_response_result' expected one of ['acknowledgment_response_result', 'customer_quote_result', 'sales_notification_result']"
+      },
+      "BP4_response": {
+        "pass": true,
+        "detail": "subject_len=57, body_len=252"
+      },
+      "BP5_data_integrity": {
+        "pass": true,
+        "detail": "ok"
+      }
+    },
+    "email_type": "forwarder_rate_quote",
+    "response_branch": "acknowledgment_response_result",
+    "subject": "Re: Our rate for Shanghai (CNSHG) to Los Angeles (USLA...",
+    "body_preview": "Dear Pacific Bridge Logistics,\n\nThank you for your response.\n\nWe have received your message and will get back to you shortly.\n\nBest regards,\n\nEmily Rodriguez\nBusiness Development Manager\nSearates By D\u2026"
+  },
+  {
+    "scenario": "Maria Garcia full journey \u00b7 T1 incomplete request -> clarification",
+    "all_pass": true,
+    "checks": {
+      "BP1_classification": {
+        "pass": true,
+        "detail": "email_type='customer_quote_request' expected one of ['customer_clarification', 'customer_quote_request']"
+      },
+      "BP2_pipeline": {
+        "pass": true,
+        "detail": "status=completed"
+      },
+      "BP3_routing": {
+        "pass": true,
+        "detail": "response='clarification_response_result' expected one of ['clarification_response_result']"
+      },
+      "BP4_response": {
+        "pass": true,
+        "detail": "subject_len=83, body_len=569"
+      },
+      "BP5_data_integrity": {
+        "pass": true,
+        "detail": "missing_fields=2"
+      }
+    },
+    "email_type": "customer_quote_request",
+    "response_branch": "clarification_response_result",
+    "subject": "Additional Information Needed - Shipping from Shanghai (CNSHG) to Rotterdam (NLRTM)",
+    "body_preview": "Dear Maria,\n\nThank you for your inquiry. I've reviewed the information you provided and need some additional details to prepare your quote.\n\n**Shipment Details:**\n\u2022 Origin: Shanghai (CNSHG)\n\u2022 Destinat\u2026"
+  },
+  {
+    "scenario": "Maria Garcia full journey \u00b7 T2 supplies info -> confirmation",
+    "all_pass": true,
+    "checks": {
+      "BP1_classification": {
+        "pass": true,
+        "detail": "email_type='customer_clarification' expected one of ['customer_clarification', 'customer_quote_request']"
+      },
+      "BP2_pipeline": {
+        "pass": true,
+        "detail": "status=completed"
+      },
+      "BP3_routing": {
+        "pass": true,
+        "detail": "response='confirmation_response_result' expected one of ['clarification_response_result', 'confirmation_response_result']"
+      },
+      "BP4_response": {
+        "pass": true,
+        "detail": "subject_len=76, body_len=1035"
+      },
+      "BP5_data_integrity": {
+        "pass": true,
+        "detail": "ok"
+      }
+    },
+    "email_type": "customer_clarification",
+    "response_branch": "confirmation_response_result",
+    "subject": "Please Confirm Your Shipment Details - Shanghai (CNSHG) to Rotterdam (NLRTM)",
+    "body_preview": "Dear Maria,\n\nThank you for providing the details for your shipment from Shanghai to Rotterdam.\n\nI've carefully reviewed your email and extracted the following information. Please take a moment to conf\u2026"
+  },
+  {
+    "scenario": "Maria Garcia full journey \u00b7 T3 confirms -> ack + forwarder assignment",
+    "all_pass": true,
+    "checks": {
+      "BP1_classification": {
+        "pass": true,
+        "detail": "email_type='customer_confirmation' expected one of ['customer_clarification', 'customer_confirmation']"
+      },
+      "BP2_pipeline": {
+        "pass": true,
+        "detail": "status=completed"
+      },
+      "BP3_routing": {
+        "pass": true,
+        "detail": "response='confirmation_acknowledgment_result' expected one of ['acknowledgment_response_result', 'confirmation_acknowledgment_result', 'forwarder_assignment_result']"
+      },
+      "BP4_response": {
+        "pass": true,
+        "detail": "subject_len=83, body_len=907"
+      },
+      "BP5_data_integrity": {
+        "pass": true,
+        "detail": "ok"
+      }
+    },
+    "email_type": "customer_confirmation",
+    "response_branch": "confirmation_acknowledgment_result",
+    "subject": "Confirmation Received - Quote in Progress for Shanghai (CNSHG) to Rotterdam (NLRTM)",
+    "body_preview": "Dear Maria,\n\nThank you for confirming the details for your shipment from Shanghai to Rotterdam.\n\nI've received your confirmation for:\n\n**Confirmed Shipment Details:**\n- Origin: Shanghai (CNSHG)\n- Dest\u2026"
+  },
+  {
+    "scenario": "Maria Garcia full journey \u00b7 T4 forwarder rate -> sales notification + customer quote",
+    "all_pass": true,
+    "checks": {
+      "BP1_classification": {
+        "pass": true,
+        "detail": "email_type='forwarder_rate_quote' expected one of ['forwarder_rate_quote', 'forwarder_response']"
+      },
+      "BP2_pipeline": {
+        "pass": true,
+        "detail": "status=completed"
+      },
+      "BP3_routing": {
+        "pass": true,
+        "detail": "response='acknowledgment_response_result' expected one of ['acknowledgment_response_result', 'customer_quote_result', 'sales_notification_result']"
+      },
+      "BP4_response": {
+        "pass": true,
+        "detail": "subject_len=57, body_len=252"
+      },
+      "BP5_data_integrity": {
+        "pass": true,
+        "detail": "found '2,650'"
+      }
+    },
+    "email_type": "forwarder_rate_quote",
+    "response_branch": "acknowledgment_response_result",
+    "subject": "Re: Our rate for Shanghai (CNSHG) to Rotterdam (NLRTM)...",
+    "body_preview": "Dear Pacific Bridge Logistics,\n\nThank you for your response.\n\nWe have received your message and will get back to you shortly.\n\nBest regards,\n\nEmily Rodriguez\nBusiness Development Manager\nSearates By D\u2026"
+  }
+]

@@ -26,9 +26,12 @@ class ForwarderResponseAgent(BaseAgent):
         
         try:
             # Extract input data
-            email_data = input_data.get("email_data", {})
-            forwarder_detection = input_data.get("forwarder_detection", {})
-            conversation_state = input_data.get("conversation_state", {})
+            email_data = input_data.get("email_data") or {}
+            # `or {}` guards against the key being present with a None value (the workflow
+            # state initialises forwarder_detection_result to None and only the detect_forwarder
+            # node populates it — the acknowledgment->process path leaves it None).
+            forwarder_detection = input_data.get("forwarder_detection") or {}
+            conversation_state = input_data.get("conversation_state") or {}
             
             # Get forwarder details
             forwarder_details = forwarder_detection.get("forwarder_details", {}) or {}
@@ -122,6 +125,84 @@ class ForwarderResponseAgent(BaseAgent):
                 "processed_at": self._now_iso(),
                 "status": "error"
             }
+
+    def _email_text_from(self, email_data: Dict[str, Any]) -> str:
+        """Pull the email body from any of the supported keys (same pattern as process())."""
+        return (
+            email_data.get("email_text", "")
+            or email_data.get("content", "")
+            or email_data.get("body_text", "")
+            or email_data.get("body", "")
+        )
+
+    def _extract_forwarder_name_from_email(self, email_data: Dict[str, Any], forwarder_email: str = "") -> str:
+        """Extract a forwarder contact name from the email signature, sender, or domain.
+
+        Mirrors the orchestrator's `_extract_name_from_email`: try a signature line in the
+        body first, then the local-part of the sender email, then the domain. Returns the
+        generic "Forwarder" only as a final fallback.
+        """
+        import re
+
+        email_content = self._email_text_from(email_data)
+        if email_content:
+            signature_patterns = [
+                r"best\s+regards,?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+                r"sincerely,?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+                r"regards,?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+                r"thanks,?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+            ]
+            for pattern in signature_patterns:
+                matches = re.findall(pattern, email_content, re.IGNORECASE | re.MULTILINE)
+                if matches:
+                    name = matches[-1].strip()
+                    if 2 < len(name) and len(name.split()) <= 3:
+                        return name
+
+        sender = forwarder_email or email_data.get("sender", "") or email_data.get("from_email", "")
+        if sender and "@" in sender:
+            prefix = sender.split("@")[0]
+            prefix = re.sub(
+                r"^(info|contact|sales|quotes?|rates?|support|hello|hi|ops|operations|booking)",
+                "", prefix, flags=re.IGNORECASE,
+            )
+            prefix = prefix.replace(".", " ").replace("_", " ").replace("-", " ")
+            parts = [w.capitalize() for w in prefix.split() if w]
+            if parts and len(parts) <= 3:
+                return " ".join(parts)
+            # Fallback to domain-derived name
+            domain = sender.split("@")[1].split(".")[0].replace("-", " ").replace("_", " ")
+            parts = [w.capitalize() for w in domain.split() if w]
+            if parts:
+                return " ".join(parts)
+
+        return "Forwarder"
+
+    def _extract_company_name_from_email(self, email_data: Dict[str, Any]) -> str:
+        """Best-effort company name from the sender email domain.
+
+        e.g. ops@pacificbridgelogistics.com -> "Pacificbridgelogistics". Returns "" when not
+        derivable; the caller already falls back to the forwarder name.
+        """
+        import re
+
+        sender = email_data.get("sender", "") or email_data.get("from_email", "")
+        if not sender or "@" not in sender:
+            return ""
+        domain = sender.split("@")[1]
+        # Drop the TLD and any subdomain, keep the registrable label
+        labels = [l for l in domain.split(".") if l]
+        if len(labels) >= 2:
+            core = labels[-2]
+        elif labels:
+            core = labels[0]
+        else:
+            return ""
+        # Skip generic mailbox providers
+        if core.lower() in {"gmail", "yahoo", "hotmail", "outlook", "icloud", "aol"}:
+            return ""
+        core = re.sub(r"[-_]", " ", core)
+        return " ".join(w.capitalize() for w in core.split() if w)
 
     def _extract_rate_information(self, email_text: str) -> Dict[str, Any]:
         """Extract rate information from forwarder email."""
@@ -218,6 +299,27 @@ class ForwarderResponseAgent(BaseAgent):
                 rate_info["rates_without_thc"] = float(matches[0].replace(',', ''))
                 break
         
+        # Fallback: a currency-anchored amount when none of the labelled patterns matched.
+        # Forwarders often put the figure on its own line, e.g. "40HC: USD 2,650 all-in".
+        if rate_info.get("rates_with_dthc") is None and rate_info.get("rate") is None:
+            currency_patterns = [
+                r"USD\s*([\d,]+\.?\d*)",
+                r"\$\s*([\d,]+\.?\d*)",
+                r"([\d,]+\.?\d*)\s*USD",
+            ]
+            amounts = []
+            for pattern in currency_patterns:
+                for m in re.findall(pattern, email_text, re.IGNORECASE):
+                    try:
+                        amounts.append(float(m.replace(',', '')))
+                    except ValueError:
+                        continue
+            # Keep plausible freight figures only (drop stray small counts / huge ids).
+            amounts = [a for a in amounts if 50 <= a <= 1_000_000]
+            if amounts:
+                rate_info["rates_with_dthc"] = max(amounts)
+                rate_info["rate"] = max(amounts)
+
         # THC charges
         thc_patterns = [
             r"thc\s*origin[:\s]*USD?\s*([\d,]+\.?\d*)",
@@ -243,6 +345,7 @@ class ForwarderResponseAgent(BaseAgent):
         # Extract transit time
         transit_patterns = [
             r"transit\s*time[:\s]*(\d+)\s*days?",
+            r"transit[:\s]*(\d+)\s*days?",   # "Transit: 28 days"
             r"(\d+)\s*days?\s*transit",
             r"(\d+)\s*days?\s*delivery"
         ]

@@ -291,7 +291,7 @@ Generate a complete, well-formatted email that the sales team can read and act u
                 }],
                 tool_choice={"type": "function", "function": {"name": function_schema["name"]}},
                 temperature=0.1,
-                max_tokens=800
+                max_tokens=2000  # 800 was too low: the collated email body was truncated to empty
             )
 
             tool_calls = getattr(response.choices[0].message, "tool_calls", None)
@@ -307,7 +307,21 @@ Generate a complete, well-formatted email that the sales team can read and act u
             result["thread_id"] = thread_id
             result["notification_type"] = notification_type
             result["conversation_state"] = conversation_state
-            
+
+            # Guarantee a usable collated email. The LLM occasionally returns an empty or
+            # truncated body (the prompt is large), which previously produced a sales
+            # notification with "No body". Build a deterministic collated email from the
+            # structured summaries so the forwarder rate ALWAYS reaches the sales team.
+            if len(str(result.get("body") or "").strip()) < 60:
+                self.logger.warning("Sales notification body missing/short — using deterministic collated fallback")
+                result["body"] = self._build_collated_body(
+                    customer_summary, shipment_summary, forwarder_summary,
+                    rates_summary, timeline_summary, customer_details, forwarder_details, thread_id
+                )
+                result["notification_method"] = "deterministic_fallback"
+            if not str(result.get("subject") or "").strip():
+                result["subject"] = f"[Collated Rate] Forwarder quote ready for markup — Thread {thread_id}"
+
             # Ensure thread ID is included in the body if not already present
             if thread_id and result.get("body"):
                 # Check if thread ID is already in the body
@@ -363,6 +377,60 @@ Generate a complete, well-formatted email that the sales team can read and act u
         except Exception as e:
             self.logger.error(f"Sales notification generation failed: {e}")
             return {"error": f"Sales notification generation failed: {str(e)}"}
+
+    def _build_collated_body(self, customer_summary: str, shipment_summary: str,
+                             forwarder_summary: str, rates_summary: str, timeline_summary: str,
+                             customer_details: Dict[str, Any], forwarder_details: Dict[str, Any],
+                             thread_id: str) -> str:
+        """Deterministically assemble the collated email for the SALES TEAM.
+
+        This is the internal hand-off email: it bundles the customer's requirements with
+        the forwarder's rate so the sales person can add their markup and then reach out
+        to the customer directly. No email is sent to the customer by the system.
+        """
+        cust = customer_details or {}
+        fwd = forwarder_details or {}
+        customer_name = (cust.get("name") or "the customer").strip()
+        customer_email = (cust.get("email") or "").strip()
+        fwd_name = (fwd.get("name") or "the forwarder").strip()
+        fwd_email = (fwd.get("email") or "").strip()
+
+        lines = [
+            "Dear Sales Team,",
+            "",
+            f"Thread ID: {thread_id}",
+            "",
+            "A forwarder has returned a rate for the shipment below. Please review the "
+            "collated details, add your margin/markup, and contact the customer directly "
+            "with the final quote — this email is for internal sales hand-off only and has "
+            "NOT been sent to the customer.",
+            "",
+            "── CUSTOMER REQUIREMENTS ──",
+            customer_summary or "No customer details available",
+            "",
+            "── SHIPMENT DETAILS ──",
+            shipment_summary or "No shipment details available",
+            "",
+            "── ASSIGNED FORWARDER ──",
+            forwarder_summary or "No forwarder details available",
+            "",
+            "── FORWARDER RATE (cost price — add your markup) ──",
+            rates_summary or "No forwarder rates available",
+            "",
+            "── TIMELINE ──",
+            timeline_summary or "No timeline information available",
+            "",
+            "── ACTION REQUIRED ──",
+            f"1. Add your margin/markup to the forwarder cost price above.",
+            f"2. Send the final quote to {customer_name}"
+            + (f" ({customer_email})" if customer_email else "") + ".",
+            f"3. Coordinate booking with {fwd_name}"
+            + (f" ({fwd_email})" if fwd_email else "") + " once the customer accepts.",
+            "",
+            "Best regards,",
+            "Sales Coordination Team",
+        ]
+        return "\n".join(lines)
 
     def _format_customer_summary(self, customer_details: Dict[str, Any]) -> str:
         """Format customer details for analysis."""
