@@ -1,0 +1,94 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# VSCode settings
+.vscode/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment files (never commit real secrets; .env.example is the tracked template)
+.env
+.env.*
+!.env.example
+*.env
+
+# Databricks local artifacts
+.dbfs/
+.databricks/
+databricks-logs/
+databricks-results/
+
+# Python virtual environments
+venv/
+venv-ai-sales/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# MLflow artifacts and logs
+mlruns/
+mlartifacts/
+mlflow.log
+
+# Logs
+*.log
+frontend_server.pid
+
+# Mac system files
+.DS_Store
+
+# Test, cache, and coverage
+.cache/
+.coverage
+coverage.xml
+htmlcov/
+*.cover
+*.pyc
+*.pyo
+
+# Pytest cache
+.pytest_cache/
+
+# Output files
+*.out
+*.bak
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+
+# Package distribution
+dist/
+build/
+*.egg-info/
+
+# Streamlit cache
+.streamlit/
+
+# Ignore secrets/tokens
+secrets.*
+*.token
+*.key
+*.pem
+*.csv
+
+# Editor / AI tooling artifacts
+.cursor/
+.idea/
+
+# Thread data files (keep structure but ignore actual thread data)
+data/threads/*.json
+!data/threads/.gitkeep
+
+# Keep embeddings metadata but ignore large binary files
+data/embeddings/*.pkl
+data/embeddings/*.faiss
+
+# Secrets directory (local storage only, never commit)
+.secrets/

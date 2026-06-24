@@ -1,0 +1,76 @@
+{
+  "sales_team": [
+    {
+      "id": "SP001",
+      "name": "Sarah Johnson",
+      "title": "Senior Sales Manager",
+      "email": "sarah.johnson@searates.com",
+      "phone": "+1-555-0101",
+      "whatsapp": "+1-555-0101",
+      "specialization": "Asia-Pacific Routes",
+      "signature": "Best regards,\\n\\nSarah Johnson\\nSenior Sales Manager\\nSearates by DP World\\n📧 sarah.johnson@searates.com\\n📞 +1-555-0101"
+    },
+    {
+      "id": "SP002",
+      "name": "Michael Chen",
+      "title": "Account Executive",
+      "email": "michael.chen@searates.com",
+      "phone": "+1-555-0202",
+      "whatsapp": "+1-555-0202",
+      "specialization": "Europe-Middle East Routes",
+      "signature": "Best regards,\\n\\nMichael Chen\\nAccount Executive\\nSearates by DP World\\n📧 michael.chen@searates.com\\n📞 +1-555-0202"
+    },
+    {
+      "id": "SP003",
+      "name": "Emily Rodriguez",
+      "title": "Business Development Manager",
+      "email": "emily.rodriguez@searates.com",
+      "phone": "+1-555-0303",
+      "whatsapp": "+1-555-0303",
+      "specialization": "Americas Routes",
+      "signature": "Best regards,\\n\\nEmily Rodriguez\\nBusiness Development Manager\\nSearates by DP World\\n📧 emily.rodriguez@searates.com\\n📞 +1-555-0303"
+    }
+  ],
+  "default_sales_person": {
+    "id": "SP001",
+    "name": "Sarah Johnson",
+    "title": "Senior Sales Manager",
+    "email": "sarah.johnson@searates.com",
+    "phone": "+1-555-0101",
+    "whatsapp": "+1-555-0101",
+    "specialization": "Asia-Pacific Routes"
+  },
+  "assignment_rules": {
+    "route_types": {
+      "asia_pacific": ["SP001"],
+      "trans_pacific": ["SP001", "SP003"],
+      "europe_asia": ["SP002"],
+      "americas": ["SP003"],
+      "global": ["SP001", "SP002", "SP003"]
+    },
+    "commodity_types": {
+      "general_cargo": ["SP001", "SP002", "SP003"],
+      "hazardous": ["SP002"],
+      "perishable": ["SP001"],
+      "project_cargo": ["SP003"]
+    },
+    "container_types": {
+      "20gp": ["SP001"],
+      "40gp": ["SP001", "SP002"],
+      "40hc": ["SP002", "SP003"],
+      "reefer": ["SP001"],
+      "open_top": ["SP003"]
+    }
+  },
+  "response_templates": {
+    "acknowledgment": {
+      "subject": "Re: {original_subject}",
+      "body": "Dear {sender_name},\\n\\nThank you for your email regarding the shipment inquiry.\\n\\nWe have received your message and our team is working on providing you with the requested information. You can expect our response within 24 hours.\\n\\nIf you have any specific requirements or urgent requests, please let us know.\\n\\nBest regards,\\n{sales_person_name}\\n{sales_person_title}\\nSearates by DP World\\n📧 {sales_person_email}\\n📞 {sales_person_phone}"
+    },
+    "forwarder_acknowledgment": {
+      "subject": "Re: {original_subject}",
+      "body": "Dear {forwarder_name},\\n\\nThank you for your rate request for the shipment from {origin} to {destination}.\\n\\nWe have received your inquiry and our team is working on providing you with competitive rates. You can expect our response within 24 hours.\\n\\nIf you have any specific requirements or urgent requests, please let us know.\\n\\nBest regards,\\n{sales_person_name}\\n{sales_person_title}\\nSearates by DP World\\n📧 {sales_person_email}\\n📞 {sales_person_phone}"
+    }
+  }
+}
+

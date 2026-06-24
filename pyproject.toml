@@ -1,0 +1,26 @@
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+extend-exclude = '''
+/(
+  | \.venv
+  | \.venv_smoke
+  | data
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["agents", "utils", "models"]
+skip = [".venv", ".venv_smoke", "data"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv", ".venv_smoke", "data"]
+
+[tool.ruff.lint]
+# Conservative, behavior-safe lint set: pyflakes (F) + a subset of pycodestyle (E).
+select = ["F", "E9"]
+ignore = ["E501"]

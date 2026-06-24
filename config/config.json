@@ -1,0 +1,4 @@
+{
+  "base_url": "https://adb-2252852771922438.18.azuredatabricks.net/serving-endpoints/",
+  "model_name": "databricks-claude-sonnet-4-6"
+}

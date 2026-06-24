@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeaRates AI — Logistics Sales Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="brand-mark">🚢</div>
+            <div class="brand-text">
+                <h1>SeaRates AI</h1>
+                <p>Intelligent Logistics Sales Assistant</p>
+                <span class="brand-badge">⚓ Powered by DP World</span>
+            </div>
+        </div>
+        <button id="sidebar-toggle" class="sidebar-toggle">
+            <span id="toggle-icon">🤖</span>
+            <span id="toggle-text">Agent Activity</span>
+        </button>
+    </header>
+    
+    <!-- Sidebar Overlay -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+    
+    <!-- Agent Performance Sidebar -->
+    <aside id="agent-sidebar" class="agent-sidebar">
+        <div class="sidebar-header">
+            <h3>🤖 Agent Performance</h3>
+            <button id="sidebar-close" class="sidebar-close">×</button>
+        </div>
+        
+        <div class="sidebar-content">
+            <!-- Execution Status -->
+            <div id="execution-status" class="execution-status">
+                <div class="status-badge" id="status-badge">⏳ Waiting...</div>
+                <div class="agent-count" id="agent-count">0/20 Agents</div>
+            </div>
+            
+            <!-- Agent Timeline -->
+            <div id="agent-timeline" class="agent-timeline">
+                <div class="message message-info">No agents executed yet. Process an email to see agent performance.</div>
+            </div>
+            
+            <!-- Summary Section -->
+            <div id="agent-summary" class="agent-summary" style="display: none;">
+                <h4>Summary</h4>
+                <div id="summary-stats"></div>
+            </div>
+        </div>
+    </aside>
+
+    <div class="container">
+        <!-- Thread Management -->
+        <section class="thread-section">
+            <div class="thread-info">
+                <div class="thread-display">
+                    <span class="info-icon">📧</span>
+                    <span><strong>Thread ID:</strong> <code id="thread-id">Loading...</code> - All emails will be part of this thread</span>
+                </div>
+                <button id="reset-thread-btn" class="btn btn-secondary">🔄 Reset Thread</button>
+            </div>
+        </section>
+
+        <hr>
+
+        <!-- Email Templates -->
+        <section class="template-section">
+            <h2>📋 Email Templates</h2>
+            <select id="template-selector" class="form-control">
+                <option value="">-- Select a template --</option>
+                <option value="complete-fcl">Complete FCL Quote Request</option>
+                <option value="minimal-info">Minimal Information Request</option>
+                <option value="customer-confirmation">Customer Confirmation</option>
+                <option value="forwarder-rate">Forwarder Rate Quote</option>
+                <option value="lcl-shipment">LCL Shipment Request</option>
+            </select>
+            <div id="template-message" class="message message-success" style="display: none;"></div>
+        </section>
+
+        <hr>
+
+        <!-- Email Form -->
+        <section class="email-form-section">
+            <h2>📝 Send Email</h2>
+            <form id="email-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="email-type">Email From:</label>
+                        <select id="email-type" class="form-control">
+                            <option value="Customer">Customer</option>
+                            <option value="Forwarder">Forwarder</option>
+                        </select>
+                    </div>
+                    <div class="form-group form-group-wide">
+                        <label for="sender-email" id="sender-email-label">Customer Email</label>
+                        <input type="email" id="sender-email" class="form-control" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="subject">Subject</label>
+                    <input type="text" id="subject" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="content">Email Content</label>
+                    <textarea id="content" class="form-control" rows="10" required></textarea>
+                </div>
+                <button type="submit" id="process-btn" class="btn btn-primary">
+                    <span id="process-btn-text">🚀 Process Email</span>
+                    <span id="process-btn-spinner" style="display: none;">⏳ Processing...</span>
+                </button>
+            </form>
+            
+            <!-- Status Indicator -->
+            <div id="status-indicator" class="status-indicator" style="display: none;">
+                <div class="status-content">
+                    <span id="status-icon">⏳</span>
+                    <span id="status-text">Initializing...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Loading Spinner -->
+        <div id="loading-spinner" class="loading-spinner" style="display: none;">
+            <div class="spinner"></div>
+            <p id="loading-text">Processing email through workflow...</p>
+        </div>
+
+        <!-- Response Display -->
+        <div id="response-section" style="display: none;">
+            <hr>
+            <section class="response-section">
+                <h2 id="response-title">✅ Response Generated</h2>
+                
+                <!-- Main Response -->
+                <div id="main-response" class="response-card"></div>
+                
+                <!-- Forwarder Assignment -->
+                <div id="forwarder-assignment" class="response-card" style="display: none;"></div>
+                
+                <!-- Forwarder Response (Rates) -->
+                <div id="forwarder-response" class="response-card" style="display: none;"></div>
+                
+                <!-- Forwarder Acknowledgment -->
+                <div id="forwarder-acknowledgment" class="response-card" style="display: none;"></div>
+                
+                <!-- Sales Notification -->
+                <div id="sales-notification" class="response-card" style="display: none;"></div>
+                
+                <!-- Customer Quote -->
+                <div id="customer-quote" class="response-card" style="display: none;"></div>
+                
+                <!-- Debug Section -->
+                <div id="debug-section" class="debug-section" style="display: none;"></div>
+            </section>
+        </div>
+
+        <hr>
+
+        <!-- Email History -->
+        <section class="history-section">
+            <h2>📜 Email History</h2>
+            <p><strong>Total Emails:</strong> <span id="history-count">0</span></p>
+            <div id="history-container">
+                <div class="message message-info">ℹ️ No email history yet. Process an email to see it here.</div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <p><strong>SeaRates AI</strong> · Logistics Sales Assistant &nbsp;•&nbsp; Multi-agent email automation &nbsp;•&nbsp; SeaRates by DP World</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

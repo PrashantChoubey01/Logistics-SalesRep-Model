@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  logistics-ai-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: logistics-ai-bot
+    ports:
+      - "5001:5001"  # API Server
+      - "5002:5002"  # Frontend Server
+    environment:
+      # Required: Set your Databricks token
+      - DATABRICKS_TOKEN=${DATABRICKS_TOKEN}
+      
+      # Optional: Override defaults if needed
+      - DATABRICKS_BASE_URL=${DATABRICKS_BASE_URL:-https://adb-2252852771922438.18.azuredatabricks.net/serving-endpoints/}
+      - MODEL_ENDPOINT_ID=${MODEL_ENDPOINT_ID:-databricks-claude-sonnet-4-6}
+      - API_PORT=5001
+      - FRONTEND_PORT=5002
+    volumes:
+      # Persist thread data
+      - ./data/threads:/app/data/threads
+      # Persist logs
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  default:
+    name: logistics-ai-network
