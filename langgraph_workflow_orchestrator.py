@@ -76,6 +76,14 @@ def _forwarder_response_reducer(
     return y
 
 
+def _forwarder_detection_reducer(
+    x: Optional[Dict[str, Any]], y: Optional[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """Take the first non-None forwarder_detection_result. Both detect_forwarder and the
+    inbound process_forwarder_response path may set it, so a reducer avoids conflicts."""
+    return x if x is not None else y
+
+
 class WorkflowState(TypedDict):
     """Enhanced workflow state with all necessary fields"""
 
@@ -102,7 +110,7 @@ class WorkflowState(TypedDict):
     customer_quote_result: Optional[Dict[str, Any]]
 
     # Forwarder handling
-    forwarder_detection_result: Optional[Dict[str, Any]]
+    forwarder_detection_result: Annotated[Optional[Dict[str, Any]], _forwarder_detection_reducer]
     forwarder_response_result: Annotated[Optional[Dict[str, Any]], _forwarder_response_reducer]
     forwarder_email_draft_result: Optional[Dict[str, Any]]
     forwarder_assignment_result: Optional[Dict[str, Any]]
@@ -121,7 +129,7 @@ class WorkflowState(TypedDict):
     # Decision flags
     # Use reducer to handle concurrent updates - True if either value is True
     should_escalate: Annotated[bool, _should_escalate_reducer]
-    is_forwarder_email: bool
+    is_forwarder_email: Annotated[bool, _should_escalate_reducer]
     workflow_completed: bool
 
     # Thread management
@@ -1871,6 +1879,17 @@ class LangGraphWorkflowOrchestrator:
                 # Return only the field we modify (consistent with success path)
                 return {"forwarder_response_result": {"error": "Email data is missing"}}
 
+            # Inbound forwarder emails reach this node without detect_forwarder having
+            # run, so look the sender up in the forwarder directory now. This populates
+            # the is_forwarder_email flag and the forwarder details used in the reply.
+            detection_update = {}
+            if not forwarder_info.get("forwarder_details"):
+                forwarder_info = self.forwarder_detection_agent.process({"email_data": email_data})
+                detection_update = {
+                    "forwarder_detection_result": forwarder_info,
+                    "is_forwarder_email": forwarder_info.get("is_forwarder", False),
+                }
+
             result = self.forwarder_response_agent.process(
                 {
                     "email_data": email_data,
@@ -1880,8 +1899,8 @@ class LangGraphWorkflowOrchestrator:
                 }
             )
 
-            # Return only the field we modify (don't include email_data)
-            return {"forwarder_response_result": result}
+            # Return only the fields we modify (don't include email_data)
+            return {"forwarder_response_result": result, **detection_update}
 
         except Exception as e:
             logger.error(f" Forwarder response processing failed: {e}")

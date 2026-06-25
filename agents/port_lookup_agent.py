@@ -164,6 +164,14 @@ class PortLookupAgent(BaseAgent):
         cleaned_name = port_name.strip()
         self.logger.debug(f"Checking if '{cleaned_name}' is a country name...")
 
+        # Port-cities are both a country and a major port. Treat them as valid
+        # specific ports rather than country-only input, so they are not flagged
+        # as "needs a specific port".
+        PORT_CITIES = {"singapore", "hong kong", "hongkong", "macau", "macao", "gibraltar"}
+        if cleaned_name.lower() in PORT_CITIES:
+            self.logger.debug(f"'{cleaned_name}' is a recognized port-city; treating as a port")
+            return None
+
         # Try LLM detection first if available
         if self.client:
             try:
